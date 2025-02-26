@@ -1,3 +1,8 @@
+# Local Development
+1. Clone the repo
+2. Run `pre-commit install` to install pre-commit hooks and required Go tools
+3. Run `go build` to build the project
+
 # BigQuery Schema Analysis
 
 This project analyzes BigQuery schemas and organizes them into modules for easier analysis.
