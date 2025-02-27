@@ -3,6 +3,7 @@
 #
 # Binaries for programs and plugins
 /test
+*.json
 test/
 biql.yaml
 biql
