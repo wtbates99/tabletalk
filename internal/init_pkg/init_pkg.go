@@ -12,60 +12,40 @@ var defaultDirs = []string{
 	"prod",
 	"modules",
 	"modules/example",
-	"modules/example/backend",
-	"modules/example/provider",
 }
 
 // Default files to create
 var defaultFiles = map[string]string{
-	"modules/example/main.yaml": `# Main configuration file that calls modules
-name: sales_analysis
-description: "Sales data analysis pipeline"
+	"dev/provider.hcl": `# Provider configuration
+provider "bigquery" {
+  project_id = "${var.PROJECT_ID}"
+  region     = "${var.REGION}"
+}`,
+	"dev/variables.hcl": `# Module variables
+variable "PROJECT_ID" {
+  description = "The GCP project ID"
+  required    = true
+}
+variable "REGION" {
+  description = "The GCP region"
+  default     = "us-central1"
+}`,
+	"dev/main.hcl": `# Main configuration file that calls modules
+module "example_module" {
+  path = "./modules/example"
+  config = {
+    project_id = "${var.PROJECT_ID}"
+    region     = "${var.REGION}"
+  }
+}
 
-# Import modules to use
-modules:
-  - name: sales_data
-    path: ./modules/sales
-    config:
-      project_id: ${PROJECT_ID}
-      region: ${REGION}
-
-# Output configuration
-outputs:
-  - name: sales_summary
-    source: sales_data.summary
-`,
-	"modules/example/backend/config.yaml": `# Backend configuration
-# Specifies where the analysis context/state will be stored
-
-type: gcs
-config:
-  bucket: "your-data-bucket"
-  prefix: "biql/state"
-  # Alternatively use local storage:
-  # type: local
-  # config:
-  #   path: "./state"
-`,
-	"modules/example/provider/bigquery.yaml": `# Provider configuration
-# Specifies the database connection details
-
-type: bigquery
-config:
-  project_id: ${PROJECT_ID}
-  region: ${REGION}
-  # Optional authentication settings
-  # credentials_file: "/path/to/credentials.json"
-`,
-	"modules/example/variables.yaml": `# Module variables
-variables:
-  - name: PROJECT_ID
-    description: "The GCP project ID"
-    required: true
-    
-  - name: REGION
-    description: "The GCP region"
-    default: "us-central1"
+module "sales_data" {
+  path = "./modules/sales"
+  config = {
+    project_id = "${var.PROJECT_ID}"
+    region     = "${var.REGION}"
+  }
+}
 `,
 }
 
@@ -101,6 +81,6 @@ func InitCommand(rootDir string) error {
 		fmt.Printf("Created file: %s\n", filePath)
 	}
 
-	fmt.Println("\nInitialization complete! Edit biql.yaml to set your GCP project ID.")
+	fmt.Println("\nInitialization complete! Edit the configuration files to set your GCP project ID.")
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"biql/internal/schema_functions"
 	"biql/internal/init_pkg"
+	"biql/internal/parsers"
 )
 
 func main() {
@@ -68,6 +69,34 @@ func main() {
 			}
 			fmt.Printf("Fetched %d sample rows\n", len(sampleData))
 		}
+	
+	case "parse":
+		parseCmd := flag.NewFlagSet("parse", flag.ExitOnError)
+		configFile := parseCmd.String("config", "", "Path to provider configuration file (default: provider.hcl)")
+		parseCmd.Parse(os.Args[2:])
+
+		// Use default config file if not specified
+		configPath := *configFile
+		if configPath == "" {
+			configPath = "provider.hcl"
+		}
+
+		fmt.Printf("Parsing provider configuration from: %s\n", configPath)
+		providerConfig, err := parsers.ParseProvider(configPath)
+		if err != nil {
+			fmt.Printf("Error parsing provider: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Print the actual provider configuration details instead of just the pointer
+		fmt.Println("Successfully parsed provider configuration:")
+		if providerConfig != nil && providerConfig.Provider != nil {
+			fmt.Printf("  Provider: %s\n", providerConfig.Provider.Provider)
+			fmt.Printf("  Project ID: %s\n", providerConfig.Provider.ProjectID)
+			fmt.Printf("  Region: %s\n", providerConfig.Provider.Region)
+		} else {
+			fmt.Println("  Warning: Provider configuration is empty")
+		}
 
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
@@ -81,4 +110,6 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  init <directory>    Initialize in the specified directory")
 	fmt.Println("  extract <table>     Extract schema from BigQuery table")
+	fmt.Println("  parse [options]     Parse provider configuration")
+	fmt.Println("    -config string    Path to provider configuration file (default: provider.hcl)")
 }
