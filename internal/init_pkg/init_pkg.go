@@ -8,6 +8,8 @@ import (
 
 // Default directory structure
 var defaultDirs = []string{
+	"dev",
+	"prod",
 	"modules",
 	"modules/example",
 }
