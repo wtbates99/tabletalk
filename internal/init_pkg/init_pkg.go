@@ -6,56 +6,13 @@ import (
 	"path/filepath"
 )
 
-// Default directory structure
-var defaultDirs = []string{
-	"dev",
-	"prod",
-	"modules",
-	"modules/example",
-}
-
-// Default files to create
-var defaultFiles = map[string]string{
-	"dev/provider.hcl": `# Provider configuration
-provider "bigquery" {
-  project_id = "${var.PROJECT_ID}"
-  region     = "${var.REGION}"
-}`,
-	"dev/variables.hcl": `# Module variables
-variable "PROJECT_ID" {
-  description = "The GCP project ID"
-  value       = "my-gcp-project-id"  # User sets this value
-}
-variable "REGION" {
-  description = "The GCP region"
-  value       = "us-central1"        # User sets this value
-}`,
-	"dev/main.hcl": `# Main configuration file that calls modules
-module "example_module" {
-  path = "./modules/example"
-  config = {
-    project_id = "${var.PROJECT_ID}"
-    region     = "${var.REGION}"
-  }
-}
-
-module "sales_data" {
-  path = "./modules/sales"
-  config = {
-    project_id = "${var.PROJECT_ID}"
-    region     = "${var.REGION}"
-  }
-}
-`,
-}
-
 // InitCommand creates the necessary directory structure and files
 func InitCommand(rootDir string) error {
 	if rootDir == "" {
 		rootDir = "."
 	}
 
-	for _, dir := range defaultDirs {
+	for _, dir := range GetDefaultDirs() {
 		dirPath := filepath.Join(rootDir, dir)
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
@@ -63,7 +20,7 @@ func InitCommand(rootDir string) error {
 		fmt.Printf("Created directory: %s\n", dirPath)
 	}
 
-	for file, content := range defaultFiles {
+	for file, content := range GetDefaultFiles() {
 		filePath := filepath.Join(rootDir, file)
 		
 		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
