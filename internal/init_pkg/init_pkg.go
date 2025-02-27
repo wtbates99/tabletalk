@@ -24,11 +24,11 @@ provider "bigquery" {
 	"dev/variables.hcl": `# Module variables
 variable "PROJECT_ID" {
   description = "The GCP project ID"
-  required    = true
+  value       = "my-gcp-project-id"  # User sets this value
 }
 variable "REGION" {
   description = "The GCP region"
-  default     = "us-central1"
+  value       = "us-central1"        # User sets this value
 }`,
 	"dev/main.hcl": `# Main configuration file that calls modules
 module "example_module" {
