@@ -12,23 +12,60 @@ var defaultDirs = []string{
 	"prod",
 	"modules",
 	"modules/example",
+	"modules/example/backend",
+	"modules/example/provider",
 }
 
 // Default files to create
 var defaultFiles = map[string]string{
-	"biql.yaml": `# BigQuery Schema Analysis Configuration
-project_id: "your-gcp-project-id"
-dataset_filters:
-  - include: "*"  # Include all datasets by default
-  - exclude: "temp_*"  # Exclude temporary datasets
+	"modules/example/main.yaml": `# Main configuration file that calls modules
+name: sales_analysis
+description: "Sales data analysis pipeline"
+
+# Import modules to use
+modules:
+  - name: sales_data
+    path: ./modules/sales
+    config:
+      project_id: ${PROJECT_ID}
+      region: ${REGION}
+
+# Output configuration
+outputs:
+  - name: sales_summary
+    source: sales_data.summary
 `,
-	"modules/example/example.yaml": `# Example module configuration
-name: sales
-description: "Sales-related tables for analysis"
-tables:
-  - project.dataset.customers
-  - project.dataset.orders
-  - project.dataset.refunds
+	"modules/example/backend/config.yaml": `# Backend configuration
+# Specifies where the analysis context/state will be stored
+
+type: gcs
+config:
+  bucket: "your-data-bucket"
+  prefix: "biql/state"
+  # Alternatively use local storage:
+  # type: local
+  # config:
+  #   path: "./state"
+`,
+	"modules/example/provider/bigquery.yaml": `# Provider configuration
+# Specifies the database connection details
+
+type: bigquery
+config:
+  project_id: ${PROJECT_ID}
+  region: ${REGION}
+  # Optional authentication settings
+  # credentials_file: "/path/to/credentials.json"
+`,
+	"modules/example/variables.yaml": `# Module variables
+variables:
+  - name: PROJECT_ID
+    description: "The GCP project ID"
+    required: true
+    
+  - name: REGION
+    description: "The GCP region"
+    default: "us-central1"
 `,
 }
 
