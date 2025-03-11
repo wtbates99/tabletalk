@@ -14,7 +14,7 @@ Context files support including table head data as reference for the LLM, improv
 This allows the LLM to better understand the data structure and provide more accurate responses.
 
 Example Configuration
---------------------
+---------------------
 
 Below is an example context file with two environments:
 
@@ -28,7 +28,7 @@ Below is an example context file with two environments:
         - example-table-2  # Table within the dataset
 
 Configuration Options
---------------------
+---------------------
 
 Datasets
 ~~~~~~~~
