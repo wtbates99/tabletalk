@@ -36,11 +36,9 @@ def apply_schema(config_path, output_path=None):
     with open(config_path, "r") as file:
         config = yaml.safe_load(file)
 
-    # Check if config has contexts or is a single context
     if "contexts" in config:
         contexts = config["contexts"]
     else:
-        # Treat the entire config as a single context
         contexts = [config]
 
     results = []
@@ -65,7 +63,6 @@ def apply_schema(config_path, output_path=None):
         }
         results.append(context_data)
 
-        # Save each context to its own file
         context_output_path = f"{context_name}.json"
         with open(context_output_path, "w") as outfile:
             json.dump(context_data, outfile, indent=2)
@@ -75,7 +72,6 @@ def apply_schema(config_path, output_path=None):
             f"Successfully generated {context_output_path} with {len(compact_tables)} tables"
         )
 
-    # If output_path is provided, also save the combined results
     if output_path is not None:
         with open(output_path, "w") as outfile:
             json.dump(results, outfile, indent=2)
