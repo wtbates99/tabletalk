@@ -27,20 +27,57 @@ Configuration Example
 
 .. code-block:: yaml
 
-    contexts:
-      - name: dev_context
-        provider:
-          type: bigquery
-          project_id: your-gcp-project-id
-          # Choose one of the following authentication methods:
+      provider:
+        type: bigquery
+        project_id: your-gcp-project-id
+        # Choose one of the following authentication methods:
 
-          # Option 1: Use service account key file
-          credentials: /path/to/service-account-key.json
+        # Option 1: Use service account key file
+        credentials: /path/to/service-account-key.json
 
-          # Option 2: Use default credentials
-          use_default_credentials: true
+        # Option 2: Use default credentials
+        use_default_credentials: true
 
 This will create a BigQuery client instance with the project ID and credentials.
+
+Context Example
+
+.. code-block:: yaml
+
+
+  name: sales_context  # Name of the context
+  datasets:
+    - name: operations_dataset
+      tables:
+      - customers # Table within the dataset
+      - orders
+
+
+SQLite
+~~~~~~
+
+Configuration Example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: yaml
+
+    provider:
+      type: sqlite
+      database_path: /path/to/database.db
+
+Context Example
+
+.. code-block:: yaml
+
+
+  name: sales_context  # Name of the context
+  datasets:
+    - name: sqlite
+      tables:
+        - customers # Table within the dataset
+        - orders
+
+
 
 LLM Providers
 -------------
