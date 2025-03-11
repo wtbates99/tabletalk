@@ -1,9 +1,9 @@
 import json
 import os
-from typing import Any, Dict, List
 
 import yaml
 from factories import get_db_provider, get_llm_provider
+from interfaces import Parser
 
 
 def initialize_project() -> None:
@@ -28,6 +28,9 @@ llm:
   model: text-davinci-003  # Model to use
   max_tokens: 150  # Maximum number of tokens to generate
   temperature: 0  # Sampling temperature
+
+contexts: contexts
+output: manifest
 """
     with open(config_yaml_path, "w") as file:
         file.write(config_content)
@@ -59,80 +62,16 @@ datasets:
 
 def apply_schema(project_folder: str) -> None:
     """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
+
     config_path = os.path.join(project_folder, "tabletext.yaml")
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
+    # Instantiate the provider
     provider_config = defaults.get("provider", {})
     db_provider = get_db_provider(provider_config)
-    client = db_provider.get_client()
-    type_map = db_provider.get_database_type_map()
-
-    contexts_folder = os.path.join(project_folder, "contexts")
-    manifest_folder = os.path.join(project_folder, "manifest")
-
-    total_tables = 0
-    processed_contexts = 0
-
-    for context_file in os.listdir(contexts_folder):
-        if context_file.endswith(".yaml"):
-            context_path = os.path.join(contexts_folder, context_file)
-            with open(context_path, "r") as file:
-                context_config = yaml.safe_load(file)
-
-            datasets = context_config["datasets"]
-            context_name = context_config.get("name", os.path.splitext(context_file)[0])
-
-            compact_tables = generate_compact_tables(client, datasets, type_map)
-
-            context_data = {
-                "name": context_name,
-                "compact_tables": compact_tables,
-            }
-
-            context_output_path = os.path.join(manifest_folder, f"{context_name}.json")
-            with open(context_output_path, "w") as outfile:
-                json.dump(context_data, outfile, indent=2)
-
-            total_tables += len(compact_tables)
-            processed_contexts += 1
-            print(
-                f"Successfully generated {context_output_path} with {len(compact_tables)} tables"
-            )
-
-    print(f"Total: {total_tables} tables across {processed_contexts} contexts")
-
-
-def generate_compact_tables(
-    client: Any, datasets: List[Dict[str, Any]], type_map: Dict[str, str]
-) -> List[Dict[str, Any]]:
-    """Generate compact table schemas using the provided client."""
-    compact_tables = []
-    for dataset_item in datasets:
-        dataset_id = dataset_item["name"]
-        table_ids = dataset_item.get("tables", [])
-        if table_ids:
-            tables = [
-                client.get_table(f"{dataset_id}.{table_id}") for table_id in table_ids
-            ]
-        else:
-            dataset_ref = client.dataset(dataset_id)
-            tables = [
-                client.get_table(table) for table in client.list_tables(dataset_ref)
-            ]
-        for table_ref in tables:
-            compact_fields = [
-                {"n": field.name, "t": type_map.get(field.field_type, field.field_type)}
-                for field in table_ref.schema
-            ]
-            compact_tables.append(
-                {
-                    "t": f"{table_ref.dataset_id}.{table_ref.table_id}",
-                    "d": table_ref.description if table_ref.description else "",
-                    "f": compact_fields,
-                }
-            )
-    return compact_tables
+    parser = Parser(project_folder, db_provider)
+    parser.apply_schema()
 
 
 def ask_question(project_folder: str, context_name: str, question: str) -> None:

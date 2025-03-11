@@ -53,3 +53,46 @@ class BigQueryProvider(DatabaseProvider):
             "JSON": "J",
             "RANGE": "R",
         }
+
+    def get_compact_tables(
+        self, schema_name: str, table_names: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch table schemas from a BigQuery dataset in a compact format.
+
+        Args:
+            schema_name (str): The dataset name in BigQuery.
+            table_names (Optional[List[str]]): Specific table names; if None, fetch all tables.
+
+        Returns:
+            List of table schemas in compact format.
+        """
+        client = self.get_client()
+        type_map = self.get_database_type_map()
+
+        if table_names:
+            tables = [
+                client.get_table(f"{schema_name}.{table_id}")
+                for table_id in table_names
+            ]
+        else:
+            dataset_ref = client.dataset(schema_name)
+            tables = [
+                client.get_table(table_ref)
+                for table_ref in client.list_tables(dataset_ref)
+            ]
+
+        compact_tables = []
+        for table in tables:
+            fields = [
+                {"n": field.name, "t": type_map.get(field.field_type, field.field_type)}
+                for field in table.schema
+            ]
+            compact_tables.append(
+                {
+                    "t": f"{table.dataset_id}.{table.table_id}",
+                    "d": table.description or "",
+                    "f": fields,
+                }
+            )
+        return compact_tables
