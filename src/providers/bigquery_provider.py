@@ -13,7 +13,6 @@ class BigQueryProvider(DatabaseProvider):
             )
             self.client = bigquery.Client(project=project_id, credentials=credentials)
         else:
-            # Use default credentials
             self.client = bigquery.Client(project=project_id)
 
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:

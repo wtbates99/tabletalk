@@ -90,7 +90,6 @@ class PostgresProvider(DatabaseProvider):
         """
         cursor = self.connection.cursor()
 
-        # Get all tables if table_names is None
         if table_names is None:
             cursor.execute(
                 """
@@ -106,7 +105,6 @@ class PostgresProvider(DatabaseProvider):
         compact_tables = []
 
         for table_name in table_names:
-            # Get column information
             cursor.execute(
                 """
                 SELECT column_name, data_type, is_nullable
@@ -118,7 +116,6 @@ class PostgresProvider(DatabaseProvider):
             )
             columns = cursor.fetchall()
 
-            # Get table description if available
             cursor.execute(
                 """
                 SELECT obj_description(
@@ -137,10 +134,7 @@ class PostgresProvider(DatabaseProvider):
                 col_name = column[0]
                 col_type = column[1].lower()
 
-                # Map the PostgreSQL type to our compact type
-                mapped_type = type_map.get(
-                    col_type, "S"
-                )  # Default to string if type not found
+                mapped_type = type_map.get(col_type, "S")
                 fields.append({"n": col_name, "t": mapped_type})
 
             compact_tables.append(

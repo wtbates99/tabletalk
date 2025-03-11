@@ -17,7 +17,6 @@ class MySQLProvider(DatabaseProvider):
         self.database = database
         self.port = port
         try:
-            # Use MySQLConnectionAbstract as the base type for the union
             self.connection: (
                 MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract
             ) = mysql.connector.connect(
@@ -33,7 +32,6 @@ class MySQLProvider(DatabaseProvider):
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
         cursor = self.connection.cursor(dictionary=True)
         cursor.execute(sql_query)
-        # Cast the result to List[Dict[str, Any]] since dictionary=True ensures dicts
         results = cast(List[Dict[str, Any]], cursor.fetchall())
         cursor.close()
         return results
@@ -94,7 +92,6 @@ class MySQLProvider(DatabaseProvider):
                 """,
                 (schema_name,),
             )
-            # Cast to List[Dict[str, str]] since dictionary=True ensures dicts
             results = cast(List[Dict[str, str]], cursor.fetchall())
             if not results:
                 raise Exception(f"No tables found in schema '{schema_name}'")
@@ -115,7 +112,6 @@ class MySQLProvider(DatabaseProvider):
                 """,
                 (schema_name, table_name),
             )
-            # Cast to List[Dict[str, str]] since dictionary=True ensures dicts
             columns = cast(List[Dict[str, str]], cursor.fetchall())
 
             cursor.execute(
@@ -126,7 +122,6 @@ class MySQLProvider(DatabaseProvider):
                 """,
                 (schema_name, table_name),
             )
-            # Cast to Optional[Dict[str, str]] since dictionary=True ensures dict or None
             description_row = cast(Optional[Dict[str, str]], cursor.fetchone())
             table_description = (
                 description_row["description"]

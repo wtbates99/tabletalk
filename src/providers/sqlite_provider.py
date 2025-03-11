@@ -14,7 +14,6 @@ class SQLiteProvider(DatabaseProvider):
         """
         self.database_path = database_path
         self.connection = sqlite3.connect(database_path)
-        # Enable dictionary access to rows
         self.connection.row_factory = sqlite3.Row
 
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
@@ -71,7 +70,6 @@ class SQLiteProvider(DatabaseProvider):
         """
         cursor = self.connection.cursor()
 
-        # Get all tables if table_names is None
         if table_names is None:
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -82,32 +80,22 @@ class SQLiteProvider(DatabaseProvider):
         compact_tables = []
 
         for table_name in table_names:
-            # Get table info
             cursor.execute(f"PRAGMA table_info('{table_name}')")
             columns = cursor.fetchall()
 
-            # Debug: Print raw column data to see what we're getting
-            print(f"Table: {table_name}, Columns: {columns}")
-
             fields = []
             for column in columns:
-                # PRAGMA table_info returns: (cid, name, type, notnull, dflt_value, pk)
-                col_name = column[1]  # name is at index 1
-                col_type = (
-                    column[2].upper() if column[2] else "TEXT"
-                )  # type is at index 2
+                col_name = column[1]
+                col_type = column[2].upper() if column[2] else "TEXT"
 
-                # Map the SQLite type to our compact type
-                mapped_type = type_map.get(
-                    col_type, "S"
-                )  # Default to string if type not found
+                mapped_type = type_map.get(col_type, "S")
+                fields.append({"n": col_name, "t": mapped_type})
                 fields.append({"n": col_name, "t": mapped_type})
 
-            # SQLite doesn't have schemas, so we just use the table name
             compact_tables.append(
                 {
                     "t": table_name,
-                    "d": "",  # SQLite doesn't store table descriptions
+                    "d": "",
                     "f": fields,
                 }
             )
