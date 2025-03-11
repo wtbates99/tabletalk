@@ -23,3 +23,19 @@ class BigQueryProvider(DatabaseProvider):
     def get_client(self):
         """Return the BigQuery client instance"""
         return self.client
+
+    def get_database_type_map(self) -> Dict[str, str]:
+        """Return the database types"""
+        return {
+            "STRING": "S",
+            "FLOAT": "F",
+            "DATE": "D",
+            "INTEGER": "I",
+            "TIMESTAMP": "TS",
+            "BOOLEAN": "B",
+            "NUMERIC": "N",
+            "ARRAY": "A",
+            "STRUCT": "ST",
+            "BYTES": "BY",
+            "GEOGRAPHY": "G",
+        }

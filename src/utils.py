@@ -1,14 +1,9 @@
 import yaml
 import json
 from factories import get_db_provider
-from type_utils import type_map
 
 
-def get_type_explanation():
-    return ", ".join([f"{v}={k}" for k, v in type_map.items()])
-
-
-def generate_compact_tables(client, datasets):
+def generate_compact_tables(client, datasets, type_map):
     compact_tables = []
     for dataset_item in datasets:
         dataset_id = dataset_item["name"]
@@ -59,7 +54,8 @@ def apply_schema(config_path, output_path=None):
 
         db_provider = get_db_provider(provider)
         client = db_provider.get_client()
-        compact_tables = generate_compact_tables(client, datasets)
+        type_map = db_provider.get_database_type_map()
+        compact_tables = generate_compact_tables(client, datasets, type_map)
 
         context_data = {
             "name": context_name,

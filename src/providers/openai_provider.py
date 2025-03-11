@@ -1,7 +1,6 @@
 import openai
 from typing import Optional, List
 from interfaces import LLMProvider
-from type_utils import get_type_explanation
 
 
 class OpenAIProvider(LLMProvider):
@@ -29,9 +28,6 @@ class OpenAIProvider(LLMProvider):
                     "role": "user",
                     "content": f"""
                     The schema below is in compact JSON:
-                    - "t": table name
-                    - "d": table description
-                    - "f": fields, with "n" (name) and "t" (type: {get_type_explanation()})
 
                     Schema: {schema}
 

@@ -26,3 +26,8 @@ class DatabaseProvider(ABC):
     def get_client(self):
         """Return the database client instance"""
         pass
+
+    @abstractmethod
+    def get_database_type_map(self) -> Dict[str, str]:
+        """Return the database types"""
+        pass
