@@ -4,20 +4,20 @@ Supported Providers
 
 Origin supports two types of providers:
 
-1. Data Providers - For connecting to databases and data sources
-2. LLM Providers - For connecting to large language models
+1. **Data Providers** - For connecting to databases and data sources
+2. **LLM Providers** - For connecting to large language models
 
 Providers are defined in the ``tabletext.yml`` configuration file, which is created during project initialization.
 
 Data Providers
 --------------
 
-We support the following data providers:
+The following data providers are supported:
 
 BigQuery
 ~~~~~~~~
 
-There are two ways to use the BigQuery provider:
+There are two authentication methods for the BigQuery provider:
 
 1. Using a service account file
 2. Using default credentials from Google Cloud SDK
@@ -27,31 +27,30 @@ Configuration Example
 
 .. code-block:: yaml
 
-      provider:
-        type: bigquery
-        project_id: your-gcp-project-id
-        # Choose one of the following authentication methods:
+    provider:
+      type: bigquery
+      project_id: your-gcp-project-id
+      # Choose one of the following authentication methods:
 
-        # Option 1: Use service account key file
-        credentials: /path/to/service-account-key.json
+      # Option 1: Use service account key file
+      credentials: /path/to/service-account-key.json
 
-        # Option 2: Use default credentials
-        use_default_credentials: true
+      # Option 2: Use default credentials
+      use_default_credentials: true
 
-This will create a BigQuery client instance with the project ID and credentials.
+This configuration creates a BigQuery client instance with the specified project ID and credentials.
 
 Context Example
+^^^^^^^^^^^^^^^
 
 .. code-block:: yaml
 
-
-  name: sales_context  # Name of the context
-  datasets:
-    - name: operations_dataset
-      tables:
-      - customers # Table within the dataset
-      - orders
-
+    name: sales_context  # Name of the context
+    datasets:
+      - name: operations_dataset
+        tables:
+          - customers  # Table within the dataset
+          - orders
 
 SQLite
 ~~~~~~
@@ -66,20 +65,19 @@ Configuration Example
       database_path: /path/to/database.db
 
 Context Example
+^^^^^^^^^^^^^^^
 
 .. code-block:: yaml
 
-
-  name: sales_context  # Name of the context
-  datasets:
-    - name: sqlite
-      tables:
-        - customers # Table within the dataset
-        - orders
-
+    name: sales_context  # Name of the context
+    datasets:
+      - name: sqlite
+        tables:
+          - customers  # Table within the dataset
+          - orders
 
 PostgreSQL
-~~~~~~~~
+~~~~~~~~~~
 
 Configuration Example
 ^^^^^^^^^^^^^^^^^^^^^
@@ -94,17 +92,16 @@ Configuration Example
       password: userpassword
 
 Context Example
+^^^^^^^^^^^^^^^
 
 .. code-block:: yaml
 
-
-  name: sales_context  # Name of the context
-  datasets:
-    - name: public
-      tables:
-        - customers # Table within the dataset
-        - orders
-
+    name: sales_context  # Name of the context
+    datasets:
+      - name: public
+        tables:
+          - customers  # Table within the dataset
+          - orders
 
 MySQL
 ~~~~~
@@ -121,23 +118,22 @@ Configuration Example
       user: root
       password: userpassword
 
-
 Context Example
+^^^^^^^^^^^^^^^
 
 .. code-block:: yaml
 
-
-  name: sales_context  # Name of the context
-  datasets:
-    - name: test_store
-      tables:
-        - customers # Table within the dataset
-        - orders
+    name: sales_context  # Name of the context
+    datasets:
+      - name: test_store
+        tables:
+          - customers  # Table within the dataset
+          - orders
 
 LLM Providers
 -------------
 
-We support the following LLM providers:
+The following LLM providers are supported:
 
 OpenAI
 ~~~~~~
