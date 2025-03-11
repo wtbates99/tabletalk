@@ -1,20 +1,12 @@
 .. biql documentation master file, created by
    sphinx-quickstart on Tue Mar 11 10:11:58 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
 
-Welcome to biql's documentation!
-================================
+biql
+====
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
 
+   dev/providers.rst
 
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   dev/contexts.rst
