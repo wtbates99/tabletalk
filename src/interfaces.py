@@ -42,6 +42,13 @@ class DatabaseProvider(ABC):
         pass
 
 
+class LLMProvider(ABC):
+    @abstractmethod
+    def generate_response(self, prompt: str) -> str:
+        """Generate a response from the LLM based on the given prompt."""
+        pass
+
+
 class Parser:
     def __init__(self, project_folder: str, db_provider: DatabaseProvider):
         """

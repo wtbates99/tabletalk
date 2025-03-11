@@ -23,9 +23,9 @@ provider:
 # Configuration for the LLM
 llm:
   provider: openai  # LLM provider, e.g., openai, anthropic, etc.
-  api_key: your-openai-api-key  # API key for the LLM provider
-  model: text-davinci-003  # Model to use
-  max_tokens: 150  # Maximum number of tokens to generate
+  api_key: ${OPENAI_API_KEY}  # Use environment variable for API key
+  model: gpt-4o  # Model to use
+  max_tokens: 500  # Maximum number of tokens to generate
   temperature: 0  # Sampling temperature
 
 contexts: contexts
