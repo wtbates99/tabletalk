@@ -1,6 +1,6 @@
 import json
 from google.cloud import bigquery
-import openai  # Assuming OpenAI as the LLM provider
+import openai
 
 
 class BIQLClient:
@@ -11,15 +11,13 @@ class BIQLClient:
 
         self.provider = self.context["provider"]
         self.llm = self.context["llm"]
-        self.tables = self.context["tables"]
+        self.compact_tables = self.context["compact_tables"]
         self.focus_tables = None
 
         # Initialize BigQuery client
         if self.provider.get("use_default_credentials", False):
-            # Use default credentials
             self.bq_client = bigquery.Client(project=self.provider["project_id"])
         else:
-            # Use service account credentials file
             self.bq_client = bigquery.Client.from_service_account_json(
                 self.provider["credentials"], project=self.provider["project_id"]
             )
@@ -41,48 +39,25 @@ class BIQLClient:
         """
         Process a natural language question, convert to SQL, and return results
         """
-        # Create a compact schema representation to minimize tokens
-        type_map = {
-            "STRING": "S",
-            "FLOAT": "F",
-            "DATE": "D",
-            "INTEGER": "I",
-            "TIMESTAMP": "TS",
-            "BOOLEAN": "B",
-            "NUMERIC": "N",
-            "ARRAY": "A",
-            "STRUCT": "ST",
-            "BYTES": "BY",
-            "GEOGRAPHY": "G",
-        }
-
         # Filter tables by focus if specified
-        tables_to_include = self.tables
+        tables_to_include = self.compact_tables
         if self.focus_tables:
             tables_to_include = [
-                t for t in self.tables if t["name"] in self.focus_tables
+                t for t in self.compact_tables if t["t"] in self.focus_tables
             ]
             if not tables_to_include:
-                tables_to_include = self.tables  # Fallback if no focus tables match
+                tables_to_include = self.compact_tables  # Fallback if no match
 
-        # Create compact representation of tables
-        compact_tables = []
-        for table in tables_to_include:
-            fields = [
-                {"n": field["name"], "t": type_map.get(field["type"], field["type"])}
-                for field in table["fields"]
-            ]
-            compact_tables.append({"t": table["name"], "f": fields})
-        compact_schema = json.dumps(compact_tables, separators=(",", ":"))
+        # Generate compact schema JSON directly from pre-compacted tables
+        compact_schema = json.dumps(tables_to_include, separators=(",", ":"))
 
-        # Build the prompt with focus information if available
+        # Build the prompt with focus information
         focus_str = (
             f"Focus tables: {', '.join(self.focus_tables)}" if self.focus_tables else ""
         )
 
         # Get SQL query from LLM
         if self.llm["provider"] == "openai":
-            # Use the latest OpenAI client API
             client = openai.OpenAI(api_key=self.llm["api_key"])
             response = client.chat.completions.create(
                 model=self.llm.get("model", "gpt-3.5-turbo"),
@@ -96,7 +71,8 @@ class BIQLClient:
                         "content": f"""
                         The schema below is in compact JSON:
                         - "t": table name
-                        - "f": fields, with "n" (name) and "t" (type: S=STRING, F=FLOAT, D=DATE, I=INTEGER, TS=TIMESTAMP, B=BOOLEAN)
+                        - "d": table description
+                        - "f": fields, with "n" (name) and "t" (type: S=STRING, F=FLOAT, D=DATE, I=INTEGER, TS=TIMESTAMP, B=BOOLEAN, N=NUMERIC, A=ARRAY, ST=STRUCT, BY=BYTES, G=GEOGRAPHY)
 
                         Schema: {compact_schema}
 

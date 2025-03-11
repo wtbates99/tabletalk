@@ -6,7 +6,7 @@ import json
 
 def apply(config_path):
     """
-    Parse biql.yaml, authenticate with GCP, extract BigQuery metadata, and generate biql_context.json.
+    Parse biql.yaml, authenticate with GCP, extract BigQuery metadata, and generate biql_context.json with compact schema.
     """
     # Load the configuration from biql.yaml
     with open(config_path, "r") as file:
@@ -18,41 +18,49 @@ def apply(config_path):
 
     # Authenticate with GCP and initialize BigQuery client
     if provider.get("use_default_credentials", False):
-        # Use default credentials
         client = bigquery.Client(project=provider["project_id"])
     else:
-        # Use service account credentials file
         client = bigquery.Client.from_service_account_json(
             provider["credentials"], project=provider["project_id"]
         )
 
-    # Extract metadata for all tables in the specified datasets
-    tables = []
+    # Define type map for compacting field types
+    type_map = {
+        "STRING": "S",
+        "FLOAT": "F",
+        "DATE": "D",
+        "INTEGER": "I",
+        "TIMESTAMP": "TS",
+        "BOOLEAN": "B",
+        "NUMERIC": "N",
+        "ARRAY": "A",
+        "STRUCT": "ST",
+        "BYTES": "BY",
+        "GEOGRAPHY": "G",
+    }
+
+    # Extract metadata and create compact table representations
+    compact_tables = []
     for dataset_item in datasets:
-        dataset_id = dataset_item["dataset"]  # Get the dataset ID as a string
+        dataset_id = dataset_item["dataset"]
 
-        # List all tables in the dataset or use specified tables if provided
         dataset_ref = client.dataset(dataset_id)
-
         if "tables" in dataset_item and dataset_item["tables"]:
-            # Process only specified tables
+            # Process specified tables
             for table_id in dataset_item["tables"]:
                 table_ref = client.get_table(f"{dataset_id}.{table_id}")
-                fields = [
+                compact_fields = [
                     {
-                        "name": field.name,
-                        "type": field.field_type,
-                        "description": field.description if field.description else "",
+                        "n": field.name,
+                        "t": type_map.get(field.field_type, field.field_type),
                     }
                     for field in table_ref.schema
                 ]
-                tables.append(
+                compact_tables.append(
                     {
-                        "name": f"{dataset_id}.{table_id}",
-                        "description": table_ref.description
-                        if table_ref.description
-                        else "",
-                        "fields": fields,
+                        "t": f"{dataset_id}.{table_id}",
+                        "d": table_ref.description if table_ref.description else "",
+                        "f": compact_fields,
                     }
                 )
         else:
@@ -60,32 +68,29 @@ def apply(config_path):
             dataset_tables = client.list_tables(dataset_ref)
             for table in dataset_tables:
                 table_ref = client.get_table(table)
-                fields = [
+                compact_fields = [
                     {
-                        "name": field.name,
-                        "type": field.field_type,
-                        "description": field.description if field.description else "",
+                        "n": field.name,
+                        "t": type_map.get(field.field_type, field.field_type),
                     }
                     for field in table_ref.schema
                 ]
-                tables.append(
+                compact_tables.append(
                     {
-                        "name": f"{dataset_id}.{table.table_id}",
-                        "description": table_ref.description
-                        if table_ref.description
-                        else "",
-                        "fields": fields,
+                        "t": f"{dataset_id}.{table.table_id}",
+                        "d": table_ref.description if table_ref.description else "",
+                        "f": compact_fields,
                     }
                 )
 
-    # Structure the context with provider, LLM config, and table metadata
-    context = {"provider": provider, "llm": llm, "tables": tables}
+    # Structure the context with compact tables
+    context = {"provider": provider, "llm": llm, "compact_tables": compact_tables}
 
-    # Write the context to biql_context.json
+    # Write to biql_context.json
     with open("biql_context.json", "w") as outfile:
         json.dump(context, outfile, indent=2)
 
-    print(f"Successfully generated biql_context.json with {len(tables)} tables")
+    print(f"Successfully generated biql_context.json with {len(compact_tables)} tables")
 
 
 if __name__ == "__main__":

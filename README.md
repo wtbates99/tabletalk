@@ -1,7 +1,8 @@
 # Local Development
 1. Clone the repo
-2. Run `pre-commit install` to install pre-commit hooks and required Go tools
-3. Run `go build` to build the project
+2. Run `pre-commit install` to install pre-commit hooks and required tools
+3. Run `pip install -r requirements.txt` to install required Python packages
+4. Run `python src/biql.py apply biql.yaml` to generate biql_context.json
 
 # BigQuery Schema Analysis
 
