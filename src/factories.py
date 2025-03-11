@@ -5,6 +5,7 @@ from typing import Any, Dict
 from interfaces import DatabaseProvider, LLMProvider
 from providers.bigquery_provider import BigQueryProvider
 from providers.openai_provider import OpenAIProvider
+from providers.postgres_provider import PostgresProvider
 from providers.sqlite_provider import SQLiteProvider
 
 
@@ -43,5 +44,12 @@ def get_db_provider(config: Dict[str, Any]) -> DatabaseProvider:
     elif provider_type == "sqlite":
         return SQLiteProvider(
             database_path=config["database_path"],
+        )
+    elif provider_type == "postgres":
+        return PostgresProvider(
+            host=config["host"],
+            database=config["database"],
+            user=config["user"],
+            password=config["password"],
         )
     raise ValueError(f"Unsupported database provider: {provider_type}")

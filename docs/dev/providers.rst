@@ -78,6 +78,33 @@ Context Example
         - orders
 
 
+PostgreSQL
+~~~~~~~~
+
+Configuration Example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: yaml
+
+    provider:
+      type: postgres
+      host: localhost
+      database: test_store
+      user: postgres
+      password: userpassword
+
+Context Example
+
+.. code-block:: yaml
+
+
+  name: sales_context  # Name of the context
+  datasets:
+    - name: public
+      tables:
+        - customers # Table within the dataset
+        - orders
+
 
 LLM Providers
 -------------

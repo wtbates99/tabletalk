@@ -36,6 +36,7 @@ repos:
           types-PyYAML==6.0.12.20241230,
           openai,
           google-cloud-bigquery,
-          google-auth
+          google-auth,
+          types-psycopg2
         ]
         args: [--strict, --namespace-packages]
