@@ -7,7 +7,7 @@ Origin supports two types of providers:
 1. Data Providers - For connecting to databases and data sources
 2. LLM Providers - For connecting to large language models
 
-Providers are defined in the `tabletext.yml` configuration file, which is created during project initialization.
+Providers are defined in the ``tabletext.yml`` configuration file, which is created during project initialization.
 
 Data Providers
 --------------

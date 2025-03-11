@@ -1,7 +1,8 @@
-from typing import Dict, Any
-from interfaces import LLMProvider, DatabaseProvider
-from providers.openai_provider import OpenAIProvider
+from typing import Any, Dict
+
+from interfaces import DatabaseProvider, LLMProvider
 from providers.bigquery_provider import BigQueryProvider
+from providers.openai_provider import OpenAIProvider
 
 
 def get_llm_provider(config: Dict[str, Any]) -> LLMProvider:

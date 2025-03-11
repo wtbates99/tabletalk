@@ -1,7 +1,8 @@
-import yaml
 import json
-from factories import get_db_provider, get_llm_provider
 import os
+
+import yaml
+from factories import get_db_provider, get_llm_provider
 
 
 def initialize_project():

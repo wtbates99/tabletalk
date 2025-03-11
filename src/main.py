@@ -1,5 +1,6 @@
-import sys
 import os
+import sys
+
 from utils import apply_schema, initialize_project
 
 

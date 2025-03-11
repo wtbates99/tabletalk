@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 class LLMProvider(ABC):
@@ -23,7 +23,7 @@ class DatabaseProvider(ABC):
         pass
 
     @abstractmethod
-    def get_client(self):
+    def get_client(self) -> Any:
         """Return the database client instance"""
         pass
 

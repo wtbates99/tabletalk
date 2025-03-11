@@ -1,5 +1,6 @@
+from typing import List, Optional
+
 import openai
-from typing import Optional, List
 from interfaces import LLMProvider
 
 
@@ -42,4 +43,5 @@ class OpenAIProvider(LLMProvider):
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        return content.strip() if content is not None else ""

@@ -1,7 +1,8 @@
-from interfaces import DatabaseProvider
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from interfaces import DatabaseProvider
 
 
 class BigQueryProvider(DatabaseProvider):
@@ -9,7 +10,7 @@ class BigQueryProvider(DatabaseProvider):
         if credentials_path:
             credentials = service_account.Credentials.from_service_account_file(
                 credentials_path
-            )
+            )  # type: ignore[attr-defined]
             self.client = bigquery.Client(project=project_id, credentials=credentials)
         else:
             # Use default credentials
@@ -20,7 +21,7 @@ class BigQueryProvider(DatabaseProvider):
         results = query_job.result()
         return [dict(row) for row in results]
 
-    def get_client(self):
+    def get_client(self) -> bigquery.Client:
         """Return the BigQuery client instance"""
         return self.client
 
