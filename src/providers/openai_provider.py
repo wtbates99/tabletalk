@@ -5,7 +5,7 @@ from interfaces import LLMProvider
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo"):
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = openai.OpenAI(api_key=api_key)
         self.model = model
 
@@ -39,22 +39,6 @@ class OpenAIProvider(LLMProvider):
                     Generate a valid BigQuery SQL query.
                 """,
                 },
-            ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        content = response.choices[0].message.content
-        return content.strip() if content is not None else ""
-
-    def get_response(
-        self, prompt: str, max_tokens: int = 500, temperature: float = 0.7
-    ) -> str:
-        """Get a response from the LLM for a given prompt"""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
             ],
             max_tokens=max_tokens,
             temperature=temperature,

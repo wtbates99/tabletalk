@@ -1,8 +1,7 @@
-import json
 import os
 
 import yaml
-from factories import get_db_provider, get_llm_provider
+from factories import get_db_provider
 from interfaces import Parser
 
 
@@ -72,35 +71,3 @@ def apply_schema(project_folder: str) -> None:
     db_provider = get_db_provider(provider_config)
     parser = Parser(project_folder, db_provider)
     parser.apply_schema()
-
-
-def ask_question(project_folder: str, context_name: str, question: str) -> None:
-    """Ask a question using the specified context."""
-    config_path = os.path.join(project_folder, "tabletext.yaml")
-    with open(config_path, "r") as file:
-        defaults = yaml.safe_load(file)
-
-    llm_config = defaults.get("llm", {})
-    llm_provider = get_llm_provider(llm_config)
-
-    manifest_folder = os.path.join(project_folder, "manifest")
-    context_path = os.path.join(manifest_folder, f"{context_name}.json")
-    with open(context_path, "r") as file:
-        context_data = json.load(file)
-
-    compact_tables = context_data["compact_tables"]
-
-    prompt = "Given the following table schemas:\n\n"
-    for table in compact_tables:
-        prompt += f"Table: {table['t']}\n"
-        if table["d"]:
-            prompt += f"Description: {table['d']}\n"
-        prompt += "Fields:\n"
-        for field in table["f"]:
-            prompt += f"  {field['n']}: {field['t']}\n"
-        prompt += "\n"
-    prompt += f"Answer the following question: {question}"
-
-    # Get the response from the LLM
-    response = llm_provider.get_response(prompt)
-    print(response)
