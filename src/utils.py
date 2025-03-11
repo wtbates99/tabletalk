@@ -1,14 +1,12 @@
 import yaml
 import json
-from factories import get_db_provider
+from factories import get_db_provider, get_llm_provider
 import os
 
 
 def initialize_project():
     """Initialize a new project by creating configuration files in the current working directory."""
-    # Use current working directory instead of creating a new folder
     project_folder = os.getcwd()
-
     config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
     if os.path.exists(config_yaml_path):
         print(f"File {config_yaml_path} already exists.")
@@ -63,8 +61,11 @@ def apply_schema(project_folder):
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
-    default_provider = defaults.get("provider", {})
-    default_llm = defaults.get("llm", {})
+    # Initialize the database provider once using the project-wide configuration
+    provider_config = defaults.get("provider", {})
+    db_provider = get_db_provider(provider_config)
+    client = db_provider.get_client()
+    type_map = db_provider.get_database_type_map()
 
     contexts_folder = os.path.join(project_folder, "contexts")
     manifest_folder = os.path.join(project_folder, "manifest")
@@ -78,20 +79,16 @@ def apply_schema(project_folder):
             with open(context_path, "r") as file:
                 context_config = yaml.safe_load(file)
 
-            provider = {**default_provider, **context_config.get("provider", {})}
-            llm = {**default_llm, **context_config.get("llm", {})}
             datasets = context_config["datasets"]
             context_name = context_config.get("name", os.path.splitext(context_file)[0])
 
-            db_provider = get_db_provider(provider)
-            client = db_provider.get_client()
-            type_map = db_provider.get_database_type_map()
+            # Use the single provider instance to generate compact tables
             compact_tables = generate_compact_tables(client, datasets, type_map)
 
+            # Create a new context_data dictionary with ONLY the name and compact_tables
+            # This ensures no provider or LLM information is included
             context_data = {
                 "name": context_name,
-                "provider": provider,
-                "llm": llm,
                 "compact_tables": compact_tables,
             }
 
@@ -109,6 +106,7 @@ def apply_schema(project_folder):
 
 
 def generate_compact_tables(client, datasets, type_map):
+    """Generate compact table schemas using the provided client."""
     compact_tables = []
     for dataset_item in datasets:
         dataset_id = dataset_item["name"]
@@ -135,3 +133,38 @@ def generate_compact_tables(client, datasets, type_map):
                 }
             )
     return compact_tables
+
+
+def ask_question(project_folder, context_name, question):
+    """Ask a question using the specified context."""
+    config_path = os.path.join(project_folder, "tabletext.yaml")
+    with open(config_path, "r") as file:
+        defaults = yaml.safe_load(file)
+
+    # Initialize the LLM once using the project-wide configuration
+    llm_config = defaults.get("llm", {})
+    llm_provider = get_llm_provider(llm_config)
+
+    # Load the specified context from the manifest
+    manifest_folder = os.path.join(project_folder, "manifest")
+    context_path = os.path.join(manifest_folder, f"{context_name}.json")
+    with open(context_path, "r") as file:
+        context_data = json.load(file)
+
+    compact_tables = context_data["compact_tables"]
+
+    # Generate the prompt with table schemas and the question
+    prompt = "Given the following table schemas:\n\n"
+    for table in compact_tables:
+        prompt += f"Table: {table['t']}\n"
+        if table["d"]:
+            prompt += f"Description: {table['d']}\n"
+        prompt += "Fields:\n"
+        for field in table["f"]:
+            prompt += f"  {field['n']}: {field['t']}\n"
+        prompt += "\n"
+    prompt += f"Answer the following question: {question}"
+
+    # Get the response from the LLM
+    response = llm_provider.generate_response(prompt)
+    print(response)
