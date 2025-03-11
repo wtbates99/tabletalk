@@ -1,8 +1,8 @@
-.. biql documentation master file, created by
+.. tabletext documentation master file, created by
    sphinx-quickstart on Tue Mar 11 10:11:58 2025.
 
-biql
-====
+tabletext
+=========
 
 .. toctree::
    :maxdepth: 1

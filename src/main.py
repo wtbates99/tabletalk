@@ -5,7 +5,7 @@ from utils import apply_schema, initialize_project
 
 def print_usage():
     """Display how to use the script with descriptions of available commands."""
-    print("Usage: python biql.py <command> [args]")
+    print("Usage: python main.py <command> [args]")
     print("Commands:")
     print("  init                Initialize a new project in the current directory.")
     print(

@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "biql"
+project = "tabletext"
 copyright = "2025, william bates"
 author = "william bates"
 release = "0"
