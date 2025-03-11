@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from interfaces import DatabaseProvider, LLMProvider
 from providers.bigquery_provider import BigQueryProvider
+from providers.mysql_provider import MySQLProvider
 from providers.openai_provider import OpenAIProvider
 from providers.postgres_provider import PostgresProvider
 from providers.sqlite_provider import SQLiteProvider
@@ -47,6 +48,13 @@ def get_db_provider(config: Dict[str, Any]) -> DatabaseProvider:
         )
     elif provider_type == "postgres":
         return PostgresProvider(
+            host=config["host"],
+            database=config["database"],
+            user=config["user"],
+            password=config["password"],
+        )
+    elif provider_type == "mysql":
+        return MySQLProvider(
             host=config["host"],
             database=config["database"],
             user=config["user"],

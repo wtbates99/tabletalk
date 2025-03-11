@@ -37,6 +37,7 @@ repos:
           openai,
           google-cloud-bigquery,
           google-auth,
-          types-psycopg2
+          types-psycopg2,
+          mysql-connector-python
         ]
         args: [--strict, --namespace-packages]

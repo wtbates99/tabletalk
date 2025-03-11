@@ -106,6 +106,34 @@ Context Example
         - orders
 
 
+MySQL
+~~~~~
+
+Configuration Example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: yaml
+
+    provider:
+      type: mysql
+      host: localhost
+      database: test_store
+      user: root
+      password: userpassword
+
+
+Context Example
+
+.. code-block:: yaml
+
+
+  name: sales_context  # Name of the context
+  datasets:
+    - name: test_store
+      tables:
+        - customers # Table within the dataset
+        - orders
+
 LLM Providers
 -------------
 
