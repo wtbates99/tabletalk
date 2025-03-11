@@ -1,11 +1,15 @@
-# Pre-commit configuration for Go projects
-# Repo: https://github.com/tekwizely/pre-commit-golang
-# All hooks are from this repo unless specified otherwise
 repos:
-- repo: https://github.com/tekwizely/pre-commit-golang
-  rev: v1.0.0-rc.1
-  hooks:
-    - id: go-test-repo-mod
-      args: ["-v"]
-    - id: go-build-repo-mod
-    - id: go-mod-tidy-repo
+  - repo: https://github.com/ambv/black
+    rev: 23.9.1
+    hooks:
+    - id: black
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.7
+    hooks:
+      - id: ruff
+        args: [ --fix ]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
