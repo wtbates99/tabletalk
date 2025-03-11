@@ -1,7 +1,7 @@
 import openai
 from typing import Optional, List
 from interfaces import LLMProvider
-from utils import get_type_explanation
+from type_utils import get_type_explanation
 
 
 class OpenAIProvider(LLMProvider):

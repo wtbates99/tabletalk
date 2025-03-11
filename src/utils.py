@@ -1,20 +1,7 @@
 import yaml
 import json
 from factories import get_db_provider
-
-type_map = {
-    "STRING": "S",
-    "FLOAT": "F",
-    "DATE": "D",
-    "INTEGER": "I",
-    "TIMESTAMP": "TS",
-    "BOOLEAN": "B",
-    "NUMERIC": "N",
-    "ARRAY": "A",
-    "STRUCT": "ST",
-    "BYTES": "BY",
-    "GEOGRAPHY": "G",
-}
+from type_utils import type_map
 
 
 def get_type_explanation():
@@ -62,6 +49,8 @@ def apply_schema(config_path, output_path=None):
         contexts = [config]
 
     results = []
+    total_tables = 0
+
     for idx, context_config in enumerate(contexts):
         provider = context_config["provider"]
         llm = context_config.get("llm", {})
@@ -80,16 +69,20 @@ def apply_schema(config_path, output_path=None):
         }
         results.append(context_data)
 
-    # Determine output path if not provided
-    if output_path is None:
-        output_path = config_path.replace(".yaml", ".json")
-        if output_path == config_path:  # If no .yaml extension
-            output_path = f"{config_path}.json"
+        # Save each context to its own file
+        context_output_path = f"{context_name}.json"
+        with open(context_output_path, "w") as outfile:
+            json.dump(context_data, outfile, indent=2)
 
-    with open(output_path, "w") as outfile:
-        json.dump(results, outfile, indent=2)
+        total_tables += len(compact_tables)
+        print(
+            f"Successfully generated {context_output_path} with {len(compact_tables)} tables"
+        )
 
-    total_tables = sum(len(context["compact_tables"]) for context in results)
-    print(
-        f"Successfully generated {output_path} with {total_tables} tables across {len(results)} contexts"
-    )
+    # If output_path is provided, also save the combined results
+    if output_path is not None:
+        with open(output_path, "w") as outfile:
+            json.dump(results, outfile, indent=2)
+        print(f"Successfully generated combined file {output_path}")
+
+    print(f"Total: {total_tables} tables across {len(results)} contexts")
