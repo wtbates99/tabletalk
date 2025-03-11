@@ -8,9 +8,9 @@ from interfaces import DatabaseProvider
 class BigQueryProvider(DatabaseProvider):
     def __init__(self, project_id: str, credentials_path: Optional[str] = None):
         if credentials_path:
-            credentials = service_account.Credentials.from_service_account_file(
+            credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
                 credentials_path
-            )  # type: ignore[attr-defined]
+            )
             self.client = bigquery.Client(project=project_id, credentials=credentials)
         else:
             # Use default credentials

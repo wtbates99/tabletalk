@@ -15,6 +15,11 @@ class LLMProvider(ABC):
         """Generate SQL from natural language using the LLM"""
         pass
 
+    @abstractmethod
+    def get_response(self, prompt: str) -> str:
+        """Get a response from the LLM for a given prompt"""
+        pass
+
 
 class DatabaseProvider(ABC):
     @abstractmethod

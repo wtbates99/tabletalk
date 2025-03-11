@@ -4,7 +4,7 @@ import sys
 from utils import apply_schema, initialize_project
 
 
-def print_usage():
+def print_usage() -> None:
     """Display how to use the script with descriptions of available commands."""
     print("Usage: python main.py <command> [args]")
     print("Commands:")

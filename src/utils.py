@@ -1,11 +1,12 @@
 import json
 import os
+from typing import Any, Dict, List
 
 import yaml
 from factories import get_db_provider, get_llm_provider
 
 
-def initialize_project():
+def initialize_project() -> None:
     """Initialize a new project by creating configuration files in the current working directory."""
     project_folder = os.getcwd()
     config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
@@ -56,7 +57,7 @@ datasets:
     )
 
 
-def apply_schema(project_folder):
+def apply_schema(project_folder: str) -> None:
     """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
     config_path = os.path.join(project_folder, "tabletext.yaml")
     with open(config_path, "r") as file:
@@ -102,7 +103,9 @@ def apply_schema(project_folder):
     print(f"Total: {total_tables} tables across {processed_contexts} contexts")
 
 
-def generate_compact_tables(client, datasets, type_map):
+def generate_compact_tables(
+    client: Any, datasets: List[Dict[str, Any]], type_map: Dict[str, str]
+) -> List[Dict[str, Any]]:
     """Generate compact table schemas using the provided client."""
     compact_tables = []
     for dataset_item in datasets:
@@ -132,7 +135,7 @@ def generate_compact_tables(client, datasets, type_map):
     return compact_tables
 
 
-def ask_question(project_folder, context_name, question):
+def ask_question(project_folder: str, context_name: str, question: str) -> None:
     """Ask a question using the specified context."""
     config_path = os.path.join(project_folder, "tabletext.yaml")
     with open(config_path, "r") as file:
@@ -160,5 +163,5 @@ def ask_question(project_folder, context_name, question):
     prompt += f"Answer the following question: {question}"
 
     # Get the response from the LLM
-    response = llm_provider.generate_response(prompt)
+    response = llm_provider.get_response(prompt)
     print(response)
