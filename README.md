@@ -3,20 +3,8 @@
 2. Run `pre-commit install` to install pre-commit hooks and required tools
 3. Run `pip install -r requirements.txt` to install required Python packages
 4. Run `python src/main.py init` to initialize the project structure
-4. Run `python src/main.py apply ` to generate contexts
+5. Run `python src/main.py apply` to generate contexts
 
 # BigQuery Schema Analysis
 
 This project analyzes BigQuery schemas and organizes them into modules for easier analysis.
-
-## Getting Started
-
-1. Edit the config.yaml file with your GCP project ID
-2. Run the scan command to fetch schemas from BigQuery
-3. Create modules in the modules/ directory to group related tables
-
-## Commands
-
-- init: Initialize the project structure
-- scan: Scan BigQuery for table schemas
-- analyze: Analyze tables based on defined modules
