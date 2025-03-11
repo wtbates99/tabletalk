@@ -61,7 +61,6 @@ def apply_schema(project_folder):
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
-    # Initialize the database provider once using the project-wide configuration
     provider_config = defaults.get("provider", {})
     db_provider = get_db_provider(provider_config)
     client = db_provider.get_client()
@@ -82,11 +81,8 @@ def apply_schema(project_folder):
             datasets = context_config["datasets"]
             context_name = context_config.get("name", os.path.splitext(context_file)[0])
 
-            # Use the single provider instance to generate compact tables
             compact_tables = generate_compact_tables(client, datasets, type_map)
 
-            # Create a new context_data dictionary with ONLY the name and compact_tables
-            # This ensures no provider or LLM information is included
             context_data = {
                 "name": context_name,
                 "compact_tables": compact_tables,
@@ -141,11 +137,9 @@ def ask_question(project_folder, context_name, question):
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
-    # Initialize the LLM once using the project-wide configuration
     llm_config = defaults.get("llm", {})
     llm_provider = get_llm_provider(llm_config)
 
-    # Load the specified context from the manifest
     manifest_folder = os.path.join(project_folder, "manifest")
     context_path = os.path.join(manifest_folder, f"{context_name}.json")
     with open(context_path, "r") as file:
@@ -153,7 +147,6 @@ def ask_question(project_folder, context_name, question):
 
     compact_tables = context_data["compact_tables"]
 
-    # Generate the prompt with table schemas and the question
     prompt = "Given the following table schemas:\n\n"
     for table in compact_tables:
         prompt += f"Table: {table['t']}\n"
