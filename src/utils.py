@@ -5,22 +5,15 @@ import os
 
 
 def initialize_project():
-    """Initialize a new project by creating a folder structure with default configuration files."""
-    project_name = "tabletext"
-    project_folder = project_name
+    """Initialize a new project by creating configuration files in the current working directory."""
+    # Use current working directory instead of creating a new folder
+    project_folder = os.getcwd()
 
-    # Check if the project folder already exists
-    if os.path.exists(project_folder):
-        print(
-            f"Folder {project_folder} already exists. Please choose a different project name or remove the existing folder."
-        )
+    config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
+    if os.path.exists(config_yaml_path):
+        print(f"File {config_yaml_path} already exists.")
         return
 
-    # Create the project folder
-    os.makedirs(project_folder)
-
-    # Write config.yaml with the desired order and comments
-    config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
     config_content = """
 # Configuration for the data provider
 provider:
@@ -39,9 +32,10 @@ llm:
     with open(config_yaml_path, "w") as file:
         file.write(config_content)
 
-    # Create contexts folder and write a sample context YAML file
     contexts_folder = os.path.join(project_folder, "contexts")
-    os.makedirs(contexts_folder)
+    if not os.path.exists(contexts_folder):
+        os.makedirs(contexts_folder)
+
     sample_context_path = os.path.join(contexts_folder, "default_context.yaml")
     sample_context_content = """
 # Sample context configuration
@@ -54,18 +48,17 @@ datasets:
     with open(sample_context_path, "w") as file:
         file.write(sample_context_content)
 
-    # Create manifest folder
     manifest_folder = os.path.join(project_folder, "manifest")
-    os.makedirs(manifest_folder)
+    if not os.path.exists(manifest_folder):
+        os.makedirs(manifest_folder)
 
     print(
-        f"Project {project_name} initialized. Edit the files in {project_folder}/tabletext.yaml and {project_folder}/contexts/ to customize your settings."
+        "Project initialized in the current directory. Edit tabletext.yaml and contexts/default_context.yaml to customize your settings."
     )
 
 
 def apply_schema(project_folder):
     """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
-    # Load default settings from config.yaml
     config_path = os.path.join(project_folder, "tabletext.yaml")
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
@@ -79,26 +72,22 @@ def apply_schema(project_folder):
     total_tables = 0
     processed_contexts = 0
 
-    # Process each YAML file in the contexts folder
     for context_file in os.listdir(contexts_folder):
         if context_file.endswith(".yaml"):
             context_path = os.path.join(contexts_folder, context_file)
             with open(context_path, "r") as file:
                 context_config = yaml.safe_load(file)
 
-            # Merge default settings with context-specific settings
             provider = {**default_provider, **context_config.get("provider", {})}
             llm = {**default_llm, **context_config.get("llm", {})}
             datasets = context_config["datasets"]
             context_name = context_config.get("name", os.path.splitext(context_file)[0])
 
-            # Generate compact tables (assuming generate_compact_tables is defined elsewhere)
             db_provider = get_db_provider(provider)
             client = db_provider.get_client()
             type_map = db_provider.get_database_type_map()
             compact_tables = generate_compact_tables(client, datasets, type_map)
 
-            # Prepare context data
             context_data = {
                 "name": context_name,
                 "provider": provider,
@@ -106,7 +95,6 @@ def apply_schema(project_folder):
                 "compact_tables": compact_tables,
             }
 
-            # Write to manifest folder
             context_output_path = os.path.join(manifest_folder, f"{context_name}.json")
             with open(context_output_path, "w") as outfile:
                 json.dump(context_data, outfile, indent=2)
@@ -120,7 +108,6 @@ def apply_schema(project_folder):
     print(f"Total: {total_tables} tables across {processed_contexts} contexts")
 
 
-# Assuming generate_compact_tables remains unchanged from your original code
 def generate_compact_tables(client, datasets, type_map):
     compact_tables = []
     for dataset_item in datasets:
