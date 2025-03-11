@@ -20,7 +20,7 @@ def initialize_project():
     os.makedirs(project_folder)
 
     # Write config.yaml with the desired order and comments
-    config_yaml_path = os.path.join(project_folder, "config.yaml")
+    config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
     config_content = """
 # Configuration for the data provider
 provider:
@@ -59,14 +59,14 @@ datasets:
     os.makedirs(manifest_folder)
 
     print(
-        f"Project {project_name} initialized. Edit the files in {project_folder}/config.yaml and {project_folder}/contexts/ to customize your settings."
+        f"Project {project_name} initialized. Edit the files in {project_folder}/tabletext.yaml and {project_folder}/contexts/ to customize your settings."
     )
 
 
 def apply_schema(project_folder):
     """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
     # Load default settings from config.yaml
-    config_path = os.path.join(project_folder, "config.yaml")
+    config_path = os.path.join(project_folder, "tabletext.yaml")
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
