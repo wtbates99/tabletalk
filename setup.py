@@ -16,7 +16,7 @@ with open(os.path.join(this_directory, "README.md")) as f:
 
 # Package metadata
 package_name = "tabletalk"
-package_version = "0.1.5"
+package_version = "0.1.9"
 description = "A command-line tool for managing database schemas and generating SQL queries using natural language."
 
 # Setup configuration
@@ -31,6 +31,9 @@ setup(
     url="https://github.com/wtbates99/tabletalk",
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        "tabletalk": ["static/*", "static/*.html", "static/*.css", "static/*.js"],
+    },
     entry_points={
         "console_scripts": ["tabletalk = tabletalk.cli:cli"],
     },
