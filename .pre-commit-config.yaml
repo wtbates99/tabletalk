@@ -39,6 +39,7 @@ repos:
           google-auth,
           types-psycopg2,
           mysql-connector-python,
-          anthropic
+          anthropic,
+          click
         ]
         args: [--strict, --namespace-packages]

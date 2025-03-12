@@ -5,3 +5,4 @@ sphinx
 mysql-connector-python
 psycopg2-binary
 anthropic
+click
