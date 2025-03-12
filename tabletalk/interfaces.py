@@ -50,6 +50,96 @@ class LLMProvider(ABC):
         pass
 
 
+class QuerySession:
+    def __init__(self, project_folder: str):
+        """Initialize a query session with a project folder.
+
+        Args:
+            project_folder: Path to the project directory containing tabletalk.yaml and manifest folder.
+
+        Raises:
+            FileNotFoundError: If config file is not found.
+            ValueError: If LLM configuration is missing or incomplete.
+            RuntimeError: If LLM provider initialization fails.
+        """
+        self.project_folder = project_folder
+        self.config = self._load_config()
+        self.llm_provider = self._get_llm_provider()
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Load the configuration from tabletalk.yaml."""
+        config_path = os.path.join(self.project_folder, "tabletalk.yaml")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Config file '{config_path}' not found.")
+        with open(config_path, "r") as file:
+            config = yaml.safe_load(file)
+            if not isinstance(config, dict):
+                raise ValueError(
+                    f"Config file '{config_path}' must contain a dictionary."
+                )
+            return config
+
+    def _get_llm_provider(self) -> LLMProvider:
+        """Initialize the LLM provider from the configuration."""
+        from tabletalk.factories import get_llm_provider  # Avoid circular import
+
+        llm_config = self.config.get("llm", {})
+        if (
+            not llm_config
+            or "provider" not in llm_config
+            or "api_key" not in llm_config
+        ):
+            raise ValueError("LLM configuration missing or incomplete.")
+        try:
+            return get_llm_provider(llm_config)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize LLM provider: {str(e)}")
+
+    def load_manifest(self, manifest_file: str) -> str:
+        """Load the manifest file content.
+
+        Args:
+            manifest_file: Name of the manifest file (e.g., 'schema.txt') in the manifest folder.
+
+        Returns:
+            The content of the manifest file as a string.
+
+        Raises:
+            FileNotFoundError: If the manifest file is not found.
+        """
+        manifest_path = os.path.join(self.project_folder, "manifest", manifest_file)
+        if not os.path.exists(manifest_path):
+            raise FileNotFoundError(f"Manifest file '{manifest_path}' not found.")
+        with open(manifest_path, "r") as file:
+            return file.read()
+
+    def generate_sql(self, manifest_data: str, question: str) -> str:
+        """Generate an SQL query for the given question using the LLM.
+
+        Args:
+            manifest_data: The schema data from the selected manifest.
+            question: The natural language question to convert to SQL.
+
+        Returns:
+            The generated SQL query as a string.
+
+        Raises:
+            RuntimeError: If SQL generation fails.
+        """
+        schema_str = manifest_data
+        prompt = (
+            "Given the following database schema:\n\n"
+            f"{schema_str}\n\n"
+            "Generate an SQL query to answer the following question:\n\n"
+            f"{question}"
+        )
+        try:
+            response = self.llm_provider.generate_response(prompt)
+            return response
+        except Exception as e:
+            raise RuntimeError(f"Error generating SQL: {str(e)}")
+
+
 class Parser:
     def __init__(self, project_folder: str, db_provider: DatabaseProvider):
         """
