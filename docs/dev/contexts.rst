@@ -19,13 +19,21 @@ Example Configuration
 Below is an example context file with two environments:
 
 .. code-block:: yaml
-
-  name: example-context
+  name: default_context
+  description: "This context is a sample context."
   datasets:
-    - name: example-dataset  # Name of the dataset
+    - name: test_store
+      description: "Operational data for test store."
       tables:
-        - example-table  # Table within the dataset
-        - example-table-2  # Table within the dataset
+        - name: customers
+          description: "Customers table."
+        - name: orders
+          description: "Orders table."
+        - purchase_orders
+    - name: test_store_staging
+      description: "Staging data for test store."
+      tables:
+        - margins
 
 Configuration Options
 ---------------------

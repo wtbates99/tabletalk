@@ -30,14 +30,16 @@ class DatabaseProvider(ABC):
         Fetch table schemas in a compact format.
 
         Args:
-            schema_name (str): The schema (or dataset) to query.
-            table_names (Optional[List[str]]): Specific tables to fetch; if None, fetch all tables.
+            schema_name (str): The name of the schema/dataset.
+            table_names (Optional[List[str]]): List of table names to fetch; if None, fetch all.
 
         Returns:
-            List of dictionaries, each with:
-            - 't': table name (e.g., 'schema.table')
-            - 'd': table description (optional)
-            - 'f': list of fields, each with 'n' (name) and 't' (type)
+            List[Dict[str, Any]]: A list of dictionaries, each containing:
+                - 't': str - Full table name (e.g., 'schema.table')
+                - 'd': str - Table description (may be empty)
+                - 'f': List[Dict] - List of field dictionaries with:
+                    - 'n': str - Field name
+                    - 't': str - Field type
         """
         pass
 
@@ -55,59 +57,42 @@ class Parser:
         Initialize the Parser with a project folder and database provider.
 
         Args:
-            project_folder (str): Path to the project folder containing 'tabletalk.yaml' and a 'contexts' subfolder.
-            db_provider (DatabaseProvider): An instance of a database provider implementing the DatabaseProvider interface.
+            project_folder (str): Path to the project directory containing configuration files.
+            db_provider (DatabaseProvider): Instance of a DatabaseProvider implementation.
         """
         self.project_folder = project_folder
         self.db_provider = db_provider
 
     def apply_schema(self) -> None:
         """
-        Process the project folder and generate JSON schemas for all contexts.
-
-        This method:
-        1. Reads 'tabletalk.yaml' for configuration.
-        2. Processes YAML files in the 'contexts' folder.
-        3. Uses the DBProvider to fetch table schemas.
-        4. Writes compact schemas to JSON files in the 'output' folder.
-
-        Expected 'tabletalk.yaml' structure:
-            provider:
-                type: "bigquery"  # e.g., "bigquery", "redshift"
-                # provider-specific settings
-            contexts: "contexts"  # folder with context YAML files
-            output: "output"  # folder for generated JSON files
-
-        Expected context YAML structure (e.g., 'my_context.yaml'):
-            schemas:
-                - name: "my_schema"
-                  tables:
-                    - "table1"
-                    - "table2"
-            version: "1.0"  # optional
+        Process the project folder and generate compact text schemas for all contexts.
+        Reads 'tabletalk.yaml' and context YAML files, fetches table schemas via DatabaseProvider,
+        and writes output in a custom text format to the 'output' folder.
         """
+        # Load tabletalk.yaml for data source configuration
         config_path = os.path.join(self.project_folder, "tabletalk.yaml")
         try:
             with open(config_path, "r") as file:
                 defaults = yaml.safe_load(file)
             if not isinstance(defaults, dict):
-                raise ValueError("'tabletalk.yaml' must be a valid YAML dictionary.")
+                raise ValueError("Invalid 'tabletalk.yaml' format.")
             required_keys = ["provider", "contexts", "output"]
             for key in required_keys:
                 if key not in defaults:
-                    raise ValueError(
-                        f"'tabletalk.yaml' is missing required key: '{key}'."
-                    )
-        except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
+                    raise ValueError(f"Missing key '{key}' in 'tabletalk.yaml'.")
+            data_source_desc = defaults.get("description", "")
+            provider_type = defaults["provider"].get("type", "unknown")
+            data_source_line = f"DATA_SOURCE: {provider_type} - {data_source_desc}"
+        except Exception as e:
             print(f"Error loading configuration: {str(e)}")
             return
 
-        # Set up folder paths
+        # Set up folders
         contexts_folder = os.path.join(self.project_folder, defaults["contexts"])
         output_folder = os.path.join(self.project_folder, defaults["output"])
         os.makedirs(output_folder, exist_ok=True)
 
-        # Process each context file
+        # Process each context file in the contexts folder
         for context_file in os.listdir(contexts_folder):
             if not context_file.endswith(".yaml"):
                 continue
@@ -115,52 +100,87 @@ class Parser:
             try:
                 with open(context_path, "r") as file:
                     context_config = yaml.safe_load(file)
-                if (
-                    not isinstance(context_config, dict)
-                    or "schemas" not in context_config
-                    and "datasets" not in context_config
-                ):
-                    print(
-                        f"Warning: Invalid format in context file '{context_file}', skipping."
-                    )
+                if not isinstance(context_config, dict):
+                    print(f"Warning: Invalid format in '{context_file}', skipping.")
                     continue
-            except (FileNotFoundError, yaml.YAMLError) as e:
-                print(f"Error reading context file '{context_file}': {str(e)}")
+            except Exception as e:
+                print(f"Error reading '{context_file}': {str(e)}")
                 continue
 
-            # Fetch compact schemas
-            compact_tables = []
-            # Accept either "schemas" or "datasets" key
-            schema_list = context_config.get("schemas") or context_config.get(
-                "datasets", []
+            # Extract context information
+            context_name = context_config.get("name", "unnamed_context")
+            context_desc = context_config.get("description", "")
+            version = context_config.get("version", "1.0")
+            context_line = f"CONTEXT: {context_name} - {context_desc} (v{version})"
+
+            # Initialize output lines with data source and context
+            output_lines = [data_source_line, context_line]
+
+            # Process datasets/schemas within the context
+            schema_list = context_config.get("datasets") or context_config.get(
+                "schemas", []
             )
             for schema_item in schema_list:
                 schema_name = schema_item.get("name")
-                table_names = schema_item.get("tables", None)
+                schema_desc = schema_item.get("description", "")
                 if not schema_name:
                     print(
-                        f"Warning: Missing schema name in '{context_file}', skipping item."
+                        f"Warning: Missing schema name in '{context_file}', skipping."
                     )
                     continue
+                output_lines.append(f"DATASET: {schema_name} - {schema_desc}")
+                output_lines.append("TABLES:")
+
+                # Process table definitions
+                tables = schema_item.get("tables", [])
+                yaml_table_desc = (
+                    {}
+                )  # Dictionary to store YAML-provided table descriptions
+                table_names = []  # List of table names for fetching
+                for table in tables:
+                    if isinstance(table, str):
+                        table_name = f"{schema_name}.{table}"
+                        yaml_table_desc[table_name] = None
+                        table_names.append(table)
+                    elif isinstance(table, dict):
+                        table_name = f"{schema_name}.{table['name']}"
+                        yaml_table_desc[table_name] = table.get("description", "")
+                        table_names.append(table["name"])
+                    else:
+                        print(f"Warning: Invalid table entry in '{schema_name}'.")
+                        continue
+
+                # Fetch compact table schemas from the database provider
                 try:
-                    compact_tables.extend(
-                        self.db_provider.get_compact_tables(schema_name, table_names)
+                    compact_tables = self.db_provider.get_compact_tables(
+                        schema_name, table_names
                     )
+                    for compact_table in compact_tables:
+                        table_name = compact_table["t"]
+                        yaml_desc = yaml_table_desc.get(table_name)
+                        # Use YAML description if provided; otherwise, use database description
+                        desc = (
+                            yaml_desc
+                            if yaml_desc is not None
+                            else compact_table.get("d", "")
+                        )
+                        # Format fields as 'name:type|name:type|...'
+                        fields = "|".join(
+                            [f"{f['n']}:{f['t']}" for f in compact_table["f"]]
+                        )
+                        table_line = f"{table_name}|{desc}|{fields}"
+                        output_lines.append(table_line)
                 except Exception as e:
-                    print(f"Error fetching tables for schema '{schema_name}': {str(e)}")
+                    print(f"Error fetching tables for '{schema_name}': {str(e)}")
                     continue
 
-            # Write output JSON
-            context_data = {
-                "tables": compact_tables,
-                "version": context_config.get("version", "1.0"),
-            }
+            # Write the output to a text file
             output_file = os.path.join(
-                output_folder, context_file.replace(".yaml", ".json")
+                output_folder, context_file.replace(".yaml", ".txt")
             )
             try:
                 with open(output_file, "w") as file:
-                    json.dump(context_data, file, indent=2)
+                    file.write("\n".join(output_lines))
                 print(f"Successfully generated schema for '{context_file}'")
             except Exception as e:
-                print(f"Error writing output file '{output_file}': {str(e)}")
+                print(f"Error writing '{output_file}': {str(e)}")

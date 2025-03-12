@@ -42,12 +42,18 @@ output: manifest
 
     sample_context_path = os.path.join(contexts_folder, "default_context.yaml")
     sample_context_content = """
-# Sample context configuration
-name: default_context  # Name of the context
+name: default_context
+description: "This context is a sample context."
 datasets:
-  - name: your-dataset-name  # Name of the dataset
+  - name: test_store
+    description: "Operational data for test store."
     tables:
-      - your-table-name  # Table within the dataset
+      - name: customers
+        description: "Customers table."
+      - name: orders
+        description: "Orders table."
+      - name: purchase_orders
+        description: "Purchase orders table."
 """
     with open(sample_context_path, "w") as file:
         file.write(sample_context_content)
