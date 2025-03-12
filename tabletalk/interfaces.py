@@ -1,4 +1,3 @@
-import json
 import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
@@ -133,9 +132,7 @@ class Parser:
 
                 # Process table definitions
                 tables = schema_item.get("tables", [])
-                yaml_table_desc = (
-                    {}
-                )  # Dictionary to store YAML-provided table descriptions
+                yaml_table_desc = {}  # Dictionary to store YAML-provided table descriptions
                 table_names = []  # List of table names for fetching
                 for table in tables:
                     if isinstance(table, str):
