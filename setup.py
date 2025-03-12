@@ -16,7 +16,7 @@ with open(os.path.join(this_directory, "README.md")) as f:
 
 # Package metadata
 package_name = "tabletalk"
-package_version = "0.1.4"
+package_version = "0.1.5"
 description = "A command-line tool for managing database schemas and generating SQL queries using natural language."
 
 # Setup configuration
