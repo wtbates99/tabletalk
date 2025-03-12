@@ -1,5 +1,6 @@
-from interfaces import LLMProvider
 from openai import OpenAI
+
+from tabletalk.interfaces import LLMProvider
 
 
 class OpenAIProvider(LLMProvider):

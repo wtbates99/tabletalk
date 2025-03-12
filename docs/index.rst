@@ -1,10 +1,10 @@
-.. tabletext documentation master file, created by
+.. tabletalk documentation master file, created by
    sphinx-quickstart on Tue Mar 11 10:11:58 2025.
 
-tabletext
+tabletalk
 =========
 
-tabletext is a tool that helps you interact with database tables using natural language queries powered by large language models.
+tabletalk is a tool that helps you interact with database tables using natural language queries powered by large language models.
 
 Contents
 --------
@@ -15,10 +15,10 @@ Contents
    dev/providers
    dev/contexts
 
-dev/providers.rst
------------------
+Providers
+---------
 Describes the supported data and LLM providers with their configuration options.
 
-dev/contexts.rst
-----------------
+Contexts
+--------
 Explains how to specify datasets/tables.

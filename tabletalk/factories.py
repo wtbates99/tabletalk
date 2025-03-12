@@ -2,13 +2,13 @@ import os
 import re
 from typing import Any, Dict
 
-from interfaces import DatabaseProvider, LLMProvider
-from providers.anthropic_provider import AnthropicProvider
-from providers.bigquery_provider import BigQueryProvider
-from providers.mysql_provider import MySQLProvider
-from providers.openai_provider import OpenAIProvider
-from providers.postgres_provider import PostgresProvider
-from providers.sqlite_provider import SQLiteProvider
+from tabletalk.interfaces import DatabaseProvider, LLMProvider
+from tabletalk.providers.anthropic_provider import AnthropicProvider
+from tabletalk.providers.bigquery_provider import BigQueryProvider
+from tabletalk.providers.mysql_provider import MySQLProvider
+from tabletalk.providers.openai_provider import OpenAIProvider
+from tabletalk.providers.postgres_provider import PostgresProvider
+from tabletalk.providers.sqlite_provider import SQLiteProvider
 
 
 def resolve_env_vars(value: str) -> str:

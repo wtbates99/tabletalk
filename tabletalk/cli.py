@@ -3,13 +3,14 @@ import os
 
 import click
 import yaml
-from factories import get_llm_provider
-from utils import apply_schema, format_schema, initialize_project
+
+from tabletalk.factories import get_llm_provider
+from tabletalk.utils import apply_schema, format_schema, initialize_project
 
 
 @click.group()
 def cli() -> None:
-    """TableText CLI tool.
+    """tabletalk CLI tool.
 
     This tool helps you manage and query your database schemas using natural language.
     """
@@ -25,14 +26,14 @@ def init() -> None:
 @cli.command()
 @click.argument("project_folder", default=os.getcwd())
 def apply(project_folder: str) -> None:
-    """Apply the schema from tabletext.yaml in the specified project folder.
+    """Apply the schema from tabletalk.yaml in the specified project folder.
 
     If project_folder is not provided, the current working directory is used.
     """
     if not os.path.isdir(project_folder):
         click.echo(f"Error: '{project_folder}' is not a valid directory.")
         return
-    config_path = os.path.join(project_folder, "tabletext.yaml")
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
     if not os.path.exists(config_path):
         click.echo(f"Config file '{config_path}' not found.")
         return
@@ -50,7 +51,7 @@ def query(project_folder: str) -> None:
     if not os.path.isdir(project_folder):
         click.echo(f"Error: '{project_folder}' is not a valid directory.")
         return
-    config_path = os.path.join(project_folder, "tabletext.yaml")
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
     if not os.path.exists(config_path):
         click.echo(f"Config file '{config_path}' not found.")
         return
@@ -58,7 +59,7 @@ def query(project_folder: str) -> None:
         config = yaml.safe_load(file)
     llm_config = config.get("llm", {})
     if not llm_config or "provider" not in llm_config or "api_key" not in llm_config:
-        click.echo("LLM configuration missing or incomplete in 'tabletext.yaml'.")
+        click.echo("LLM configuration missing or incomplete in 'tabletalk.yaml'.")
         return
     try:
         llm_provider = get_llm_provider(llm_config)

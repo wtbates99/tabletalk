@@ -2,7 +2,8 @@ from typing import Any, Dict, List, Optional
 
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from interfaces import DatabaseProvider
+
+from tabletalk.interfaces import DatabaseProvider
 
 
 class BigQueryProvider(DatabaseProvider):

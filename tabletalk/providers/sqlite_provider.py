@@ -1,7 +1,7 @@
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from interfaces import DatabaseProvider
+from tabletalk.interfaces import DatabaseProvider
 
 
 class SQLiteProvider(DatabaseProvider):

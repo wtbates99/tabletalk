@@ -1,8 +1,9 @@
 from typing import Any, Dict, List, Optional
 
 import psycopg2
-from interfaces import DatabaseProvider
 from psycopg2.extras import RealDictCursor
+
+from tabletalk.interfaces import DatabaseProvider
 
 
 class PostgresProvider(DatabaseProvider):

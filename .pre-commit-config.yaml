@@ -40,6 +40,7 @@ repos:
           types-psycopg2,
           mysql-connector-python,
           anthropic,
-          click
+          click,
+          setuptools
         ]
         args: [--strict, --namespace-packages]

@@ -2,14 +2,15 @@ import os
 from typing import Any
 
 import yaml
-from factories import get_db_provider
-from interfaces import Parser
+
+from tabletalk.factories import get_db_provider
+from tabletalk.interfaces import Parser
 
 
 def initialize_project() -> None:
     """Initialize a new project by creating configuration files in the current working directory."""
     project_folder = os.getcwd()
-    config_yaml_path = os.path.join(project_folder, "tabletext.yaml")
+    config_yaml_path = os.path.join(project_folder, "tabletalk.yaml")
     if os.path.exists(config_yaml_path):
         print(f"File {config_yaml_path} already exists.")
         return
@@ -56,13 +57,13 @@ datasets:
         os.makedirs(manifest_folder)
 
     print(
-        "Project initialized in the current directory. Edit tabletext.yaml and contexts/default_context.yaml to customize your settings."
+        "Project initialized in the current directory. Edit tabletalk.yaml and contexts/default_context.yaml to customize your settings."
     )
 
 
 def apply_schema(project_folder: str) -> None:
     """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
-    config_path = os.path.join(project_folder, "tabletext.yaml")
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 

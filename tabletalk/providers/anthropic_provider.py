@@ -1,5 +1,6 @@
 from anthropic import Anthropic
-from interfaces import LLMProvider
+
+from tabletalk.interfaces import LLMProvider
 
 
 class AnthropicProvider(LLMProvider):

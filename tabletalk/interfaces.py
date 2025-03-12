@@ -55,7 +55,7 @@ class Parser:
         Initialize the Parser with a project folder and database provider.
 
         Args:
-            project_folder (str): Path to the project folder containing 'tabletext.yaml' and a 'contexts' subfolder.
+            project_folder (str): Path to the project folder containing 'tabletalk.yaml' and a 'contexts' subfolder.
             db_provider (DatabaseProvider): An instance of a database provider implementing the DatabaseProvider interface.
         """
         self.project_folder = project_folder
@@ -66,12 +66,12 @@ class Parser:
         Process the project folder and generate JSON schemas for all contexts.
 
         This method:
-        1. Reads 'tabletext.yaml' for configuration.
+        1. Reads 'tabletalk.yaml' for configuration.
         2. Processes YAML files in the 'contexts' folder.
         3. Uses the DBProvider to fetch table schemas.
         4. Writes compact schemas to JSON files in the 'output' folder.
 
-        Expected 'tabletext.yaml' structure:
+        Expected 'tabletalk.yaml' structure:
             provider:
                 type: "bigquery"  # e.g., "bigquery", "redshift"
                 # provider-specific settings
@@ -86,18 +86,17 @@ class Parser:
                     - "table2"
             version: "1.0"  # optional
         """
-        # Load and validate tabletext.yaml
-        config_path = os.path.join(self.project_folder, "tabletext.yaml")
+        config_path = os.path.join(self.project_folder, "tabletalk.yaml")
         try:
             with open(config_path, "r") as file:
                 defaults = yaml.safe_load(file)
             if not isinstance(defaults, dict):
-                raise ValueError("'tabletext.yaml' must be a valid YAML dictionary.")
+                raise ValueError("'tabletalk.yaml' must be a valid YAML dictionary.")
             required_keys = ["provider", "contexts", "output"]
             for key in required_keys:
                 if key not in defaults:
                     raise ValueError(
-                        f"'tabletext.yaml' is missing required key: '{key}'."
+                        f"'tabletalk.yaml' is missing required key: '{key}'."
                     )
         except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
             print(f"Error loading configuration: {str(e)}")

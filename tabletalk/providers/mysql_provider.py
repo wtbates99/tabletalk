@@ -1,10 +1,11 @@
 from typing import Any, Dict, List, Optional, cast
 
 import mysql.connector
-from interfaces import DatabaseProvider
 from mysql.connector import Error, MySQLConnection
 from mysql.connector.abstracts import MySQLConnectionAbstract
 from mysql.connector.pooling import PooledMySQLConnection
+
+from tabletalk.interfaces import DatabaseProvider
 
 
 class MySQLProvider(DatabaseProvider):
