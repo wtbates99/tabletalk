@@ -68,7 +68,6 @@ class Parser:
         Reads 'tabletalk.yaml' and context YAML files, fetches table schemas via DatabaseProvider,
         and writes output in a custom text format to the 'output' folder.
         """
-        # Load tabletalk.yaml for data source configuration
         config_path = os.path.join(self.project_folder, "tabletalk.yaml")
         try:
             with open(config_path, "r") as file:
@@ -86,12 +85,10 @@ class Parser:
             print(f"Error loading configuration: {str(e)}")
             return
 
-        # Set up folders
         contexts_folder = os.path.join(self.project_folder, defaults["contexts"])
         output_folder = os.path.join(self.project_folder, defaults["output"])
         os.makedirs(output_folder, exist_ok=True)
 
-        # Process each context file in the contexts folder
         for context_file in os.listdir(contexts_folder):
             if not context_file.endswith(".yaml"):
                 continue
@@ -106,16 +103,13 @@ class Parser:
                 print(f"Error reading '{context_file}': {str(e)}")
                 continue
 
-            # Extract context information
             context_name = context_config.get("name", "unnamed_context")
             context_desc = context_config.get("description", "")
             version = context_config.get("version", "1.0")
             context_line = f"CONTEXT: {context_name} - {context_desc} (v{version})"
 
-            # Initialize output lines with data source and context
             output_lines = [data_source_line, context_line]
 
-            # Process datasets/schemas within the context
             schema_list = context_config.get("datasets") or context_config.get(
                 "schemas", []
             )
@@ -130,10 +124,9 @@ class Parser:
                 output_lines.append(f"DATASET: {schema_name} - {schema_desc}")
                 output_lines.append("TABLES:")
 
-                # Process table definitions
                 tables = schema_item.get("tables", [])
-                yaml_table_desc = {}  # Dictionary to store YAML-provided table descriptions
-                table_names = []  # List of table names for fetching
+                yaml_table_desc: Dict[str, Optional[str]] = {}
+                table_names: List[str] = []
                 for table in tables:
                     if isinstance(table, str):
                         table_name = f"{schema_name}.{table}"
@@ -147,7 +140,6 @@ class Parser:
                         print(f"Warning: Invalid table entry in '{schema_name}'.")
                         continue
 
-                # Fetch compact table schemas from the database provider
                 try:
                     compact_tables = self.db_provider.get_compact_tables(
                         schema_name, table_names
@@ -155,13 +147,11 @@ class Parser:
                     for compact_table in compact_tables:
                         table_name = compact_table["t"]
                         yaml_desc = yaml_table_desc.get(table_name)
-                        # Use YAML description if provided; otherwise, use database description
                         desc = (
                             yaml_desc
                             if yaml_desc is not None
                             else compact_table.get("d", "")
                         )
-                        # Format fields as 'name:type|name:type|...'
                         fields = "|".join(
                             [f"{f['n']}:{f['t']}" for f in compact_table["f"]]
                         )
@@ -171,7 +161,6 @@ class Parser:
                     print(f"Error fetching tables for '{schema_name}': {str(e)}")
                     continue
 
-            # Write the output to a text file
             output_file = os.path.join(
                 output_folder, context_file.replace(".yaml", ".txt")
             )

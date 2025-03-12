@@ -1,5 +1,4 @@
 import os
-from typing import Any
 
 import yaml
 
@@ -77,16 +76,3 @@ def apply_schema(project_folder: str) -> None:
     db_provider = get_db_provider(provider_config)
     parser = Parser(project_folder, db_provider)
     parser.apply_schema()
-
-
-def format_schema(manifest_data: dict[str, Any]) -> str:
-    """Format the manifest schema into a string for the LLM prompt."""
-    schema_str = ""
-    for table in manifest_data["tables"]:
-        schema_str += f"Table: {table['t']}\n"
-        schema_str += f"Description: {table['d']}\n"
-        schema_str += "Fields:\n"
-        for field in table["f"]:
-            schema_str += f"  - {field['n']} ({field['t']})\n"
-        schema_str += "\n"
-    return schema_str.strip()

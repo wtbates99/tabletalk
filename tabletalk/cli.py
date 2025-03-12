@@ -1,11 +1,10 @@
-import json
 import os
 
 import click
 import yaml
 
 from tabletalk.factories import get_llm_provider
-from tabletalk.utils import apply_schema, format_schema, initialize_project
+from tabletalk.utils import apply_schema, initialize_project
 
 
 @click.group()
@@ -72,7 +71,7 @@ def query(project_folder: str) -> None:
             f"Manifest folder '{manifest_folder}' not found. Please run 'apply' first."
         )
         return
-    manifest_files = [f for f in os.listdir(manifest_folder) if f.endswith(".json")]
+    manifest_files = [f for f in os.listdir(manifest_folder) if f.endswith(".txt")]
     if not manifest_files:
         click.echo("No manifest files found in the manifest folder.")
         return
@@ -88,10 +87,12 @@ def query(project_folder: str) -> None:
             click.echo("Invalid selection. Please enter a valid number.")
     manifest_path = os.path.join(manifest_folder, selected_file)
     with open(manifest_path, "r") as file_handle:
-        manifest_data = json.load(file_handle)
+        manifest_data = file_handle.read()
     click.echo(f"\nUsing manifest: {selected_file}")
     click.echo("Type your question below. Enter 'exit' to quit.")
-    schema_str = format_schema(manifest_data)
+
+    schema_str = manifest_data
+
     while True:
         question = click.prompt("Ask a question", type=str)
         if question.lower() == "exit":
