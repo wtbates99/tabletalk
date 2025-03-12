@@ -165,3 +165,7 @@ Type exit to end the session.
 # Contributing
 
 Want to help improve tabletalk? Fork the repository, make your changes, and submit a pull request. For major updates, please open an issue first to discuss your ideas.
+
+# License
+
+This code is licensed under CC BY-NC 4.0 for non-commercial use. For commercial use, contact wtbates99@gmail.com.
