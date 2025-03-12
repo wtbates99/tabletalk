@@ -3,7 +3,9 @@ from typing import Tuple
 
 from flask import Flask, Response, jsonify, request, send_from_directory, session
 
-app = Flask(__name__)
+# Update the Flask initialization to use the static folder relative to the app.py file
+static_folder = os.path.join(os.path.dirname(__file__), "static")
+app = Flask(__name__, static_folder=static_folder, static_url_path="")
 app.secret_key = "local_app_secret_key"
 
 # Don't initialize QuerySession at import time
@@ -14,8 +16,33 @@ project_folder = os.getcwd()
 
 
 @app.route("/")
-def serve_index() -> Response:
-    return send_from_directory(app.static_folder or "", "index.html")
+def serve_index() -> Response | Tuple[Response, int]:
+    # Since we've set static_folder in the Flask app initialization,
+    # we can just use send_from_directory with that path
+    try:
+        if app.static_folder is None:
+            return jsonify({"error": "Static folder is not configured"}), 404
+        return send_from_directory(app.static_folder, "index.html")
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "error": f"Could not serve index.html: {str(e)}",
+                    "static_folder": app.static_folder,
+                    "exists": (
+                        os.path.exists(app.static_folder)
+                        if app.static_folder
+                        else False
+                    ),
+                    "files": (
+                        os.listdir(app.static_folder)
+                        if app.static_folder and os.path.exists(app.static_folder)
+                        else []
+                    ),
+                }
+            ),
+            404,
+        )
 
 
 @app.route("/manifests", methods=["GET"])
