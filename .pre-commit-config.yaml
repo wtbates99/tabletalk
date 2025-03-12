@@ -41,6 +41,7 @@ repos:
           mysql-connector-python,
           anthropic,
           click,
-          setuptools
+          setuptools,
+          flask
         ]
         args: [--strict, --namespace-packages]

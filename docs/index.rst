@@ -12,6 +12,7 @@ Contents
 .. toctree::
    :maxdepth: 1
 
+   dev/querying
    dev/providers
    dev/contexts
    dev/local_development
