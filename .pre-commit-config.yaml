@@ -38,6 +38,7 @@ repos:
           google-cloud-bigquery,
           google-auth,
           types-psycopg2,
-          mysql-connector-python
+          mysql-connector-python,
+          anthropic
         ]
         args: [--strict, --namespace-packages]

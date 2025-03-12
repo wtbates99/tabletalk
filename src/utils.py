@@ -66,7 +66,6 @@ def apply_schema(project_folder: str) -> None:
     with open(config_path, "r") as file:
         defaults = yaml.safe_load(file)
 
-    # Instantiate the provider
     provider_config = defaults.get("provider", {})
     db_provider = get_db_provider(provider_config)
     parser = Parser(project_folder, db_provider)

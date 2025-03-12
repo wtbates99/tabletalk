@@ -43,7 +43,6 @@ def format_schema(manifest_data: dict[str, Any]) -> str:  # Changed 'any' to 'An
 
 def query_project(project_folder: str) -> None:
     """Start an interactive session to query manifests with an LLM."""
-    # Load the configuration
     config_path = os.path.join(project_folder, "tabletext.yaml")
     if not os.path.exists(config_path):
         print(f"Config file '{config_path}' not found. Please run 'init' first.")
@@ -55,14 +54,12 @@ def query_project(project_folder: str) -> None:
         print("LLM configuration missing or incomplete in 'tabletext.yaml'.")
         sys.exit(1)
 
-    # Initialize LLM provider
     try:
         llm_provider = get_llm_provider(llm_config)
     except Exception as e:
         print(f"Failed to initialize LLM provider: {str(e)}")
         sys.exit(1)
 
-    # List available manifest files
     manifest_folder = os.path.join(project_folder, "manifest")
     if not os.path.exists(manifest_folder):
         print(
@@ -85,12 +82,10 @@ def query_project(project_folder: str) -> None:
         except (IndexError, ValueError):
             print("Invalid selection. Please enter a valid number.")
 
-    # Load the selected manifest
     manifest_path = os.path.join(manifest_folder, selected_file)
     with open(manifest_path, "r") as file_handle:
         manifest_data = json.load(file_handle)
 
-    # Start interactive query loop
     print(f"\nUsing manifest: {selected_file}")
     print("Type your question below. Enter 'exit' to quit.")
     schema_str = format_schema(manifest_data)

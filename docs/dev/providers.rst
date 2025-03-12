@@ -149,3 +149,29 @@ Configuration Example
       model: gpt-4
       max_tokens: 150
       temperature: 0
+
+DeepSeek
+~~~~~~~~
+
+Configuration Example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: yaml
+
+    llm:
+      provider: deepseek
+      api_key: your-deepseek-api-key
+      model: deepseek-chat
+
+Anthropic
+~~~~~~~~~
+
+Configuration Example
+^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: yaml
+
+    llm:
+      provider: anthropic
+      api_key: your-anthropic-api-key
+      model: claude-3-sonnet-20240229

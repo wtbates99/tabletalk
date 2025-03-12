@@ -3,6 +3,7 @@ import re
 from typing import Any, Dict
 
 from interfaces import DatabaseProvider, LLMProvider
+from providers.anthropic_provider import AnthropicProvider
 from providers.bigquery_provider import BigQueryProvider
 from providers.mysql_provider import MySQLProvider
 from providers.openai_provider import OpenAIProvider
@@ -30,6 +31,11 @@ def get_llm_provider(config: Dict[str, Any]) -> LLMProvider:
     if provider_type == "openai":
         api_key = resolve_env_vars(config["api_key"])
         return OpenAIProvider(api_key=api_key, model=config.get("model", "gpt-4o"))
+    elif provider_type == "anthropic":
+        api_key = resolve_env_vars(config["api_key"])
+        return AnthropicProvider(
+            api_key=api_key, model=config.get("model", "claude-3-5-sonnet-20240620")
+        )
     raise ValueError(f"Unsupported LLM provider: {provider_type}")
 
 
