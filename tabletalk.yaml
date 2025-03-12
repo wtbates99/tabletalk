@@ -1,0 +1,17 @@
+
+# Configuration for the data provider
+provider:
+  type: bigquery  # Type of the provider, e.g., bigquery, snowflake, etc.
+  project_id: your-gcp-project-id  # GCP project ID for BigQuery
+  use_default_credentials: true  # Whether to use default GCP credentials
+
+# Configuration for the LLM
+llm:
+  provider: openai  # LLM provider, e.g., openai, anthropic, etc.
+  api_key: ${OPENAI_API_KEY}  # Use environment variable for API key
+  model: gpt-4o  # Model to use
+  max_tokens: 500  # Maximum number of tokens to generate
+  temperature: 0  # Sampling temperature
+
+contexts: contexts
+output: manifest

@@ -3,13 +3,14 @@ from typing import Tuple
 
 from flask import Flask, Response, jsonify, request, send_from_directory, session
 
-from tabletalk.interfaces import QuerySession
-
 app = Flask(__name__)
 app.secret_key = "local_app_secret_key"
 
+# Don't initialize QuerySession at import time
+# We'll initialize it lazily in the routes that need it
+query_session = None
+
 project_folder = os.getcwd()
-query_session = QuerySession(project_folder)
 
 
 @app.route("/")
@@ -48,6 +49,10 @@ def select_manifest() -> Tuple[Response, int] | Response:
 @app.route("/query", methods=["POST"])
 def query() -> Tuple[Response, int] | Response:
     """Generate SQL for a question using the selected manifest."""
+    from tabletalk.interfaces import QuerySession
+
+    global query_session
+
     if "manifest" not in session:
         return (
             jsonify({"error": "No manifest selected. Please select a manifest first."}),
@@ -58,7 +63,12 @@ def query() -> Tuple[Response, int] | Response:
     if not question:
         return jsonify({"error": "Question not provided"}), 400
     manifest_file = session["manifest"]
+
     try:
+        # Lazy initialization of QuerySession
+        if query_session is None:
+            query_session = QuerySession(project_folder)
+
         manifest_data = query_session.load_manifest(manifest_file)
         sql = query_session.generate_sql(manifest_data, question)
         return jsonify({"sql": sql})
