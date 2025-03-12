@@ -150,19 +150,6 @@ Configuration Example
       max_tokens: 150
       temperature: 0
 
-DeepSeek
-~~~~~~~~
-
-Configuration Example
-^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: yaml
-
-    llm:
-      provider: deepseek
-      api_key: your-deepseek-api-key
-      model: deepseek-chat
-
 Anthropic
 ~~~~~~~~~
 
