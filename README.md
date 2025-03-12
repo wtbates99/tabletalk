@@ -1,6 +1,6 @@
 # tabletalk
 
-tabletalk is a command-line interface (CLI) tool designed to let you "talk" to your databases using natural language. Unlike heavier frameworks like Langchain—an 18-wheeler in comparison—tabletalk is a sleek sedan, built for simplicity and ease of use. With tabletalk, you can define specific "contexts" based on relationships in your data, then query that data conversationally, either by generating SQL or asking questions directly. It connects to your existing databases—BigQuery, SQLite, MySQL, or Postgres—pulls schemas based on your defined contexts, and leverages large language models (LLMs) from OpenAI and Anthropic to chat with your data effectively.
+tabletalk is a command-line interface (CLI) tool designed to let you "talk" to your databases using natural language. Unlike heavier frameworks, tabletalk is built for simplicity and ease of use. With tabletalk, you can define specific "contexts" based on relationships in your data, then query that data conversationally, either by generating SQL or asking questions directly. It connects to your existing databases—BigQuery, SQLite, MySQL, or Postgres—pulls schemas based on your defined contexts, and leverages large language models (LLMs) from OpenAI and Anthropic to chat with your data effectively.
 
 # Features
 
