@@ -53,7 +53,7 @@ setup(
     python_requires=">=3.9",
     classifiers=[
         "Development Status :: 3 - Alpha",
-        "License :: CC BY-NC-SA 4.0",
+        "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
