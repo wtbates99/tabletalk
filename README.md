@@ -2,15 +2,15 @@
 
 tabletalk is a command-line interface (CLI) tool designed to let you "talk" to your databases using natural language. Unlike heavier frameworks, tabletalk is built for simplicity and ease of use. With tabletalk, you can define specific "contexts" based on relationships in your data, then query that data conversationally, either by generating SQL or asking questions directly. It connects to your existing databases—BigQuery, SQLite, MySQL, or Postgres—pulls schemas based on your defined contexts, and leverages large language models (LLMs) from OpenAI and Anthropic to chat with your data effectively.
 
-# Features
+## Features
 
-- Database Support: Connect to BigQuery, SQLite, MySQL, and Postgres.
-- Custom Contexts: Define relationships in your data to create focused querying scenarios.
-- LLM Integration: Use OpenAI or Anthropic models to generate SQL or answer questions.
-- Natural Language Queries: Ask questions about your data in plain English, with SQL generated automatically.
-- Local Execution: Run generated SQL locally against your database.
+- **Database Support**: Connect to BigQuery, SQLite, MySQL, and Postgres.
+- **Custom Contexts**: Define relationships in your data to create focused querying scenarios.
+- **LLM Integration**: Use OpenAI or Anthropic models to generate SQL or answer questions.
+- **Natural Language Queries**: Ask questions about your data in plain English, with SQL generated automatically.
+- **Local Execution**: Run generated SQL locally against your database.
 
-# Installation
+## Installation
 
 Install tabletalk via pip:
 
@@ -18,29 +18,18 @@ Install tabletalk via pip:
 pip install tabletalk
 ```
 
-# Configuration
+## Configuration
 
-Tabletalk relies on a configuration file named tabletalk.yaml to set up your database and LLM preferences. This file includes:
+tabletalk relies on a configuration file named `tabletalk.yaml` to set up your database and LLM preferences. This file includes:
 
-- Provider: Details for connecting to your database.
-- LLM: Settings for the language model, such as provider, API key, and model specifics.
-- Contexts: Path to a directory containing context definitions.
-- Output: Directory where manifest files (schema data) are stored.
+- **Provider**: Details for connecting to your database.
+- **LLM**: Settings for the language model, such as provider, API key, and model specifics.
+- **Contexts**: Path to a directory containing context definitions.
+- **Output**: Directory where manifest files (schema data) are stored.
 
-Note: For security, set API keys as environment variables (e.g., export ANTHROPIC_API_KEY="your-key-here").
+**Note**: For security, set API keys as environment variables (e.g., `export ANTHROPIC_API_KEY="your-key-here"`).
 
-# Defining Contexts
-
-Contexts are defined in separate YAML files within the contexts directory. Each context specifies a subset of your database—datasets and tables—relevant to a particular querying scenario.
-
-- Provider: Details for connecting to your database.
-- LLM: Settings for the language model, such as provider, API key, and model specifics.
-- Contexts: Path to a directory containing context definitions.
-- Output: Directory where manifest files (schema data) are stored.
-
-Note: For security, set API keys as environment variables (e.g., export ANTHROPIC_API_KEY="your-key-here").
-
-Here’s an example tabletalk.yaml:
+### Example `tabletalk.yaml`:
 
 ```yaml
 provider:
@@ -61,11 +50,11 @@ contexts: contexts
 output: manifest
 ```
 
-# Defining Contexts
+## Defining Contexts
 
-Contexts are defined in separate YAML files within the contexts directory. Each context specifies a subset of your database—datasets and tables—relevant to a particular querying scenario.
+Contexts are defined in separate YAML files within the `contexts/` directory. Each context specifies a subset of your database—datasets and tables—relevant to a particular querying scenario.
 
-Example context file contexts/sales_context.yaml:
+### Example `contexts/sales_context.yaml`:
 
 ```yaml
 name: sales_context
@@ -76,40 +65,68 @@ datasets:
       - orders
 ```
 
-# Usage
+## Usage
 
-Tabletalk offers three core CLI commands:
+tabletalk offers three core CLI commands:
+
+### Initialize the Project
 
 ```bash
 tabletalk init
 ```
 
-init: Sets up a new tabletalk project in your current directory, creating tabletalk.yaml, a contexts/ folder, and a manifest/ folder.
+Creates `tabletalk.yaml`, a `contexts/` folder, and a `manifest/` folder.
+
+### Apply Contexts
 
 ```bash
 tabletalk apply
 ```
 
-apply: Reads context definitions from the contexts directory, connects to your database, pulls the relevant schemas, and generates manifest files in the output directory (e.g., manifest/).
+Reads context definitions, connects to your database, pulls the relevant schemas, and generates manifest files in the `manifest/` directory.
+
+### Query Command
+
+Starts an interactive session for querying your data via the command line.
 
 ```bash
-tabletalk query
+tabletalk query [PROJECT_FOLDER]
 ```
 
-query: Launches an interactive session where you select a manifest (representing a context) and ask questions in natural language. The LLM generates SQL queries based on your input.
+- **PROJECT_FOLDER**: (Optional) Path to the project directory. Defaults to the current directory.
 
+#### Steps:
+1. **Select a Manifest**: Choose from available manifest files (e.g., `1. sales_context.json`).
+2. **Ask Questions**: Type a natural language question (e.g., "How many customers placed orders last month?").
+3. **Change Manifests**: Type `change` to switch to a different manifest.
+4. **Exit**: Type `exit` to end the session.
 
-# Example Workflow
+### Serve Command
 
-Let’s set up and query a simple sales database:
+Launches a Flask web server providing a graphical interface for querying your data.
 
-Initialize the Project:
+```bash
+tabletalk serve [--port PORT]
+```
+
+- **--port PORT**: (Optional) Specifies the port. Defaults to `5000`.
+
+#### Steps:
+1. **Open the Web Interface**: Navigate to `http://localhost:PORT`.
+2. **Select a Manifest**: Click a manifest (e.g., `sales_context.json`).
+3. **Ask a Question**: Type a question (e.g., "How many customers placed orders last month?") and click "Send".
+
+**Note**: Both `query` and `serve` commands require manifest files, generated by running `tabletalk apply` first.
+
+## Example Workflow
+
+### Step 1: Initialize the Project
 
 ```bash
 tabletalk init
 ```
 
-This creates the project structure:
+Creates the following structure:
 
 ```text
 project_folder/
@@ -118,20 +135,9 @@ project_folder/
 └── manifest/
 ```
 
-Define a Context:
+### Step 2: Define a Context
 
-Create contexts/sales_context.yaml:
-
-```yaml
-name: sales_context
-datasets:
-  - name: test_store
-    tables:
-      - customers
-      - orders
-```
-
-Configure tabletalk.yaml:
+Create `contexts/sales_context.yaml`:
 
 ```yaml
 name: sales_context
@@ -142,30 +148,44 @@ datasets:
       - orders
 ```
 
-Apply the Schema:
+### Step 3: Apply the Schema
 
 ```bash
 tabletalk apply
 ```
 
-This generates a manifest file (e.g., manifest/sales_context.json) with the schema for customers and orders.
+Generates a manifest file (e.g., `manifest/sales_context.json`).
 
-Query Your Data:
+### Step 4: Query Your Data
 
 ```bash
 tabletalk query
 ```
 
-You’ll see a list of available manifests (e.g., 1. sales_context.json).
-Enter the number (e.g., 1) to select it.
-Ask a question like: "How many customers placed orders last month?"
-The LLM generates an SQL query, which you can then run locally against your database.
-Type exit to end the session.
+1. Select `sales_context.json`.
+2. Ask a question like: "How many customers placed orders last month?"
+3. View the generated SQL and execute it locally.
+4. Type `exit` to end the session.
 
-# Contributing
+### Step 5: Start the Web Server
+
+```bash
+tabletalk serve --port 8080
+```
+
+### Step 6: Access the Web Interface
+
+Open `http://localhost:8080` in your browser.
+
+- **Select a Manifest**: Click on `sales_context.json`.
+- **Ask a Question**: Type "How many customers placed orders last month?" and click "Send".
+- **View Generated SQL**: The query appears in the chat history.
+
+## Contributing
 
 Want to help improve tabletalk? Fork the repository, make your changes, and submit a pull request. For major updates, please open an issue first to discuss your ideas.
 
-# License
+## License
 
-This code is licensed under CC BY-NC 4.0 for non-commercial use. For commercial use, contact wtbates99@gmail.com.
+This code is licensed under **CC BY-NC 4.0** for non-commercial use. For commercial use, contact `wtbates99@gmail.com`.
+
