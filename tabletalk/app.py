@@ -64,7 +64,3 @@ def query() -> Tuple[Response, int] | Response:
         return jsonify({"sql": sql})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-if __name__ == "__main__":
-    app.run(debug=True)

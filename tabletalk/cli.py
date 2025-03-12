@@ -2,6 +2,7 @@ import os
 
 import click
 
+from tabletalk.app import app
 from tabletalk.interfaces import QuerySession
 from tabletalk.utils import apply_schema, initialize_project
 
@@ -118,3 +119,14 @@ def query(project_folder: str) -> None:
                 click.echo()
             except RuntimeError as e:
                 click.echo(f"Error generating SQL: {str(e)}")
+
+
+@cli.command()
+@click.option("--port", default=5000, type=int, help="Port to run the server on.")
+def serve(port: int) -> None:
+    """Start the Flask web server."""
+    app.run(debug=True, port=port)
+
+
+if __name__ == "__main__":
+    cli()
