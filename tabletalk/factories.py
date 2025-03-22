@@ -55,7 +55,8 @@ def get_db_provider(config: Dict[str, Any]) -> DatabaseProvider:
     elif provider_type == "postgres":
         return PostgresProvider(
             host=config["host"],
-            database=config["database"],
+            port=int(config.get("port", 5432)),
+            dbname=config["database"],
             user=config["user"],
             password=config["password"],
         )
