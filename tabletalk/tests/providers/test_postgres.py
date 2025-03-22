@@ -1,7 +1,8 @@
-import pytest
-from typing import Generator, Dict, Optional
-from contextlib import closing
 import os
+from contextlib import closing
+from typing import Dict, Generator
+
+import pytest
 
 from tabletalk.providers.postgres_provider import PostgresProvider
 
@@ -105,7 +106,15 @@ def postgres_db(request) -> Generator[Dict[str, str], None, None]:
             """
             )
             postgresql.commit()
-        yield postgresql.dsn
+        # Instead of postgresql.dsn, create a config dict
+        config = {
+            "host": postgresql.get_dsn_parameters()["host"],
+            "port": postgresql.get_dsn_parameters()["port"],
+            "dbname": postgresql.get_dsn_parameters()["dbname"],
+            "user": postgresql.get_dsn_parameters()["user"],
+            "password": postgresql.get_dsn_parameters().get("password", ""),
+        }
+        yield config
     else:
         # Local development environment
         config = LOCAL_PG_CONFIG.copy()
@@ -124,8 +133,6 @@ def postgres_provider(
         dbname=postgres_db["dbname"],
         user=postgres_db["user"],
         password=postgres_db.get("password", ""),
-        min_connections=1,
-        max_connections=5,
     )
     yield provider
     provider.close()
