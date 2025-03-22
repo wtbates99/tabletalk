@@ -8,3 +8,5 @@ anthropic
 click
 flask
 pytest
+pytest-postgresql
+psycopg2-binary
