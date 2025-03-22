@@ -89,7 +89,8 @@ class MySQLProvider(DatabaseProvider):
                 """
                 SELECT TABLE_NAME as table_name
                 FROM information_schema.tables
-                WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'
+                WHERE TABLE_SCHEMA = %s
+                AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
                 """,
                 (schema_name,),
             )
@@ -117,7 +118,7 @@ class MySQLProvider(DatabaseProvider):
 
             cursor.execute(
                 """
-                SELECT TABLE_COMMENT as description
+                SELECT TABLE_COMMENT as description, TABLE_TYPE as table_type
                 FROM information_schema.tables
                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
                 """,

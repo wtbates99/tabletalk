@@ -1,0 +1,10 @@
+pyyaml>=6.0
+openai>=1.0.0
+google-cloud-bigquery>=3.0.0
+sphinx
+mysql-connector-python
+psycopg2-binary
+anthropic
+click
+flask
+pytest
