@@ -35,6 +35,7 @@ def postgres_db():
     # Set up schema and data
     conn = connect(**TEST_CONFIG)
     with conn.cursor() as cur:
+        # Create users table
         cur.execute(
             """
             CREATE TABLE users (
@@ -50,6 +51,14 @@ def postgres_db():
             VALUES ('Alice', 30), ('Bob', 25)
         """
         )
+
+        # Create a view
+        cur.execute(
+            """
+            CREATE VIEW adult_users AS
+            SELECT name, age FROM users WHERE age >= 18
+        """
+        )
         conn.commit()
     conn.close()
 
@@ -61,7 +70,8 @@ def postgres_provider(postgres_db):
     """Create PostgresProvider instance"""
     provider = PostgresProvider(**postgres_db)
     yield provider
-    provider.close()
+    # Close the underlying connection instead of calling close()
+    provider.conn.close()
 
 
 # Simplified tests
@@ -72,8 +82,31 @@ def test_basic_query(postgres_provider):
     assert results[1]["name"] == "Bob"
 
 
-def test_table_schema(postgres_provider):
+def test_table_and_view_schema(postgres_provider):
+    """Test that both tables and views are returned by get_compact_tables"""
     schemas = postgres_provider.get_compact_tables()
-    assert len(schemas) == 1
-    assert schemas[0]["t"] == "users"
-    assert len(schemas[0]["f"]) == 3
+
+    # Should return both the table and view
+    assert len(schemas) == 2
+
+    # Find table and view in results
+    table_schema = next(s for s in schemas if s["t"] == "users")
+    view_schema = next(s for s in schemas if s["t"] == "adult_users")
+
+    # Verify table schema
+    assert len(table_schema["f"]) == 3
+    assert [f["n"] for f in table_schema["f"]] == ["id", "name", "age"]
+
+    # Verify view schema
+    assert len(view_schema["f"]) == 2
+    assert [f["n"] for f in view_schema["f"]] == ["name", "age"]
+
+
+def test_view_query(postgres_provider):
+    """Test querying the view"""
+    results = postgres_provider.execute_query("SELECT * FROM adult_users ORDER BY name")
+    assert len(results) == 2
+    assert results[0]["name"] == "Alice"
+    assert results[0]["age"] == 30
+    assert results[1]["name"] == "Bob"
+    assert results[1]["age"] == 25
