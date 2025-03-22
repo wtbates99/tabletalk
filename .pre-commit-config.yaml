@@ -42,6 +42,7 @@ repos:
           anthropic,
           click,
           setuptools,
-          flask
+          flask,
+          pytest
         ]
         args: [--strict, --namespace-packages]

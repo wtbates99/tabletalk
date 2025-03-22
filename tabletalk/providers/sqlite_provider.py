@@ -59,22 +59,23 @@ class SQLiteProvider(DatabaseProvider):
         self, schema_name: str, table_names: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetch table schemas from SQLite database in a compact format.
+        Fetch table and view schemas from SQLite database in a compact format.
 
         Args:
             schema_name (str): Not used in SQLite, but kept for interface compatibility
-            table_names (Optional[List[str]]): Specific table names; if None, fetch all tables
+            table_names (Optional[List[str]]): Specific table/view names; if None, fetch all tables and views
 
         Returns:
-            List of table schemas in compact format
+            List of table and view schemas in compact format
         """
         cursor = self.connection.cursor()
 
         if table_names is None:
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
             )
-            table_names = [row[0] for row in cursor.fetchall()]
+            results = cursor.fetchall()
+            table_names = [row[0] for row in results]
 
         type_map = self.get_database_type_map()
         compact_tables = []
@@ -89,7 +90,6 @@ class SQLiteProvider(DatabaseProvider):
                 col_type = column[2].upper() if column[2] else "TEXT"
 
                 mapped_type = type_map.get(col_type, "S")
-                fields.append({"n": col_name, "t": mapped_type})
                 fields.append({"n": col_name, "t": mapped_type})
 
             compact_tables.append(

@@ -80,14 +80,14 @@ class PostgresProvider(DatabaseProvider):
         self, schema_name: str = "public", table_names: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetch table schemas from PostgreSQL database in a compact format.
+        Fetch table and view schemas from PostgreSQL database in a compact format.
 
         Args:
             schema_name (str): PostgreSQL schema name (default: 'public')
-            table_names (Optional[List[str]]): Specific table names; if None, fetch all tables
+            table_names (Optional[List[str]]): Specific table/view names; if None, fetch all
 
         Returns:
-            List of table schemas in compact format
+            List of table/view schemas in compact format
         """
         cursor = self.connection.cursor()
 
@@ -96,7 +96,8 @@ class PostgresProvider(DatabaseProvider):
                 """
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = %s AND table_type = 'BASE TABLE'
+                WHERE table_schema = %s
+                AND table_type IN ('BASE TABLE', 'VIEW')
                 """,
                 (schema_name,),
             )
