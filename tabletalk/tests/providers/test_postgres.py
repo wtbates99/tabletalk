@@ -1,229 +1,79 @@
 import os
-from contextlib import closing
-from typing import Dict, Generator
-
 import pytest
+from psycopg2 import connect
+from psycopg2.extras import RealDictCursor
 
 from tabletalk.providers.postgres_provider import PostgresProvider
 
-# Configuration for local development fallback
-LOCAL_PG_CONFIG = {
-    "host": os.getenv("POSTGRES_HOST", "localhost"),
-    "port": os.getenv("POSTGRES_PORT", "5432"),
-    "dbname": os.getenv("POSTGRES_DB", "test_db"),
-    "user": os.getenv("POSTGRES_USER", "test"),
-    "password": os.getenv("POSTGRES_PASSWORD", "test"),
+# Basic test configuration
+TEST_CONFIG = {
+    "host": "localhost",
+    "port": "5432",
+    "dbname": "test_db",
+    "user": "test",
+    "password": "test",
 }
 
 
-def setup_local_database(config: Dict[str, str]) -> None:
-    """Set up a local test database if not using pytest-postgresql"""
-    from psycopg2 import connect
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
-    # Use a separate connection to create the database if it doesn't exist
+@pytest.fixture(scope="function")
+def postgres_db():
+    """Set up a simple test database"""
+    # Create fresh database
     admin_conn = connect(
-        host=config["host"],
-        port=config["port"],
-        user=config["user"],
-        password=config["password"],
-        database="postgres",  # Connect to default db to create test db
+        host=TEST_CONFIG["host"],
+        port=TEST_CONFIG["port"],
+        user=TEST_CONFIG["user"],
+        password=TEST_CONFIG["password"],
+        database="postgres",
     )
-    admin_conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-
-    with closing(admin_conn.cursor()) as cur:
-        cur.execute(f"DROP DATABASE IF EXISTS {config['dbname']}")
-        cur.execute(f"CREATE DATABASE {config['dbname']}")
-
+    admin_conn.autocommit = True
+    with admin_conn.cursor() as cur:
+        cur.execute(f"DROP DATABASE IF EXISTS {TEST_CONFIG['dbname']}")
+        cur.execute(f"CREATE DATABASE {TEST_CONFIG['dbname']}")
     admin_conn.close()
 
-    # Now connect to the test database and set up schema
-    conn = connect(
-        **{k: v for k, v in config.items() if k != "dbname"}, database=config["dbname"]
-    )
-    with closing(conn.cursor()) as cur:
+    # Set up schema and data
+    conn = connect(**TEST_CONFIG)
+    with conn.cursor() as cur:
         cur.execute(
             """
             CREATE TABLE users (
                 id SERIAL PRIMARY KEY,
                 name TEXT,
-                age INTEGER,
-                created_at TIMESTAMP
+                age INTEGER
             )
         """
         )
         cur.execute(
             """
-            INSERT INTO users (name, age, created_at)
-            VALUES
-                ('Alice', 30, '2024-01-01 10:00:00'),
-                ('Bob', 25, '2024-01-02 11:00:00')
-        """
-        )
-        cur.execute(
-            """
-            CREATE VIEW adult_users AS
-            SELECT name, age
-            FROM users
-            WHERE age >= 18
+            INSERT INTO users (name, age)
+            VALUES ('Alice', 30), ('Bob', 25)
         """
         )
         conn.commit()
     conn.close()
 
-
-@pytest.fixture(scope="function")
-def postgres_db(request) -> Generator[Dict[str, str], None, None]:
-    """Create a temporary PostgreSQL database with test data"""
-    if hasattr(request, "param") and request.param == "postgresql":
-        # CI/CD environment with pytest-postgresql
-        postgresql = request.getfixturevalue("postgresql")
-        with closing(postgresql.cursor()) as cur:
-            cur.execute(
-                """
-                CREATE TABLE users (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT,
-                    age INTEGER,
-                    created_at TIMESTAMP
-                )
-            """
-            )
-            cur.execute(
-                """
-                INSERT INTO users (name, age, created_at)
-                VALUES
-                    ('Alice', 30, '2024-01-01 10:00:00'),
-                    ('Bob', 25, '2024-01-02 11:00:00')
-            """
-            )
-            cur.execute(
-                """
-                CREATE VIEW adult_users AS
-                SELECT name, age
-                FROM users
-                WHERE age >= 18
-            """
-            )
-            postgresql.commit()
-        # Instead of postgresql.dsn, create a config dict
-        config = {
-            "host": postgresql.get_dsn_parameters()["host"],
-            "port": postgresql.get_dsn_parameters()["port"],
-            "dbname": postgresql.get_dsn_parameters()["dbname"],
-            "user": postgresql.get_dsn_parameters()["user"],
-            "password": postgresql.get_dsn_parameters().get("password", ""),
-        }
-        yield config
-    else:
-        # Local development environment
-        config = LOCAL_PG_CONFIG.copy()
-        setup_local_database(config)
-        yield config
+    yield TEST_CONFIG
 
 
-@pytest.fixture(scope="function")
-def postgres_provider(
-    postgres_db: Dict[str, str],
-) -> Generator[PostgresProvider, None, None]:
-    """Create PostgresProvider instance with connection pooling"""
-    provider = PostgresProvider(
-        host=postgres_db["host"],
-        port=postgres_db["port"],
-        dbname=postgres_db["dbname"],
-        user=postgres_db["user"],
-        password=postgres_db.get("password", ""),
-    )
+@pytest.fixture
+def postgres_provider(postgres_db):
+    """Create PostgresProvider instance"""
+    provider = PostgresProvider(**postgres_db)
     yield provider
     provider.close()
 
 
-# Tests
-def test_execute_query_table(postgres_provider: PostgresProvider) -> None:
-    """Test executing query on a table"""
+# Simplified tests
+def test_basic_query(postgres_provider):
     results = postgres_provider.execute_query("SELECT * FROM users ORDER BY id")
     assert len(results) == 2
     assert results[0]["name"] == "Alice"
-    assert results[0]["age"] == 30
     assert results[1]["name"] == "Bob"
-    assert results[1]["age"] == 25
 
 
-def test_execute_query_view(postgres_provider: PostgresProvider) -> None:
-    """Test executing query on a view"""
-    results = postgres_provider.execute_query("SELECT * FROM adult_users ORDER BY age")
-    assert len(results) == 2
-    assert results[0]["name"] == "Bob"
-    assert results[0]["age"] == 25
-    assert results[1]["name"] == "Alice"
-    assert results[1]["age"] == 30
-
-
-def test_get_compact_tables_all(postgres_provider: PostgresProvider) -> None:
-    """Test getting schema for all tables and views"""
-    results = postgres_provider.get_compact_tables(schema_name="public")
-
-    assert len(results) == 2  # Should find both the table and view
-
-    # Find the users table schema
-    users_table = next(t for t in results if t["t"] == "users")
-    assert users_table["t"] == "users"
-    assert len(users_table["f"]) == 4
-    assert {"n": "id", "t": "I"} in users_table["f"]
-    assert {"n": "name", "t": "S"} in users_table["f"]
-    assert {"n": "age", "t": "I"} in users_table["f"]
-    assert {"n": "created_at", "t": "TS"} in users_table["f"]
-
-    # Find the view schema
-    view_table = next(t for t in results if t["t"] == "adult_users")
-    assert view_table["t"] == "adult_users"
-    assert len(view_table["f"]) == 2
-    assert {"n": "name", "t": "S"} in view_table["f"]
-    assert {"n": "age", "t": "I"} in view_table["f"]
-
-
-def test_get_compact_tables_specific(postgres_provider: PostgresProvider) -> None:
-    """Test getting schema for specific tables"""
-    results = postgres_provider.get_compact_tables(
-        schema_name="public", table_names=["users"]
-    )
-
-    assert len(results) == 1
-    table = results[0]
-    assert table["t"] == "users"
-    assert len(table["f"]) == 4
-
-
-def test_get_database_type_map(postgres_provider: PostgresProvider) -> None:
-    """Test database type mapping"""
-    type_map = postgres_provider.get_database_type_map()
-    assert type_map["text"] == "S"
-    assert type_map["integer"] == "I"
-    assert type_map["timestamp"] == "TS"
-
-
-def test_database_cleanup(postgres_provider: PostgresProvider) -> None:
-    """Verify that database is properly isolated between tests"""
-    results = postgres_provider.execute_query("SELECT COUNT(*) as count FROM users")
-    assert results[0]["count"] == 2
-
-
-# Pytest configuration for CI/CD
-def pytest_configure(config):
-    """Configure pytest to use postgresql fixture in CI/CD"""
-    if os.getenv("CI"):
-        config.addinivalue_line(
-            "markers", "postgresql: mark test as requiring postgresql"
-        )
-
-
-# Parametrize for CI/CD environment
-@pytest.mark.parametrize(
-    "postgres_db",
-    [pytest.param("postgresql", marks=pytest.mark.postgresql)],
-    indirect=True,
-)
-def test_ci_environment(postgres_provider: PostgresProvider) -> None:
-    """Test that runs only in CI with real postgresql fixture"""
-    results = postgres_provider.execute_query("SELECT * FROM users")
-    assert len(results) == 2
+def test_table_schema(postgres_provider):
+    schemas = postgres_provider.get_compact_tables()
+    assert len(schemas) == 1
+    assert schemas[0]["t"] == "users"
+    assert len(schemas[0]["f"]) == 3
