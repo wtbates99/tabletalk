@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Generator
 
 import pytest
@@ -6,11 +7,11 @@ from psycopg2 import connect
 from tabletalk.providers.postgres_provider import PostgresProvider
 
 TEST_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "test_db",
-    "user": "test",
-    "password": "test",
+    "host": os.getenv("POSTGRES_TEST_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_TEST_PORT", 5432)),
+    "dbname": os.getenv("POSTGRES_TEST_DB", "test_db"),
+    "user": os.getenv("POSTGRES_TEST_USER", "test"),
+    "password": os.getenv("POSTGRES_TEST_PASSWORD", "test"),
 }
 
 

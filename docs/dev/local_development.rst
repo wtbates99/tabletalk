@@ -48,11 +48,26 @@ Development Workflow
      # or
      python -m tabletalk test
 
-- Run tests:
+Setting Up Test Environment
+--------------------------
 
-  .. code-block:: bash
+1. Install test dependencies:
 
-     pytest
+   .. code-block:: bash
+
+      pip install -r requirements-dev.txt
+
+2. Configure database connections:
+
+   - PostgreSQL and MySQL instances must be running locally
+   - You can configure the credentials within the test config for the providers in db_test_config.json
+   - You may set environment variables for the test config instead
+
+3. Run tests:
+
+   .. code-block:: bash
+
+      pytest
 
 Building and Installing Locally
 ------------------------------
