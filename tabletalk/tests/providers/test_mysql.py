@@ -1,8 +1,9 @@
-from typing import Any, Dict, Generator
+from typing import Any, Dict, Generator, Union
 
 import mysql.connector
 import pytest
-from mysql.connector import MySQLConnection
+from mysql.connector.abstracts import MySQLConnectionAbstract
+from mysql.connector.pooling import PooledMySQLConnection
 
 from tabletalk.providers.mysql_provider import MySQLProvider
 
@@ -14,26 +15,46 @@ TEST_CONFIG = {
     "password": "test",
 }
 
+ConnectionType = Union[PooledMySQLConnection, MySQLConnectionAbstract]
+
 
 @pytest.fixture(scope="function")
 def mysql_db() -> Generator[Dict[str, Any], None, None]:
     """Set up a simple test database"""
-    # Create fresh database
-    conn = mysql.connector.connect(
+    conn: ConnectionType = mysql.connector.connect(
         host=TEST_CONFIG["host"],
         port=TEST_CONFIG["port"],
         user=TEST_CONFIG["user"],
         password=TEST_CONFIG["password"],
     )
-    assert isinstance(conn, MySQLConnection)
-    conn.autocommit = True
+
+    # Handle autocommit based on connection type
+    if isinstance(conn, PooledMySQLConnection):
+        real_conn = conn.get_connection()
+        real_conn.autocommit = True
+    else:
+        conn.autocommit = True
 
     with conn.cursor() as cur:
         cur.execute(f"DROP DATABASE IF EXISTS {TEST_CONFIG['database']}")
         cur.execute(f"CREATE DATABASE {TEST_CONFIG['database']}")
 
-    # Set up schema and data
-    conn.database = str(TEST_CONFIG["database"])
+    conn.close()
+    conn = mysql.connector.connect(
+        host=TEST_CONFIG["host"],
+        port=TEST_CONFIG["port"],
+        user=TEST_CONFIG["user"],
+        password=TEST_CONFIG["password"],
+        database=TEST_CONFIG["database"],
+    )
+
+    # Handle autocommit again for the new connection
+    if isinstance(conn, PooledMySQLConnection):
+        real_conn = conn.get_connection()
+        real_conn.autocommit = True
+    else:
+        conn.autocommit = True
+
     with conn.cursor() as cur:
         cur.execute(
             """
