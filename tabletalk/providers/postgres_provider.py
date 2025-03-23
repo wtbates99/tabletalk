@@ -7,23 +7,26 @@ from tabletalk.interfaces import DatabaseProvider
 
 
 class PostgresProvider(DatabaseProvider):
-    def __init__(self, host: str, database: str, user: str, password: str):
+    def __init__(self, host: str, port: int, dbname: str, user: str, password: str):
         """
         Initialize PostgreSQL provider with connection string.
 
         Args:
             host (str): PostgreSQL host
-            database (str): PostgreSQL database name
+            port (int): PostgreSQL port
+            dbname (str): PostgreSQL database name
             user (str): PostgreSQL user
             password (str): PostgreSQL password
         """
         self.host = host
-        self.database = database
+        self.port = port
+        self.dbname = dbname
         self.user = user
         self.password = password
         self.connection = psycopg2.connect(
             host=self.host,
-            database=self.database,
+            port=self.port,
+            dbname=self.dbname,
             user=self.user,
             password=self.password,
         )
