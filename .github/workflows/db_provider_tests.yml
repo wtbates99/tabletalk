@@ -3,11 +3,13 @@ name: DB Provider Tests
 on:
   push:
     branches: [main]
-  pull_request:
+  pull_request_review:
+    types: [submitted]
     branches: [main]
 
 jobs:
   test:
+    if: github.event.review.state == 'approved' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     services:
@@ -39,13 +41,13 @@ jobs:
           --health-retries=3
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    - name: Install dependencies
-      run: |
-        pip install -r requirements-dev.txt
-        pip install -e .
-    - name: Run tests
-      run: pytest
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+      - name: Run tests
+        run: pytest
