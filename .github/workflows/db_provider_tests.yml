@@ -3,13 +3,12 @@ name: DB Provider Tests
 on:
   push:
     branches: [main]
-  pull_request_review:
-    types: [submitted]
+  pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
-    if: github.event.review.state == 'approved' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     services:
