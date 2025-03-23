@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Generator, Union
 
 import mysql.connector
@@ -8,11 +9,11 @@ from mysql.connector.pooling import PooledMySQLConnection
 from tabletalk.providers.mysql_provider import MySQLProvider
 
 TEST_CONFIG = {
-    "host": "localhost",
-    "port": 3306,
-    "database": "test",
-    "user": "root",
-    "password": "test",
+    "host": os.getenv("MYSQL_TEST_HOST", "localhost"),
+    "port": int(os.getenv("MYSQL_TEST_PORT", "3306")),
+    "database": os.getenv("MYSQL_TEST_DB", "test"),
+    "user": os.getenv("MYSQL_TEST_USER", "root"),
+    "password": os.getenv("MYSQL_TEST_PASSWORD", "test"),
 }
 
 ConnectionType = Union[PooledMySQLConnection, MySQLConnectionAbstract]
