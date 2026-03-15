@@ -8,16 +8,6 @@ from tabletalk.interfaces import DatabaseProvider
 
 class PostgresProvider(DatabaseProvider):
     def __init__(self, host: str, port: int, dbname: str, user: str, password: str):
-        """
-        Initialize PostgreSQL provider with connection string.
-
-        Args:
-            host (str): PostgreSQL host
-            port (int): PostgreSQL port
-            dbname (str): PostgreSQL database name
-            user (str): PostgreSQL user
-            password (str): PostgreSQL password
-        """
         self.host = host
         self.port = port
         self.dbname = dbname
@@ -32,26 +22,15 @@ class PostgresProvider(DatabaseProvider):
         )
 
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        """
-        Execute a SQL query and return results as a list of dictionaries.
-
-        Args:
-            sql_query (str): SQL query to execute
-
-        Returns:
-            List[Dict[str, Any]]: Query results
-        """
         cursor = self.connection.cursor(cursor_factory=RealDictCursor)
         cursor.execute(sql_query)
         results = cursor.fetchall()
         return [dict(row) for row in results]
 
     def get_client(self) -> psycopg2.extensions.connection:
-        """Return the PostgreSQL connection instance"""
         return self.connection
 
     def get_database_type_map(self) -> Dict[str, str]:
-        """Return the database types mapping for PostgreSQL"""
         return {
             "character varying": "S",
             "varchar": "S",
@@ -82,16 +61,6 @@ class PostgresProvider(DatabaseProvider):
     def get_compact_tables(
         self, schema_name: str = "public", table_names: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch table and view schemas from PostgreSQL database in a compact format.
-
-        Args:
-            schema_name (str): PostgreSQL schema name (default: 'public')
-            table_names (Optional[List[str]]): Specific table/view names; if None, fetch all
-
-        Returns:
-            List of table/view schemas in compact format
-        """
         cursor = self.connection.cursor()
 
         if table_names is None:
@@ -105,6 +74,47 @@ class PostgresProvider(DatabaseProvider):
                 (schema_name,),
             )
             table_names = [row[0] for row in cursor.fetchall()]
+
+        # Primary keys for the whole schema in one query
+        cursor.execute(
+            """
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema  = kcu.table_schema
+            WHERE tc.table_schema = %s
+            AND   tc.constraint_type = 'PRIMARY KEY'
+            """,
+            (schema_name,),
+        )
+        pk_map: Dict[str, set] = {}
+        for row in cursor.fetchall():
+            pk_map.setdefault(row[0], set()).add(row[1])
+
+        # Foreign keys for the whole schema in one query
+        cursor.execute(
+            """
+            SELECT
+                kcu.table_name   AS fk_table,
+                kcu.column_name  AS fk_column,
+                ccu.table_name   AS pk_table,
+                ccu.column_name  AS pk_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema   = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+                ON tc.constraint_name = ccu.constraint_name
+                AND tc.table_schema   = ccu.table_schema
+            WHERE tc.table_schema = %s
+            AND   tc.constraint_type = 'FOREIGN KEY'
+            """,
+            (schema_name,),
+        )
+        fk_map: Dict[str, Dict[str, str]] = {}
+        for row in cursor.fetchall():
+            fk_map.setdefault(row[0], {})[row[1]] = f"{row[2]}.{row[3]}"
 
         type_map = self.get_database_type_map()
         compact_tables = []
@@ -125,30 +135,30 @@ class PostgresProvider(DatabaseProvider):
                 """
                 SELECT obj_description(
                     (quote_ident(%s) || '.' || quote_ident(%s))::regclass::oid
-                ) as description
+                )
                 """,
                 (schema_name, table_name),
             )
-            description_row = cursor.fetchone()
-            table_description = (
-                description_row[0] if description_row and description_row[0] else ""
-            )
+            desc_row = cursor.fetchone()
+            table_desc = desc_row[0] if desc_row and desc_row[0] else ""
+
+            pks = pk_map.get(table_name, set())
+            fks = fk_map.get(table_name, {})
 
             fields = []
-            for column in columns:
-                col_name = column[0]
-                col_type = column[1].lower()
-
-                mapped_type = type_map.get(col_type, "S")
-                fields.append({"n": col_name, "t": mapped_type})
+            for col in columns:
+                col_name = col[0]
+                col_type = col[1].lower()
+                mapped = type_map.get(col_type, "S")
+                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                if col_name in pks:
+                    field["pk"] = True
+                if col_name in fks:
+                    field["fk"] = fks[col_name]
+                fields.append(field)
 
             compact_tables.append(
-                {
-                    "t": table_name,
-                    "d": table_description,
-                    "f": fields,
-                }
+                {"t": table_name, "d": table_desc, "f": fields}
             )
 
-        print(compact_tables)
         return compact_tables

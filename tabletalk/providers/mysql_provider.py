@@ -18,14 +18,14 @@ class MySQLProvider(DatabaseProvider):
         self.database = database
         self.port = port
         try:
-            self.connection: (
-                MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract
-            ) = mysql.connector.connect(
-                host=self.host,
-                user=self.user,
-                password=self.password,
-                port=self.port,
-                database=self.database,
+            self.connection: MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract = (
+                mysql.connector.connect(
+                    host=self.host,
+                    user=self.user,
+                    password=self.password,
+                    port=self.port,
+                    database=self.database,
+                )
             )
         except Error as e:
             raise Exception(f"Failed to connect to database: {e}")
@@ -37,9 +37,7 @@ class MySQLProvider(DatabaseProvider):
         cursor.close()
         return results
 
-    def get_client(
-        self,
-    ) -> MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract:
+    def get_client(self) -> MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract:
         return self.connection
 
     def get_database_type_map(self) -> Dict[str, str]:
@@ -99,15 +97,51 @@ class MySQLProvider(DatabaseProvider):
                 raise Exception(f"No tables found in schema '{schema_name}'")
             table_names = [row["table_name"] for row in results]
 
+        # Primary keys for the schema in one query
+        cursor.execute(
+            """
+            SELECT TABLE_NAME, COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE kcu
+            JOIN information_schema.TABLE_CONSTRAINTS tc
+                ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+                AND kcu.TABLE_SCHEMA   = tc.TABLE_SCHEMA
+                AND kcu.TABLE_NAME     = tc.TABLE_NAME
+            WHERE kcu.TABLE_SCHEMA = %s
+            AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+            """,
+            (schema_name,),
+        )
+        pk_map: Dict[str, set] = {}
+        for row in cast(List[Dict[str, str]], cursor.fetchall()):
+            pk_map.setdefault(row["TABLE_NAME"], set()).add(row["COLUMN_NAME"])
+
+        # Foreign keys for the schema in one query
+        cursor.execute(
+            """
+            SELECT
+                kcu.TABLE_NAME      AS fk_table,
+                kcu.COLUMN_NAME     AS fk_column,
+                kcu.REFERENCED_TABLE_NAME  AS pk_table,
+                kcu.REFERENCED_COLUMN_NAME AS pk_column
+            FROM information_schema.KEY_COLUMN_USAGE kcu
+            WHERE kcu.TABLE_SCHEMA = %s
+            AND   kcu.REFERENCED_TABLE_NAME IS NOT NULL
+            """,
+            (schema_name,),
+        )
+        fk_map: Dict[str, Dict[str, str]] = {}
+        for row in cast(List[Dict[str, str]], cursor.fetchall()):
+            fk_map.setdefault(row["fk_table"], {})[row["fk_column"]] = (
+                f"{row['pk_table']}.{row['pk_column']}"
+            )
+
         type_map = self.get_database_type_map()
         compact_tables: List[Dict[str, Any]] = []
 
         for table_name in table_names:
             cursor.execute(
                 """
-                SELECT COLUMN_NAME as column_name,
-                       DATA_TYPE as data_type,
-                       IS_NULLABLE as is_nullable
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
                 FROM information_schema.columns
                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
                 ORDER BY ORDINAL_POSITION
@@ -118,33 +152,35 @@ class MySQLProvider(DatabaseProvider):
 
             cursor.execute(
                 """
-                SELECT TABLE_COMMENT as description, TABLE_TYPE as table_type
+                SELECT TABLE_COMMENT, TABLE_TYPE
                 FROM information_schema.tables
                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
                 """,
                 (schema_name, table_name),
             )
-            description_row = cast(Optional[Dict[str, str]], cursor.fetchone())
-            table_description = (
-                description_row["description"]
-                if description_row and description_row.get("description")
+            desc_row = cast(Optional[Dict[str, str]], cursor.fetchone())
+            table_desc = (
+                desc_row["TABLE_COMMENT"]
+                if desc_row and desc_row.get("TABLE_COMMENT")
                 else ""
             )
 
-            fields: List[Dict[str, str]] = []
-            for column in columns:
-                col_name = column["column_name"]
-                col_type = column["data_type"].lower()
-                mapped_type = type_map.get(col_type, "S")
-                fields.append({"n": col_name, "t": mapped_type})
+            pks = pk_map.get(table_name, set())
+            fks = fk_map.get(table_name, {})
 
-            compact_tables.append(
-                {
-                    "t": table_name,
-                    "d": table_description,
-                    "f": fields,
-                }
-            )
+            fields: List[Dict[str, Any]] = []
+            for col in columns:
+                col_name = col["COLUMN_NAME"]
+                col_type = col["DATA_TYPE"].lower()
+                mapped = type_map.get(col_type, "S")
+                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                if col_name in pks:
+                    field["pk"] = True
+                if col_name in fks:
+                    field["fk"] = fks[col_name]
+                fields.append(field)
+
+            compact_tables.append({"t": table_name, "d": table_desc, "f": fields})
 
         cursor.close()
         return compact_tables
