@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tabletalk"
+version = "0.2.0"
+description = "Natural language to SQL — the dbt companion for AI-powered data workflows"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "CC BY-NC 4.0" }
+authors = [{ name = "william bates", email = "wtbates99@gmail.com" }]
+keywords = ["sql", "llm", "dbt", "database", "natural-language", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Core dependencies — always installed
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.0",
+    "flask>=3.0",
+    "openai>=1.0.0",
+    "anthropic>=0.20",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# Install only the drivers you need:
+#   uv add "tabletalk[postgres]"
+#   uv add "tabletalk[snowflake,duckdb]"
+#   uv add "tabletalk[all]"
+postgres  = ["psycopg2-binary>=2.9"]
+mysql     = ["mysql-connector-python>=8.0"]
+bigquery  = ["google-cloud-bigquery>=3.0.0"]
+snowflake = ["snowflake-connector-python>=3.0"]
+duckdb    = ["duckdb>=0.9"]
+azuresql  = ["pymssql>=2.2"]
+all = [
+    "psycopg2-binary>=2.9",
+    "mysql-connector-python>=8.0",
+    "google-cloud-bigquery>=3.0.0",
+    "snowflake-connector-python>=3.0",
+    "duckdb>=0.9",
+    "pymssql>=2.2",
+]
+
+[project.scripts]
+tabletalk = "tabletalk.cli:cli"
+
+[project.urls]
+Homepage   = "https://github.com/wtbates99/tabletalk"
+Repository = "https://github.com/wtbates99/tabletalk"
+
+[tool.uv]
+dev-dependencies = [
+    "mypy>=1.0",
+    "types-setuptools",
+    "pytest>=7.0",
+    "pytest-postgresql",
+    "ruff>=0.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tabletalk"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"tabletalk/static" = "tabletalk/static"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true

@@ -6,37 +6,20 @@ from tabletalk.interfaces import DatabaseProvider
 
 class SQLiteProvider(DatabaseProvider):
     def __init__(self, database_path: str):
-        """
-        Initialize SQLite provider with database path.
-
-        Args:
-            database_path (str): Path to the SQLite database file
-        """
         self.database_path = database_path
         self.connection = sqlite3.connect(database_path)
         self.connection.row_factory = sqlite3.Row
 
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        """
-        Execute a SQL query and return results as a list of dictionaries.
-
-        Args:
-            sql_query (str): SQL query to execute
-
-        Returns:
-            List[Dict[str, Any]]: Query results
-        """
         cursor = self.connection.cursor()
         cursor.execute(sql_query)
         results = cursor.fetchall()
         return [dict(row) for row in results]
 
     def get_client(self) -> sqlite3.Connection:
-        """Return the SQLite connection instance"""
         return self.connection
 
     def get_database_type_map(self) -> Dict[str, str]:
-        """Return the database types mapping for SQLite"""
         return {
             "TEXT": "S",
             "INTEGER": "I",
@@ -58,46 +41,44 @@ class SQLiteProvider(DatabaseProvider):
     def get_compact_tables(
         self, schema_name: str, table_names: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch table and view schemas from SQLite database in a compact format.
-
-        Args:
-            schema_name (str): Not used in SQLite, but kept for interface compatibility
-            table_names (Optional[List[str]]): Specific table/view names; if None, fetch all tables and views
-
-        Returns:
-            List of table and view schemas in compact format
-        """
         cursor = self.connection.cursor()
 
         if table_names is None:
             cursor.execute(
-                "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
             )
-            results = cursor.fetchall()
-            table_names = [row[0] for row in results]
+            table_names = [row[0] for row in cursor.fetchall()]
 
         type_map = self.get_database_type_map()
         compact_tables = []
 
         for table_name in table_names:
+            # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
             cursor.execute(f"PRAGMA table_info('{table_name}')")
             columns = cursor.fetchall()
 
+            # pk column is nonzero for primary key columns (value = position in PK)
+            pk_set = {col[1] for col in columns if col[5] > 0}
+
+            # Foreign keys via PRAGMA foreign_key_list
+            fk_map: Dict[str, str] = {}
+            cursor.execute(f"PRAGMA foreign_key_list('{table_name}')")
+            for fk_row in cursor.fetchall():
+                # id, seq, table, from, to, on_update, on_delete, match
+                fk_map[fk_row[3]] = f"{fk_row[2]}.{fk_row[4]}"
+
             fields = []
-            for column in columns:
-                col_name = column[1]
-                col_type = column[2].upper() if column[2] else "TEXT"
+            for col in columns:
+                col_name = col[1]
+                col_type = (col[2] or "TEXT").upper().split("(")[0].strip()
+                mapped = type_map.get(col_type, "S")
+                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                if col_name in pk_set:
+                    field["pk"] = True
+                if col_name in fk_map:
+                    field["fk"] = fk_map[col_name]
+                fields.append(field)
 
-                mapped_type = type_map.get(col_type, "S")
-                fields.append({"n": col_name, "t": mapped_type})
-
-            compact_tables.append(
-                {
-                    "t": table_name,
-                    "d": "",
-                    "f": fields,
-                }
-            )
+            compact_tables.append({"t": table_name, "d": "", "f": fields})
 
         return compact_tables

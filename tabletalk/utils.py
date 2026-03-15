@@ -1,3 +1,4 @@
+import logging
 import os
 
 import yaml
@@ -5,74 +6,117 @@ import yaml
 from tabletalk.factories import get_db_provider
 from tabletalk.interfaces import Parser
 
+logger = logging.getLogger("tabletalk")
+
 
 def initialize_project() -> None:
-    """Initialize a new project by creating configuration files in the current working directory."""
+    """Initialize a new project in the current working directory."""
     project_folder = os.getcwd()
-    config_yaml_path = os.path.join(project_folder, "tabletalk.yaml")
-    if os.path.exists(config_yaml_path):
-        print(f"File {config_yaml_path} already exists.")
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
+
+    if os.path.exists(config_path):
+        print(f"Already initialized ({config_path} exists).")
         return
 
-    config_content = """
-# Configuration for the data provider
+    config_content = """\
+# tabletalk.yaml
+#
+# Option A — reference a profile from ~/.tabletalk/profiles.yml
+#   Run 'tabletalk connect' to create one, then set:
+#
+# profile: my_snowflake
+#
+# Option B — inline connection (not recommended for passwords)
+#
 provider:
-  type: bigquery  # Type of the provider, e.g., bigquery, snowflake, etc.
-  project_id: your-gcp-project-id  # GCP project ID for BigQuery
-  use_default_credentials: true  # Whether to use default GCP credentials
+  type: postgres          # postgres | snowflake | duckdb | azuresql | bigquery | mysql | sqlite
+  host: localhost
+  port: 5432
+  database: mydb
+  user: myuser
+  password: ${DB_PASSWORD}
 
-# Configuration for the LLM
+# LLM configuration
 llm:
-  provider: openai  # LLM provider, e.g., openai, anthropic, etc.
-  api_key: ${OPENAI_API_KEY}  # Use environment variable for API key
-  model: gpt-4o  # Model to use
-  max_tokens: 500  # Maximum number of tokens to generate
-  temperature: 0  # Sampling temperature
+  provider: openai        # openai | anthropic | ollama
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o
+  max_tokens: 1000
+  temperature: 0
 
 contexts: contexts
 output: manifest
 """
-    with open(config_yaml_path, "w") as file:
-        file.write(config_content)
+
+    with open(config_path, "w") as f:
+        f.write(config_content)
 
     contexts_folder = os.path.join(project_folder, "contexts")
-    if not os.path.exists(contexts_folder):
-        os.makedirs(contexts_folder)
+    os.makedirs(contexts_folder, exist_ok=True)
 
-    sample_context_path = os.path.join(contexts_folder, "default_context.yaml")
-    sample_context_content = """
+    sample_context = """\
 name: default_context
-description: "This context is a sample context."
+description: "Default context — edit this to match your schema."
 datasets:
-  - name: test_store
-    description: "Operational data for test store."
+  - name: public
+    description: "Main schema."
     tables:
       - name: customers
-        description: "Customers table."
+        description: "Customer records."
       - name: orders
-        description: "Orders table."
-      - name: purchase_orders
-        description: "Purchase orders table."
+        description: "Order records."
 """
-    with open(sample_context_path, "w") as file:
-        file.write(sample_context_content)
+    with open(os.path.join(contexts_folder, "default_context.yaml"), "w") as f:
+        f.write(sample_context)
 
-    manifest_folder = os.path.join(project_folder, "manifest")
-    if not os.path.exists(manifest_folder):
-        os.makedirs(manifest_folder)
+    os.makedirs(os.path.join(project_folder, "manifest"), exist_ok=True)
 
     print(
-        "Project initialized in the current directory. Edit tabletalk.yaml and contexts/default_context.yaml to customize your settings."
+        "Project initialized.\n"
+        "Next steps:\n"
+        "  1. Run 'tabletalk connect' to configure your database connection\n"
+        "  2. Edit contexts/default_context.yaml to describe your tables\n"
+        "  3. Run 'tabletalk apply' to generate manifests\n"
+        "  4. Run 'tabletalk query' or 'tabletalk serve' to start querying"
     )
 
 
 def apply_schema(project_folder: str) -> None:
-    """Apply the schema to all contexts in the project folder, generating JSON files in the manifest folder."""
+    """Connect to the database, introspect the schema, write manifests."""
     config_path = os.path.join(project_folder, "tabletalk.yaml")
-    with open(config_path, "r") as file:
-        defaults = yaml.safe_load(file)
+    with open(config_path, "r") as f:
+        defaults = yaml.safe_load(f)
 
-    provider_config = defaults.get("provider", {})
+    # Support both inline 'provider' block and 'profile' reference at top level
+    if "profile" in defaults:
+        provider_config = {"profile": defaults["profile"]}
+    else:
+        provider_config = defaults.get("provider", {})
+
     db_provider = get_db_provider(provider_config)
     parser = Parser(project_folder, db_provider)
     parser.apply_schema()
+
+
+def check_manifest_staleness(project_folder: str) -> bool:
+    """Return True if any context file is newer than its corresponding manifest."""
+    contexts_path = os.path.join(project_folder, "contexts")
+    manifest_path = os.path.join(project_folder, "manifest")
+
+    if not os.path.exists(manifest_path):
+        return True
+    if not os.path.exists(contexts_path):
+        return False
+
+    for context_file in os.listdir(contexts_path):
+        if not context_file.endswith(".yaml"):
+            continue
+        context_mtime = os.path.getmtime(os.path.join(contexts_path, context_file))
+        manifest_file = os.path.join(
+            manifest_path, context_file.replace(".yaml", ".txt")
+        )
+        if not os.path.exists(manifest_file):
+            return True
+        if context_mtime > os.path.getmtime(manifest_file):
+            return True
+    return False
