@@ -83,3 +83,54 @@ Ask anything:
 
 CC BY-NC 4.0 — free for non-commercial use.
 Commercial licensing: wtbates99@gmail.com
+
+---
+
+```{toctree}
+:maxdepth: 1
+:caption: Getting Started
+:hidden:
+
+getting-started
+concepts
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Reference
+:hidden:
+
+configuration
+contexts
+commands
+profiles
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Databases & LLMs
+:hidden:
+
+databases
+llm-providers
+dbt-integration
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Features
+:hidden:
+
+web-ui
+safe-mode
+api-reference
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Internals
+:hidden:
+
+architecture
+contributing
+```
