@@ -7,13 +7,12 @@ name = "tabletalk"
 version = "0.2.1"
 description = "Natural language to SQL — the dbt companion for AI-powered data workflows"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "CC BY-NC 4.0" }
 authors = [{ name = "william bates", email = "wtbates99@gmail.com" }]
 keywords = ["sql", "llm", "dbt", "database", "natural-language", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -84,11 +83,11 @@ packages = ["tabletalk"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 ignore_missing_imports = true
