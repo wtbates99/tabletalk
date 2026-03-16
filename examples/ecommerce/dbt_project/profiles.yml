@@ -1,0 +1,13 @@
+# Copy this file to ~/.dbt/profiles.yml
+# Then run: tabletalk connect --from-dbt ecommerce
+#
+# Update the `path` to the absolute path of your ecommerce.duckdb file.
+# Example: /Users/yourname/tabletalk/examples/ecommerce/ecommerce.duckdb
+
+ecommerce:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: /Users/willbates/code/tabletalk/examples/ecommerce/ecommerce.duckdb
+      threads: 4

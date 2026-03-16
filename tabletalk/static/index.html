@@ -75,6 +75,8 @@ input,textarea{font-family:var(--font);outline:none;color:var(--text)}
 }
 .sb-logo{font-size:16px;font-weight:600;letter-spacing:-.3px}
 .sb-logo span{color:var(--accent)}
+.sb-logo-row{display:flex;flex-direction:column;gap:3px}
+#model-badge{font-size:10px;color:var(--muted);letter-spacing:.02em;font-family:var(--mono)}
 .sb-actions{display:flex;gap:6px}
 .icon-btn{
   padding:5px 7px;
@@ -531,7 +533,10 @@ table.rt tr:hover td{background:var(--elevated)}
   <!-- Sidebar -->
   <aside id="sidebar">
     <div class="sb-header">
-      <div class="sb-logo">table<span>talk</span></div>
+      <div class="sb-logo-row">
+        <div class="sb-logo">table<span>talk</span></div>
+        <div id="model-badge"></div>
+      </div>
       <div class="sb-actions">
         <button class="icon-btn" id="theme-btn" title="Toggle theme">☀</button>
         <button class="icon-btn" id="new-chat-btn" title="New conversation">✎</button>
@@ -1264,6 +1269,12 @@ $('refresh-history').onclick   = loadHistory;
 
 // ── Init ───────────────────────────────────────────────────────
 loadManifests();
+(async () => {
+  try {
+    const { provider, model } = await api('/config');
+    $('model-badge').textContent = `${provider} · ${model}`;
+  } catch {}
+})();
 msgInput.focus();
 })();
 </script>

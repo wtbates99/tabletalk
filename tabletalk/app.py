@@ -346,6 +346,22 @@ def get_history() -> Union[Tuple[Response, int], Response]:
         return jsonify({"history": [], "error": str(e)})
 
 
+# ── Config ─────────────────────────────────────────────────────────────────────
+
+@app.route("/config")
+def get_config() -> Union[Tuple[Response, int], Response]:
+    """Return LLM provider and model name for display in the UI."""
+    try:
+        qs = _get_session()
+        llm = qs.config.get("llm", {})
+        return jsonify({
+            "provider": llm.get("provider", "unknown"),
+            "model": llm.get("model", "unknown"),
+        })
+    except Exception:
+        return jsonify({"provider": "unknown", "model": "unknown"})
+
+
 # ── Legacy non-streaming query (kept for backward compat) ─────────────────────
 
 @app.route("/query", methods=["POST"])
