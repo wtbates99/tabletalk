@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from flask import Flask, Response, jsonify, request, send_from_directory, session
 from flask import stream_with_context
@@ -26,10 +26,35 @@ def _get_session():
     return _qs
 
 
+# ── Health check ───────────────────────────────────────────────────────────────
+
+@app.route("/health")
+def health() -> Union[Tuple[Response, int], Response]:
+    """
+    Liveness/readiness probe.
+
+    Returns 200 if the project directory is accessible and at least one
+    manifest exists; 503 otherwise — suitable for Docker HEALTHCHECK and
+    k8s probes.
+    """
+    issues = []
+    manifest_folder = os.path.join(project_folder, "manifest")
+    if not os.path.isdir(manifest_folder):
+        issues.append("manifest folder missing — run 'tabletalk apply'")
+    else:
+        manifests = [f for f in os.listdir(manifest_folder) if f.endswith(".txt")]
+        if not manifests:
+            issues.append("no manifests found — run 'tabletalk apply'")
+
+    if issues:
+        return jsonify({"status": "degraded", "issues": issues}), 503
+    return jsonify({"status": "ok", "project": project_folder})
+
+
 # ── Static ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def serve_index() -> Response | Tuple[Response, int]:
+def serve_index() -> Union[Response, Tuple[Response, int]]:
     try:
         if not app.static_folder:
             return jsonify({"error": "Static folder not configured"}), 404
@@ -41,7 +66,7 @@ def serve_index() -> Response | Tuple[Response, int]:
 # ── Manifests ──────────────────────────────────────────────────────────────────
 
 @app.route("/manifests")
-def list_manifests() -> Tuple[Response, int] | Response:
+def list_manifests() -> Union[Tuple[Response, int], Response]:
     manifest_folder = os.path.join(project_folder, "manifest")
     if not os.path.exists(manifest_folder):
         return jsonify({"error": "Manifest folder not found. Run 'tabletalk apply'."}), 404
@@ -50,7 +75,7 @@ def list_manifests() -> Tuple[Response, int] | Response:
 
 
 @app.route("/select_manifest", methods=["POST"])
-def select_manifest() -> Tuple[Response, int] | Response:
+def select_manifest() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     manifest = data.get("manifest")
     if not manifest:
@@ -68,7 +93,7 @@ def select_manifest() -> Tuple[Response, int] | Response:
 # ── Main chat endpoint (streaming) ────────────────────────────────────────────
 
 @app.route("/chat/stream", methods=["POST"])
-def chat_stream() -> Tuple[Response, int] | Response:
+def chat_stream() -> Union[Tuple[Response, int], Response]:
     """
     Primary endpoint: streams SQL generation → execution → explanation in one SSE stream.
 
@@ -181,7 +206,7 @@ def chat_stream() -> Tuple[Response, int] | Response:
 # ── Fix SQL ────────────────────────────────────────────────────────────────────
 
 @app.route("/fix/stream", methods=["POST"])
-def fix_stream() -> Tuple[Response, int] | Response:
+def fix_stream() -> Union[Tuple[Response, int], Response]:
     """Stream a corrected SQL query given a failing query and its error."""
     data = request.json or {}
     sql = data.get("sql", "")
@@ -222,7 +247,7 @@ def fix_stream() -> Tuple[Response, int] | Response:
 # ── Execute ────────────────────────────────────────────────────────────────────
 
 @app.route("/execute", methods=["POST"])
-def execute_query() -> Tuple[Response, int] | Response:
+def execute_query() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     sql = data.get("sql", "").strip()
     if not sql:
@@ -246,7 +271,7 @@ def execute_query() -> Tuple[Response, int] | Response:
 # ── Suggestions ────────────────────────────────────────────────────────────────
 
 @app.route("/suggest", methods=["POST"])
-def suggest() -> Tuple[Response, int] | Response:
+def suggest() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     manifest_file = data.get("manifest") or session.get("manifest")
     if not manifest_file:
@@ -265,7 +290,7 @@ def suggest() -> Tuple[Response, int] | Response:
 # ── Conversation ───────────────────────────────────────────────────────────────
 
 @app.route("/reset", methods=["POST"])
-def reset_conversation() -> Tuple[Response, int] | Response:
+def reset_conversation() -> Union[Tuple[Response, int], Response]:
     session["conversation"] = []
     return jsonify({"ok": True})
 
@@ -273,7 +298,7 @@ def reset_conversation() -> Tuple[Response, int] | Response:
 # ── Favorites ──────────────────────────────────────────────────────────────────
 
 @app.route("/favorites", methods=["GET"])
-def get_favorites() -> Tuple[Response, int] | Response:
+def get_favorites() -> Union[Tuple[Response, int], Response]:
     try:
         qs = _get_session()
         return jsonify({"favorites": qs.get_favorites()})
@@ -282,7 +307,7 @@ def get_favorites() -> Tuple[Response, int] | Response:
 
 
 @app.route("/favorites", methods=["POST"])
-def save_favorite() -> Tuple[Response, int] | Response:
+def save_favorite() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     name = data.get("name", "").strip()
     manifest = data.get("manifest", "") or session.get("manifest", "")
@@ -299,7 +324,7 @@ def save_favorite() -> Tuple[Response, int] | Response:
 
 
 @app.route("/favorites/<name>", methods=["DELETE"])
-def delete_favorite(name: str) -> Tuple[Response, int] | Response:
+def delete_favorite(name: str) -> Union[Tuple[Response, int], Response]:
     try:
         qs = _get_session()
         deleted = qs.delete_favorite(name)
@@ -311,7 +336,7 @@ def delete_favorite(name: str) -> Tuple[Response, int] | Response:
 # ── History ────────────────────────────────────────────────────────────────────
 
 @app.route("/history")
-def get_history() -> Tuple[Response, int] | Response:
+def get_history() -> Union[Tuple[Response, int], Response]:
     limit = request.args.get("limit", 30, type=int)
     try:
         qs = _get_session()
@@ -324,7 +349,7 @@ def get_history() -> Tuple[Response, int] | Response:
 # ── Legacy non-streaming query (kept for backward compat) ─────────────────────
 
 @app.route("/query", methods=["POST"])
-def query_legacy() -> Tuple[Response, int] | Response:
+def query_legacy() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     question = data.get("question", "").strip()
     manifest_file = session.get("manifest")

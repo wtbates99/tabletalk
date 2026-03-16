@@ -1,8 +1,11 @@
 import os
 from typing import Any, Dict, Generator, Union
 
-import mysql.connector
 import pytest
+
+mysql_connector = pytest.importorskip("mysql.connector", reason="mysql-connector-python not installed")
+
+import mysql.connector
 from mysql.connector.abstracts import MySQLConnectionAbstract
 from mysql.connector.pooling import PooledMySQLConnection
 

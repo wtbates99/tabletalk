@@ -63,7 +63,7 @@ def get_llm_provider(config: Dict[str, Any]) -> LLMProvider:
     elif provider_type == "ollama":
         return OpenAIProvider(
             api_key="ollama",
-            model=config.get("model", "llama3"),
+            model=config.get("model", "qwen2.5-coder:7b"),
             max_tokens=max_tokens,
             temperature=temperature,
             base_url=config.get("base_url", "http://localhost:11434/v1"),

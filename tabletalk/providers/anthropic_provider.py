@@ -25,6 +25,8 @@ class AnthropicProvider(LLMProvider):
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
+        if not response.content:
+            return ""
         content = response.content[0]
         text = content.text if hasattr(content, "text") else str(content)
         return text.strip() if text else ""

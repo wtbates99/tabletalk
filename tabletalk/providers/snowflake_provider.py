@@ -39,7 +39,6 @@ class SnowflakeProvider(DatabaseProvider):
         self.connection = snowflake.connector.connect(**connect_kwargs)
 
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        cursor = self.connection.cursor(self.connection.cursor().__class__)
         cursor = self.connection.cursor()
         cursor.execute(sql_query)
         columns = [col[0] for col in cursor.description] if cursor.description else []

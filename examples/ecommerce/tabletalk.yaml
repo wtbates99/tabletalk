@@ -1,0 +1,51 @@
+# tabletalk.yaml — Ecommerce Demo Project
+#
+# Uses Ollama (local LLM) so you can play around without an API key.
+#
+# Prerequisites:
+#   1. Install Ollama:  https://ollama.com
+#   2. Pull a model:    ollama pull qwen2.5-coder:7b
+#   3. Ollama runs on http://localhost:11434 by default — no config needed
+#   4. Seed the DB:     python seed.py
+#   5. Compile:         tabletalk apply
+#   6. Query:           tabletalk query  (or  tabletalk serve)
+#
+# To switch to a cloud LLM later, see the commented-out options below.
+
+# ── Database connection ───────────────────────────────────────────────────────
+provider:
+  type: duckdb
+  database_path: ./ecommerce.duckdb   # created by `python seed.py`
+
+# ── LLM — Ollama (no API key needed) ─────────────────────────────────────────
+llm:
+  provider: ollama
+  api_key: ollama                     # placeholder — Ollama doesn't need a real key
+  model: qwen2.5-coder:7b             # or: llama3.2, mistral, codellama, phi3, etc.
+  base_url: http://localhost:11434/v1  # default Ollama endpoint
+  max_tokens: 2000
+  temperature: 0
+
+# ── Swap to a cloud LLM when you're ready ─────────────────────────────────────
+# llm:
+#   provider: openai
+#   api_key: ${OPENAI_API_KEY}
+#   model: gpt-4o
+#   max_tokens: 1000
+#   temperature: 0
+#
+# llm:
+#   provider: anthropic
+#   api_key: ${ANTHROPIC_API_KEY}
+#   model: claude-sonnet-4-6
+#   max_tokens: 1000
+#   temperature: 0
+
+# ── Project description ────────────────────────────────────────────────────────
+description: >-
+  Ecommerce platform — customers, orders, products, inventory, and marketing.
+  DuckDB backend. Run `python seed.py` to initialise.
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+contexts: contexts      # directory containing agent context definitions
+output: manifest        # directory where compiled manifests are written

@@ -152,6 +152,7 @@ class QuerySession:
         self.llm_provider = self._get_llm_provider()
         self._db_provider: Optional[DatabaseProvider] = None
         self._db_loaded = False
+        self._manifest_cache: Dict[str, str] = {}
 
     # ── Config & provider init ─────────────────────────────────────────────────
 
@@ -201,11 +202,19 @@ class QuerySession:
     # ── Manifest ───────────────────────────────────────────────────────────────
 
     def load_manifest(self, manifest_file: str) -> str:
+        if manifest_file in self._manifest_cache:
+            return self._manifest_cache[manifest_file]
         path = os.path.join(self.project_folder, "manifest", manifest_file)
         if not os.path.exists(path):
             raise FileNotFoundError(f"Manifest not found: {path}")
         with open(path) as f:
-            return f.read()
+            content = f.read()
+        self._manifest_cache[manifest_file] = content
+        return content
+
+    def invalidate_manifest_cache(self) -> None:
+        """Clear the in-memory manifest cache (call after 'tabletalk apply')."""
+        self._manifest_cache.clear()
 
     # ── SQL generation ─────────────────────────────────────────────────────────
 
@@ -262,10 +271,23 @@ class QuerySession:
 
     # ── Execution ──────────────────────────────────────────────────────────────
 
+    _READ_ONLY_PREFIXES = ("SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC")
+
+    @staticmethod
+    def _is_read_only_sql(sql: str) -> bool:
+        """Return True if SQL appears to be a read-only (SELECT-style) statement."""
+        first_word = sql.strip().lstrip(";").split()[0].upper() if sql.strip() else ""
+        return first_word in QuerySession._READ_ONLY_PREFIXES
+
     def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         db = self.get_db_provider()
         if db is None:
             raise RuntimeError("No database provider configured for execution.")
+        if self.config.get("safe_mode", False) and not self._is_read_only_sql(sql):
+            raise ValueError(
+                "Only SELECT queries are allowed when safe_mode is enabled. "
+                "Set 'safe_mode: false' in tabletalk.yaml to allow writes."
+            )
         return db.execute_query(sql)
 
     # ── Explanation ───────────────────────────────────────────────────────────

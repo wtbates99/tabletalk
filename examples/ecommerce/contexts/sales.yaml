@@ -1,0 +1,53 @@
+# contexts/sales.yaml
+#
+# "Sales" agent context — orders, line items, customers, and products.
+#
+# This context gives an agent the full order graph so it can answer revenue,
+# funnel, and product-mix questions.  It is intentionally broader than the
+# `customers` context — like a dbt model that joins multiple source tables.
+#
+# Sample questions this agent can answer:
+#   - "What is total revenue this month?"
+#   - "Which products drive the most revenue?"
+#   - "Show average order value by customer city"
+#   - "How many orders are still pending?"
+#   - "Who are the top 5 customers by spend?"
+#   - "What is the month-over-month revenue trend?"
+
+name: sales
+description: >-
+  Order processing, revenue, and product sales.
+  Joins orders, line items, customers, and products for
+  end-to-end sales analysis.
+version: "1.0"
+
+datasets:
+  - name: main
+    description: "Primary ecommerce schema"
+    tables:
+      - name: orders
+        description: >-
+          Customer orders. status can be: pending, shipped, delivered, cancelled.
+          total_amount is the final charged amount (after discounts).
+          discount_amount is the absolute value of any discount applied.
+
+      - name: order_items
+        description: >-
+          Individual line items within an order.
+          FK: order_id → orders.id, product_id → products.id.
+          unit_price is the price at time of purchase (may differ from current product price).
+
+      - name: customers
+        description: >-
+          Customer accounts.  Join to orders on customer_id = customers.id.
+          Use city/country for geographic segmentation.
+
+      - name: products
+        description: >-
+          Product catalogue.  Join to order_items on product_id = products.id.
+          price is the current retail price.  cost is the COGS for margin analysis.
+
+      - name: categories
+        description: >-
+          Product categories.  Join to products on category_id = categories.id.
+          Use for category-level revenue breakdowns.

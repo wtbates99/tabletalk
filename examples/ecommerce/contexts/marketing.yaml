@@ -1,0 +1,39 @@
+# contexts/marketing.yaml
+#
+# "Marketing" agent context — campaigns, spend, conversions, and ROI.
+#
+# Use this context to measure campaign effectiveness and customer acquisition.
+#
+# Sample questions:
+#   - "What is the ROI of each campaign?"
+#   - "Which channel (email vs social) drives more revenue?"
+#   - "How many conversions did the New Year Sale generate?"
+#   - "What is the average revenue per conversion by campaign?"
+#   - "Which customers converted via multiple campaigns?"
+
+name: marketing
+description: >-
+  Campaign performance, spend tracking, and customer acquisition.
+  Covers email and social campaigns with full attribution data.
+version: "1.0"
+
+datasets:
+  - name: main
+    description: "Primary ecommerce schema"
+    tables:
+      - name: campaigns
+        description: >-
+          Marketing campaigns. channel is 'email' or 'social'.
+          budget is the planned spend; spend is the actual spend to date.
+          active=FALSE means the campaign has ended.
+
+      - name: campaign_conversions
+        description: >-
+          One row per customer conversion attributed to a campaign.
+          revenue is the order value attributed to this conversion.
+          FK: campaign_id → campaigns.id, customer_id → customers.id.
+
+      - name: customers
+        description: >-
+          Customer data used for acquisition analysis.
+          Join on customer_id to get signup_date, city, and lifetime_value.
