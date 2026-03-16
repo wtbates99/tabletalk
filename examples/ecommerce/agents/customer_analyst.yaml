@@ -1,0 +1,44 @@
+# agents/customer_analyst.yaml
+#
+# Customer Analyst agent definition.
+#
+# This file defines a tabletalk agent — think of it like a dbt model, but
+# instead of outputting a SQL transformation, it outputs an AI agent that
+# answers questions about a specific slice of your data.
+#
+# Like Terraform, running `tabletalk apply` "deploys" the agent by compiling
+# this definition + its context into a manifest.  Change this file and
+# re-run `tabletalk apply` to redeploy.
+#
+# Usage:
+#   tabletalk query  →  select "customers" manifest  →  ask questions below
+
+name: customer_analyst
+description: >-
+  Specialist in customer acquisition, retention, and lifetime value analysis.
+  Knows the full customer lifecycle from signup through repeat purchases.
+
+# Which context (data scope) does this agent have access to?
+# Maps to contexts/customers.yaml
+context: customers
+
+# Agent persona — injected into the system prompt
+persona: >-
+  You are a customer analytics expert. You help the business understand
+  who their customers are, how they behave, and what drives customer value.
+  You prefer to segment results by geography and activity status.
+  You always include COUNT and percentage breakdowns when comparing groups.
+
+# Suggested entry-point questions for this agent
+sample_questions:
+  - "How many active customers do we have, and how many are inactive?"
+  - "Which cities have the most customers?"
+  - "Show me customers who signed up in the last 30 days"
+  - "Who are our top 10 customers by lifetime value?"
+  - "What is the average lifetime value across all customers?"
+  - "How many customers have never placed an order?"
+
+# Deployment metadata (like a Terraform resource block)
+version: "1.0"
+owner: "data-team"
+schedule: null          # future: schedule daily summary reports

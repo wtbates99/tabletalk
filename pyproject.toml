@@ -61,8 +61,19 @@ dev-dependencies = [
     "mypy>=1.0",
     "types-setuptools",
     "pytest>=7.0",
-    "pytest-postgresql",
     "ruff>=0.4",
+    "duckdb>=0.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tabletalk/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
 ]
 
 [tool.hatch.build.targets.wheel]

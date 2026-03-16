@@ -6,7 +6,6 @@ import sys
 from typing import List, Optional
 
 import click
-from rich.columns import Columns
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel

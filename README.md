@@ -1,191 +1,451 @@
-# tabletalk
+# tabletalk — dbt for agents
 
-tabletalk is a command-line interface (CLI) tool designed to let you "talk" to your databases using natural language. Unlike heavier frameworks, tabletalk is built for simplicity and ease of use. With tabletalk, you can define specific "contexts" based on relationships in your data, then query that data conversationally, either by generating SQL or asking questions directly. It connects to your existing databases—BigQuery, SQLite, MySQL, or Postgres—pulls schemas based on your defined contexts, and leverages large language models (LLMs) from OpenAI and Anthropic to chat with your data effectively.
+> Define your data sources once. Deploy an AI agent for every dataset.
+> Redeploy anytime your schema changes — like Terraform for analytics agents.
 
-## Features
+tabletalk lets you declaratively define **which data an AI agent can see**,
+then deploy that agent as a natural-language SQL interface.
+The workflow mirrors tools you already know:
 
-- **Database Support**: Connect to BigQuery, SQLite, MySQL, and Postgres.
-- **Custom Contexts**: Define relationships in your data to create focused querying scenarios.
-- **LLM Integration**: Use OpenAI or Anthropic models to generate SQL or answer questions.
-- **Natural Language Queries**: Ask questions about your data in plain English, with SQL generated automatically.
-- **Local Execution**: Run generated SQL locally against your database.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  dbt analogy                    terraform analogy            │
+│                                                              │
+│  contexts/*.yaml  ≈ sources.yml  ≈  resource "agent" {}     │
+│  manifest/*.txt   ≈ manifest.json ≈  .tfstate                │
+│  tabletalk apply  ≈ dbt compile   ≈  terraform apply         │
+│  tabletalk query  ≈ dbt run       ≈  agent is "live"         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The core idea
+
+In dbt, you define **models** that transform raw tables into analytics-ready
+datasets. In tabletalk, you define **contexts** that scope what data an agent
+can see — then the agent uses an LLM to answer questions about that data.
+
+```yaml
+# contexts/sales.yaml  — defines a "Sales Analyst" agent
+name: sales
+description: "Order processing, revenue, and product analysis"
+datasets:
+  - name: public
+    tables:
+      - name: orders
+        description: "Customer orders with status and totals"
+      - name: order_items
+        description: "Line items — FK to orders and products"
+      - name: products
+        description: "Product catalogue with pricing"
+```
+
+Run `tabletalk apply` and the agent is deployed. Ask it anything:
+
+```
+> What is total revenue this month?
+→ SELECT SUM(total_amount) FROM orders WHERE ...
+
+> Which products drive the most revenue?
+→ SELECT p.name, SUM(oi.unit_price * oi.quantity) AS revenue ...
+
+> Break that down by category
+→ (follows up on the previous query using conversation context)
+```
+
+---
 
 ## Installation
 
-Install tabletalk via pip:
-
 ```bash
+# Core (includes SQLite — no extra driver needed)
 pip install tabletalk
+
+# With your database driver
+pip install "tabletalk[duckdb]"     # DuckDB
+pip install "tabletalk[postgres]"   # PostgreSQL
+pip install "tabletalk[snowflake]"  # Snowflake
+pip install "tabletalk[mysql]"      # MySQL
+pip install "tabletalk[bigquery]"   # BigQuery
+pip install "tabletalk[azuresql]"   # Azure SQL / SQL Server
+pip install "tabletalk[all]"        # Everything
 ```
 
-## Configuration
+---
 
-tabletalk relies on a configuration file named `tabletalk.yaml` to set up your database and LLM preferences. This file includes:
+## Quick start
 
-- **Provider**: Details for connecting to your database.
-- **LLM**: Settings for the language model, such as provider, API key, and model specifics.
-- **Contexts**: Path to a directory containing context definitions.
-- **Output**: Directory where manifest files (schema data) are stored.
+**Option A — no API key (Ollama, runs locally):**
+```bash
+# 1. Install Ollama → https://ollama.com, then:
+ollama pull qwen2.5-coder:7b
 
-**Note**: For security, set API keys as environment variables (e.g., `export ANTHROPIC_API_KEY="your-key-here"`).
+# 2. In tabletalk.yaml, set:
+#   llm:
+#     provider: ollama
+#     api_key: ollama
+#     model: qwen2.5-coder:7b
+#     base_url: http://localhost:11434/v1
+```
 
-### Example `tabletalk.yaml`:
+**Option B — cloud LLM:**
+```bash
+export OPENAI_API_KEY=sk-...      # or ANTHROPIC_API_KEY
+# set provider: openai / anthropic in tabletalk.yaml
+```
+
+**Then:**
+```bash
+# 1. Initialize a new project
+tabletalk init
+
+# 2. Configure your database connection
+tabletalk connect                      # interactive wizard
+# or: tabletalk connect --from-dbt my_dbt_project   (import from dbt)
+
+# 3. Edit contexts/default_context.yaml to match your schema
+
+# 4. Deploy your agents (compile + introspect)
+tabletalk apply
+
+# 5. Query with an agent (interactive CLI)
+tabletalk query
+
+# 6. Launch the web UI
+tabletalk serve
+```
+
+---
+
+## Project structure
+
+```
+my_project/
+├── tabletalk.yaml          # Database + LLM config
+│
+├── contexts/               # Agent definitions — one file = one agent
+│   ├── sales.yaml          # "Sales Analyst" — sees orders + products
+│   ├── customers.yaml      # "Customer Analyst" — sees customer profiles
+│   ├── inventory.yaml      # "Inventory Manager" — sees stock levels
+│   └── marketing.yaml      # "Marketing Analyst" — sees campaigns
+│
+└── manifest/               # Compiled manifests (auto-generated by apply)
+    ├── sales.txt
+    ├── customers.txt
+    ├── inventory.txt
+    └── marketing.txt
+```
+
+---
+
+## tabletalk.yaml
 
 ```yaml
+# Option A — inline connection
 provider:
-  type: mysql
-  host: localhost
-  user: root
-  password: ${MYSQL_PASSWORD}
-  database: test_store
+  type: postgres              # postgres | snowflake | duckdb | azuresql
+  host: localhost             #           bigquery  | mysql  | sqlite
+  port: 5432
+  database: analytics
+  user: analyst
+  password: ${DB_PASSWORD}   # read from environment variable
+
+# Option B — reference a saved profile (recommended)
+# profile: my_prod_snowflake  (run `tabletalk connect` to create profiles)
 
 llm:
-  provider: anthropic
-  api_key: ${ANTHROPIC_API_KEY}
-  model: claude-3-5-sonnet-20240620
-  max_tokens: 500
+  provider: openai            # openai | anthropic | ollama
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o
+  max_tokens: 1000
   temperature: 0
 
-contexts: contexts
-output: manifest
+contexts: contexts            # directory with agent context definitions
+output: manifest              # directory where compiled manifests are written
+description: "Production analytics database"
 ```
 
-## Defining Contexts
+---
 
-Contexts are defined in separate YAML files within the `contexts/` directory. Each context specifies a subset of your database—datasets and tables—relevant to a particular querying scenario.
+## Context definitions
 
-### Example `contexts/sales_context.yaml`:
+Each `.yaml` file in `contexts/` defines one **agent** — what data it can see
+and a human-readable description that becomes part of its system prompt.
 
 ```yaml
-name: sales_context
+# contexts/customers.yaml
+name: customers
+description: "Customer profiles, acquisition, and lifetime value"
+version: "1.0"
+
 datasets:
-  - name: test_store
+  - name: public                       # database schema name
+    description: "Main schema"
     tables:
-      - customers
-      - orders
+      - name: customers
+        description: >-
+          One row per registered customer.
+          lifetime_value tracks cumulative spend.
+          Use city/country for geographic segmentation.
+
+      - name: subscriptions
+        description: >-
+          Active and cancelled subscriptions.
+          FK: customer_id → customers.id
+          status: active | trialing | cancelled | past_due
 ```
 
-## Usage
+**The description is the most important field.** It tells the LLM what each
+table is *for* — not just what it contains. Good descriptions make agents
+dramatically more accurate.
 
-tabletalk offers three core CLI commands:
+---
 
-### Initialize the Project
-
-```bash
-tabletalk init
-```
-
-Creates `tabletalk.yaml`, a `contexts/` folder, and a `manifest/` folder.
-
-### Apply Contexts
+## The deploy lifecycle
 
 ```bash
+# Initial deploy
 tabletalk apply
+
+# Schema changed? Redeploy:
+vim contexts/sales.yaml        # update table or description
+tabletalk apply                # recompiles manifest (like terraform apply)
+tabletalk query                # agent now uses updated schema
+
+# Check if redeploy is needed:
+tabletalk apply                # tabletalk warns if contexts are stale
 ```
 
-Reads context definitions, connects to your database, pulls the relevant schemas, and generates manifest files in the `manifest/` directory.
+Under the hood, `tabletalk apply`:
+1. Reads every `.yaml` in `contexts/`
+2. Introspects the live database (PK/FK detection, column types)
+3. Merges your human descriptions with the introspected schema
+4. Writes `manifest/*.txt` — compact schema text injected into the LLM prompt
 
-### Query Command
+---
 
-Starts an interactive session for querying your data via the command line.
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `tabletalk init` | Scaffold a new project |
+| `tabletalk apply [dir]` | Introspect DB + compile manifests |
+| `tabletalk query [dir]` | Interactive agent CLI session |
+| `tabletalk serve` | Web UI at http://localhost:5000 |
+| `tabletalk connect` | Save a database connection profile |
+| `tabletalk connect --from-dbt PROJECT` | Import from `~/.dbt/profiles.yml` |
+| `tabletalk history [dir]` | View recent queries |
+| `tabletalk profiles list` | List saved profiles |
+| `tabletalk profiles delete NAME` | Remove a profile |
+| `tabletalk profiles test NAME` | Test a saved connection |
+
+---
+
+## Query session commands
+
+Inside `tabletalk query`:
+
+| Input | Action |
+|-------|--------|
+| Any question | Generate SQL (streaming) |
+| `change` | Switch to a different manifest/agent |
+| `history` | Show recent queries for this session |
+| `clear` | Clear conversation context |
+| `exit` | Quit |
+
+**Options:**
+```bash
+tabletalk query --execute          # execute generated SQL and show results
+tabletalk query --execute --explain  # also stream a plain-English explanation
+tabletalk query --output data.csv  # save results to CSV
+tabletalk query --no-context       # disable multi-turn conversation
+```
+
+---
+
+## Web UI
 
 ```bash
-tabletalk query [PROJECT_FOLDER]
-```
-
-- **PROJECT_FOLDER**: (Optional) Path to the project directory. Defaults to the current directory.
-
-#### Steps:
-1. **Select a Manifest**: Choose from available manifest files (e.g., `1. sales_context.json`).
-2. **Ask Questions**: Type a natural language question (e.g., "How many customers placed orders last month?").
-3. **Change Manifests**: Type `change` to switch to a different manifest.
-4. **Exit**: Type `exit` to end the session.
-
-### Serve Command
-
-Launches a Flask web server providing a graphical interface for querying your data.
-
-```bash
-tabletalk serve [--port PORT]
-```
-
-- **--port PORT**: (Optional) Specifies the port. Defaults to `5000`.
-
-#### Steps:
-1. **Open the Web Interface**: Navigate to `http://localhost:PORT`.
-2. **Select a Manifest**: Click a manifest (e.g., `sales_context.json`).
-3. **Ask a Question**: Type a question (e.g., "How many customers placed orders last month?") and click "Send".
-
-**Note**: Both `query` and `serve` commands require manifest files, generated by running `tabletalk apply` first.
-
-## Example Workflow
-
-### Step 1: Initialize the Project
-
-```bash
-tabletalk init
-```
-
-Creates the following structure:
-
-```text
-project_folder/
-├── tabletalk.yaml
-├── contexts/
-└── manifest/
-```
-
-### Step 2: Define a Context
-
-Create `contexts/sales_context.yaml`:
-
-```yaml
-name: sales_context
-datasets:
-  - name: test_store
-    tables:
-      - customers
-      - orders
-```
-
-### Step 3: Apply the Schema
-
-```bash
-tabletalk apply
-```
-
-Generates a manifest file (e.g., `manifest/sales_context.json`).
-
-### Step 4: Query Your Data
-
-```bash
-tabletalk query
-```
-
-1. Select `sales_context.json`.
-2. Ask a question like: "How many customers placed orders last month?"
-3. View the generated SQL and execute it locally.
-4. Type `exit` to end the session.
-
-### Step 5: Start the Web Server
-
-```bash
+tabletalk serve            # http://localhost:5000
 tabletalk serve --port 8080
+tabletalk serve --debug
 ```
 
-### Step 6: Access the Web Interface
+The web UI provides:
+- Manifest/agent selector
+- Streaming SQL generation (token-by-token)
+- Automatic execution with tabular results
+- Plain-English explanation of results
+- Suggested follow-up questions
+- Favorites management
+- Query history
 
-Open `http://localhost:8080` in your browser.
+---
 
-- **Select a Manifest**: Click on `sales_context.json`.
-- **Ask a Question**: Type "How many customers placed orders last month?" and click "Send".
-- **View Generated SQL**: The query appears in the chat history.
+## Supported databases
 
-## Contributing
+| Database | Extra | Connection |
+|----------|-------|------------|
+| SQLite | _(none)_ | `type: sqlite` |
+| DuckDB | `tabletalk[duckdb]` | `type: duckdb` |
+| PostgreSQL | `tabletalk[postgres]` | `type: postgres` |
+| MySQL | `tabletalk[mysql]` | `type: mysql` |
+| Snowflake | `tabletalk[snowflake]` | `type: snowflake` |
+| BigQuery | `tabletalk[bigquery]` | `type: bigquery` |
+| Azure SQL | `tabletalk[azuresql]` | `type: azuresql` |
 
-Want to help improve tabletalk? Fork the repository, make your changes, and submit a pull request. For major updates, please open an issue first to discuss your ideas.
+---
+
+## Supported LLMs
+
+| Provider | Config | Models |
+|----------|--------|--------|
+| Ollama _(no key)_ | `provider: ollama` | `qwen2.5-coder:7b` _(default)_, `llama3.2`, `mistral`, `codellama`, `phi3` |
+| OpenAI | `provider: openai` | `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo` |
+| Anthropic | `provider: anthropic` | `claude-opus-4-6`, `claude-sonnet-4-6` |
+
+**Ollama config:**
+```yaml
+llm:
+  provider: ollama
+  api_key: ollama                      # placeholder — not validated
+  model: qwen2.5-coder:7b              # any model you've pulled
+  base_url: http://localhost:11434/v1  # default
+```
+
+---
+
+## Safe mode (read-only enforcement)
+
+Set `safe_mode: true` in `tabletalk.yaml` to restrict execution to `SELECT`
+queries only. Any attempt to run `DELETE`, `UPDATE`, `DROP`, `INSERT`, etc.
+raises an error before it reaches the database.
+
+```yaml
+safe_mode: true   # blocks all non-SELECT queries at the session level
+```
+
+This is the recommended setting when the agent is connected to a production
+database.
+
+---
+
+## Environment variables
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | `tabletalk.yaml` `${OPENAI_API_KEY}` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | `tabletalk.yaml` `${ANTHROPIC_API_KEY}` | Anthropic API key |
+| `DB_PASSWORD` | `tabletalk.yaml` `${DB_PASSWORD}` | Database password (any provider) |
+| `TABLETALK_SECRET_KEY` | Flask web UI | Session signing key — set in production |
+
+Any `${VAR}` placeholder in `tabletalk.yaml` is resolved from the environment
+at startup. An unset variable raises an error with the variable name.
+
+---
+
+## Health check endpoint
+
+The web UI exposes a `/health` endpoint suitable for Docker `HEALTHCHECK` and
+Kubernetes probes:
+
+```
+GET /health
+```
+
+Returns `200 {"status": "ok"}` when manifests are compiled and ready, or
+`503 {"status": "degraded", "issues": [...]}` with a description of what's
+missing.
+
+---
+
+## Profile management
+
+Profiles store connection credentials in `~/.tabletalk/profiles.yml` — the
+same pattern as `~/.dbt/profiles.yml`.
+
+```bash
+# Create a profile interactively
+tabletalk connect
+
+# Import from an existing dbt project
+tabletalk connect --from-dbt my_dbt_project --target prod
+
+# Reference in tabletalk.yaml
+profile: my_snowflake_prod
+```
+
+---
+
+## Example project
+
+See [`examples/ecommerce/`](examples/ecommerce/) for a complete DuckDB-backed
+ecommerce example with 4 agents, seed data, and pre-generated manifests.
+
+```bash
+cd examples/ecommerce
+pip install "tabletalk[duckdb]"
+# Uses Ollama by default — no API key needed.
+# Install Ollama → https://ollama.com, then: ollama pull qwen2.5-coder:7b
+python seed.py          # create the database
+tabletalk apply         # compile manifests
+tabletalk query         # start querying (or: tabletalk serve)
+```
+
+---
+
+## Compact schema format
+
+tabletalk uses a compact notation to fit full schema context into the LLM
+prompt efficiently:
+
+```
+public.orders|Customer orders|id:I[PK]|customer_id:I[FK:customers.id]|status:S|total:N
+```
+
+- `I` = Integer, `S` = String, `F` = Float, `N` = Numeric, `D` = Date, `TS` = Timestamp, `B` = Boolean
+- `[PK]` = primary key
+- `[FK:table.column]` = foreign key — the LLM uses this to construct JOINs
+
+---
+
+## Running tests
+
+```bash
+uv run pytest                          # all tests — SQLite + DuckDB, no external services
+uv run pytest -k test_sqlite           # SQLite provider tests only
+uv run pytest -k test_duckdb           # DuckDB provider tests (requires duckdb)
+uv run pytest tabletalk/tests/test_cli.py       # CLI tests
+uv run pytest tabletalk/tests/test_app.py       # Flask API tests
+uv run pytest tabletalk/tests/test_interfaces.py  # Core session + parser tests
+```
+
+Tests for Postgres, MySQL, Snowflake, BigQuery, and Azure SQL are **auto-skipped**
+when the corresponding driver is not installed. Install the driver and set
+the relevant environment variables to activate those tests:
+
+```bash
+# PostgreSQL
+uv add "tabletalk[postgres]"
+# PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
+
+# Snowflake
+uv add "tabletalk[snowflake]"
+# SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_DATABASE, SNOWFLAKE_WAREHOUSE
+
+# BigQuery
+uv add "tabletalk[bigquery]"
+# BIGQUERY_PROJECT_ID, BIGQUERY_DATASET (+ GOOGLE_APPLICATION_CREDENTIALS or ADC)
+
+# Azure SQL
+uv add "tabletalk[azuresql]"
+# AZURESQL_SERVER, AZURESQL_DATABASE, AZURESQL_USER, AZURESQL_PASSWORD
+```
+
+---
 
 ## License
 
-This code is licensed under **CC BY-NC 4.0** for non-commercial use. For commercial use, contact `wtbates99@gmail.com`.
-
+**CC BY-NC 4.0** — free for non-commercial use.
+For commercial licensing: `wtbates99@gmail.com`

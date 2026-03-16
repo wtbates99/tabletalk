@@ -1,0 +1,41 @@
+# contexts/inventory.yaml
+#
+# "Inventory" agent context — stock levels, reorder alerts, and product catalog.
+#
+# Use this context for supply-chain and merchandising questions.
+#
+# Sample questions:
+#   - "Which products are below their reorder point?"
+#   - "What is the total inventory value at cost?"
+#   - "Show all out-of-stock products"
+#   - "Which category has the most SKUs?"
+#   - "What is the inventory turnover for Electronics?"
+
+name: inventory
+description: >-
+  Stock levels, reorder thresholds, and product catalogue.
+  Use this context to monitor warehouse quantities and flag
+  products that need restocking.
+version: "1.0"
+
+datasets:
+  - name: main
+    description: "Primary ecommerce schema"
+    tables:
+      - name: inventory
+        description: >-
+          Current stock quantities by product and warehouse.
+          reorder_point is the minimum quantity that triggers a purchase order.
+          When quantity <= reorder_point, the product needs restocking.
+          FK: product_id → products.id.
+
+      - name: products
+        description: >-
+          Full product catalogue including cost and active status.
+          active=FALSE means the product is discontinued (may still have inventory).
+          FK: category_id → categories.id.
+
+      - name: categories
+        description: >-
+          Product categories: Electronics, Clothing, Books, Home.
+          Use for category-level inventory summaries.

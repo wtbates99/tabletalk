@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import mysql.connector
 from mysql.connector import Error, MySQLConnection
@@ -18,7 +18,7 @@ class MySQLProvider(DatabaseProvider):
         self.database = database
         self.port = port
         try:
-            self.connection: MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract = (
+            self.connection: Union[MySQLConnection, PooledMySQLConnection, MySQLConnectionAbstract] = (
                 mysql.connector.connect(
                     host=self.host,
                     user=self.user,
@@ -37,7 +37,7 @@ class MySQLProvider(DatabaseProvider):
         cursor.close()
         return results
 
-    def get_client(self) -> MySQLConnection | PooledMySQLConnection | MySQLConnectionAbstract:
+    def get_client(self) -> Union[MySQLConnection, PooledMySQLConnection, MySQLConnectionAbstract]:
         return self.connection
 
     def get_database_type_map(self) -> Dict[str, str]:
