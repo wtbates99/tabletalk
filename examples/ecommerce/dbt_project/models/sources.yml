@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: main
+    description: "Raw ecommerce tables from the DuckDB database"
+    tables:
+      - name: customers
+        description: "Registered customer accounts"
+      - name: orders
+        description: "Customer orders with status and totals"
+      - name: order_items
+        description: "Line items within each order"
+      - name: products
+        description: "Product catalogue with pricing and cost"
+      - name: categories
+        description: "Product category taxonomy"
+      - name: inventory
+        description: "Stock levels by product and warehouse"
+      - name: campaigns
+        description: "Marketing campaigns with budget and spend"
+      - name: campaign_conversions
+        description: "Customer conversions attributed to campaigns"

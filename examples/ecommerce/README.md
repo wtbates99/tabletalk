@@ -198,6 +198,52 @@ Rerunning `tabletalk apply` reconciles the manifest with the current schema.
 
 ---
 
+## dbt integration
+
+The `dbt_project/` folder is a minimal dbt project that points to the same
+DuckDB database. Use it to demonstrate how tabletalk reads from an existing
+dbt `profiles.yml`.
+
+```
+dbt_project/
+├── dbt_project.yml          # dbt project config (profile: ecommerce)
+├── profiles.yml             # copy to ~/.dbt/profiles.yml
+└── models/
+    ├── sources.yml          # declares the 8 raw tables as dbt sources
+    ├── staging/
+    │   ├── stg_orders.sql
+    │   └── stg_customers.sql
+    └── marts/
+        ├── fct_orders.sql   # enriched orders mart (customer name, item count)
+        └── fct_orders.yml   # schema + tests
+```
+
+**To demo the dbt → tabletalk flow:**
+
+```bash
+# 1. Update the path in dbt_project/profiles.yml to point to your ecommerce.duckdb
+#    e.g. path: /Users/yourname/tabletalk/examples/ecommerce/ecommerce.duckdb
+
+# 2. Copy the profile to ~/.dbt/
+cp dbt_project/profiles.yml ~/.dbt/profiles.yml
+
+# 3. (Optional) Run dbt to create the marts in the database
+pip install dbt-duckdb
+cd dbt_project && dbt run && cd ..
+
+# 4. Import the connection into tabletalk
+tabletalk connect --from-dbt ecommerce
+
+# 5. Reference the saved profile in tabletalk.yaml
+#    profile: ecommerce
+
+# 6. Compile and query
+tabletalk apply
+tabletalk serve
+```
+
+---
+
 ## Connecting to a real database
 
 To connect to a production database instead of DuckDB:

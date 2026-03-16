@@ -100,7 +100,7 @@ class MySQLProvider(DatabaseProvider):
         # Primary keys for the schema in one query
         cursor.execute(
             """
-            SELECT TABLE_NAME, COLUMN_NAME
+            SELECT kcu.TABLE_NAME, kcu.COLUMN_NAME
             FROM information_schema.KEY_COLUMN_USAGE kcu
             JOIN information_schema.TABLE_CONSTRAINTS tc
                 ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME

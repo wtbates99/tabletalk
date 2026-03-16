@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: "One row per order — enriched with customer info and item count"
+    columns:
+      - name: order_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      - name: customer_name
+        description: "Denormalized from customers table"
+      - name: net_revenue
+        description: "total_amount minus discount_amount"
+      - name: item_count
+        description: "Number of line items in the order"

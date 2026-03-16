@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tabletalk"
-version = "0.2.0"
+version = "0.2.1"
 description = "Natural language to SQL — the dbt companion for AI-powered data workflows"
 readme = "README.md"
 requires-python = ">=3.9"
