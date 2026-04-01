@@ -31,7 +31,15 @@ llm:
 description: "Production analytics database"
 contexts: contexts            # directory containing agent context definitions
 output: manifest              # directory where compiled manifests are written
+
+# ── Safety & limits ───────────────────────────────────────────────────────────
 safe_mode: true               # restrict execution to SELECT queries only
+max_rows: 500                 # cap result set size (default: 500)
+query_timeout: 30             # kill queries after N seconds (default: no timeout)
+max_conv_messages: 20         # conversation history window in messages (default: 20)
+
+# ── Observability ─────────────────────────────────────────────────────────────
+audit_log: false              # write .tabletalk_audit.jsonl for every execute
 ```
 
 ---
@@ -65,7 +73,7 @@ Reference a saved connection profile instead of inlining credentials.
 profile: my_prod_snowflake
 ```
 
-Profiles are stored in `~/.tabletalk/profiles.yml`. Create them with `tabletalk connect` or `tabletalk connect --from-dbt`. See [Profile Management](profiles.md).
+Profiles are stored in `~/.tabletalk/profiles.yml`. Create them with `tabletalk connect` or import them from dbt with `tabletalk connect --from-dbt`. See [Profile Management](profiles.md).
 
 When `profile` is set, the `provider` block is ignored.
 
@@ -81,16 +89,6 @@ When `profile` is set, the `provider` block is ignored.
 | `max_tokens` | No | `1000` | Maximum tokens in the LLM response |
 | `temperature` | No | `0` | Sampling temperature (`0` = deterministic) |
 | `base_url` | No | — | Custom endpoint URL (required for Ollama) |
-
-**Ollama example:**
-
-```yaml
-llm:
-  provider: ollama
-  api_key: ollama                      # placeholder — not validated by Ollama
-  model: qwen2.5-coder:7b
-  base_url: http://localhost:11434/v1
-```
 
 **OpenAI example:**
 
@@ -114,6 +112,16 @@ llm:
   temperature: 0
 ```
 
+**Ollama example:**
+
+```yaml
+llm:
+  provider: ollama
+  api_key: ollama                      # placeholder — not validated by Ollama
+  model: qwen2.5-coder:7b
+  base_url: http://localhost:11434/v1
+```
+
 ---
 
 ### `description`
@@ -122,7 +130,7 @@ llm:
 description: "Production analytics database — Snowflake, updated nightly"
 ```
 
-A human-readable description of the database. Included in the manifest and injected into the LLM system prompt — helps the agent understand the overall context.
+Included in the manifest and injected into the LLM system prompt. Helps the agent understand the broader context of the data source.
 
 ---
 
@@ -132,7 +140,7 @@ A human-readable description of the database. Included in the manifest and injec
 contexts: contexts    # default
 ```
 
-Path to the directory containing agent context YAML files, relative to the project root. Defaults to `contexts`.
+Path to the directory containing agent context YAML files, relative to the project root.
 
 ---
 
@@ -142,7 +150,7 @@ Path to the directory containing agent context YAML files, relative to the proje
 output: manifest    # default
 ```
 
-Path to the directory where compiled manifests are written, relative to the project root. Defaults to `manifest`.
+Path to the directory where compiled manifests are written, relative to the project root.
 
 ---
 
@@ -158,6 +166,72 @@ Strongly recommended for any agent connected to a production database. See [Safe
 
 ---
 
+### `max_rows`
+
+```yaml
+max_rows: 500    # default
+```
+
+Maximum number of rows returned from any query execution. Results larger than this are silently truncated. Protects against accidental full-table scans flooding memory or the UI.
+
+```yaml
+max_rows: 100    # tight limit for dashboard agents
+max_rows: 5000   # larger limit for data export use cases
+```
+
+---
+
+### `query_timeout`
+
+```yaml
+query_timeout: 30    # seconds; default: no timeout
+```
+
+Kill any query that takes longer than this many seconds. Implemented at the Python layer (thread timeout) so it is database-agnostic — works with all providers.
+
+When a timeout fires, the user sees:
+```
+Query timed out after 30s. Increase 'query_timeout' in tabletalk.yaml or optimise the query.
+```
+
+---
+
+### `max_conv_messages`
+
+```yaml
+max_conv_messages: 20    # default
+```
+
+Maximum number of messages to retain in the conversation history window. Each question + answer pair uses 2 messages. Higher values give the agent more context for follow-up questions but increase LLM token consumption.
+
+```yaml
+max_conv_messages: 6     # tight window, minimal tokens
+max_conv_messages: 40    # longer sessions, more context
+```
+
+---
+
+### `audit_log`
+
+```yaml
+audit_log: false    # default
+```
+
+When `true`, every SQL execution is appended to `.tabletalk_audit.jsonl` in the project directory. Each entry records:
+
+```json
+{
+  "timestamp": "2026-03-01T14:32:01.123456+00:00",
+  "action": "execute",
+  "sql": "SELECT ...",
+  "row_count": 42
+}
+```
+
+Useful for compliance, debugging, and cost attribution in multi-user environments.
+
+---
+
 ## Environment variable substitution
 
 Any value in `tabletalk.yaml` can reference an environment variable using `${VAR_NAME}` syntax:
@@ -168,19 +242,34 @@ api_key: ${OPENAI_API_KEY}
 host: ${DB_HOST}
 ```
 
-Variables are resolved at startup. If a referenced variable is not set, tabletalk raises an error with the variable name — it never silently falls back to an empty string.
+Variables are resolved at startup. If a referenced variable is not set, tabletalk raises an error with the variable name and a fix instruction — it never silently falls back to an empty string.
 
-**Supported in:** any string value in the `provider` and `llm` blocks.
+---
+
+## Rate limiting (web server)
+
+The web server's `/chat/stream` endpoint enforces a per-session sliding-window rate limit. Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TABLETALK_RATE_LIMIT` | `30` | Max requests per window |
+| `TABLETALK_RATE_WINDOW` | `60` | Window size in seconds |
+
+```bash
+export TABLETALK_RATE_LIMIT=10   # tighter limit for shared deployments
+export TABLETALK_RATE_WINDOW=60
+tabletalk serve
+```
 
 ---
 
 ## Multiple environments
 
-The recommended pattern for multiple environments (dev/staging/prod) is to use profiles rather than multiple config files:
+The recommended pattern for multiple environments is to use profiles:
 
 ```yaml
-# tabletalk.yaml — always points to the right profile for the environment
-profile: ${TABLETALK_PROFILE}    # set in your CI/CD env
+# tabletalk.yaml — environment set via CI/CD
+profile: ${TABLETALK_PROFILE}
 ```
 
 Or maintain separate project directories:
@@ -192,5 +281,8 @@ projects/
 ├── staging/
 │   └── tabletalk.yaml    # profile: analytics_staging
 └── prod/
-    └── tabletalk.yaml    # profile: analytics_prod, safe_mode: true
+    └── tabletalk.yaml    # profile: analytics_prod
+                          # safe_mode: true
+                          # max_rows: 100
+                          # query_timeout: 15
 ```

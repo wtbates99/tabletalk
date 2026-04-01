@@ -2,9 +2,13 @@ import json
 import logging
 import os
 import re
+import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import yaml
 
@@ -13,7 +17,10 @@ logger = logging.getLogger("tabletalk")
 
 # ── Abstract interfaces ────────────────────────────────────────────────────────
 
+
 class DatabaseProvider(ABC):
+    """Base class for all database providers."""
+
     @abstractmethod
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
         """Execute SQL and return results as a list of row dicts."""
@@ -48,8 +55,46 @@ class DatabaseProvider(ABC):
         """
         pass
 
+    def get_cached_compact_tables(
+        self,
+        schema_name: str,
+        table_names: Optional[List[str]] = None,
+        ttl: int = 300,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return get_compact_tables result using an in-process TTL cache (item 4).
+        Avoids repeated introspection queries on the same schema within `ttl` seconds.
+        """
+        if not hasattr(self, "_schema_cache"):
+            self._schema_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+        key = f"{schema_name}:{','.join(sorted(table_names or []))}"
+        now = time.monotonic()
+        if key in self._schema_cache:
+            ts, data = self._schema_cache[key]
+            if now - ts < ttl:
+                logger.debug(f"Schema cache hit for '{key}'")
+                return data
+
+        data = self.get_compact_tables(schema_name, table_names)
+        self._schema_cache[key] = (now, data)
+        return data
+
+    def invalidate_schema_cache(self) -> None:
+        """Clear the introspection cache — call after DDL changes."""
+        if hasattr(self, "_schema_cache"):
+            self._schema_cache.clear()
+
 
 class LLMProvider(ABC):
+    """Base class for all LLM providers."""
+
+    # Token usage from the most recent call — populated by concrete providers (item 25).
+    last_usage: Dict[str, int]
+
+    def __init__(self) -> None:
+        self.last_usage: Dict[str, int] = {}
+
     @abstractmethod
     def generate_response(self, prompt: str) -> str:
         """Single-turn: generate a complete response for a prompt."""
@@ -73,7 +118,31 @@ class LLMProvider(ABC):
         yield from self.generate_response_stream(last_user)
 
 
+# ── Metrics (item 26) ──────────────────────────────────────────────────────────
+
+
+@dataclass
+class QueryMetrics:
+    """Captures per-query latency and token usage for observability."""
+
+    generation_ms: float = 0.0
+    execution_ms: float = 0.0
+    row_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "generation_ms": round(self.generation_ms, 1),
+            "execution_ms": round(self.execution_ms, 1),
+            "row_count": self.row_count,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+        }
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _encode_field(f: Dict[str, Any]) -> str:
     """Encode a field dict to compact notation like 'id:I[PK]' or 'user_id:I[FK:users.id]'."""
@@ -104,7 +173,23 @@ def _format_results_for_llm(results: List[Dict[str, Any]], limit: int = 15) -> s
     return "\n".join(lines)
 
 
+# ── Consolidated streaming helper (item 21) ───────────────────────────────────
+
+
+def _collect_stream(generator: Generator[str, None, None]) -> Tuple[str, float]:
+    """
+    Exhaust a token generator, measuring wall-clock time.
+    Returns (full_text, elapsed_ms).
+    """
+    parts: List[str] = []
+    t0 = time.monotonic()
+    for chunk in generator:
+        parts.append(chunk)
+    return "".join(parts), (time.monotonic() - t0) * 1000
+
+
 # ── QuerySession ──────────────────────────────────────────────────────────────
+
 
 class QuerySession:
     _SYSTEM_PROMPT = (
@@ -154,6 +239,13 @@ class QuerySession:
         self._db_loaded = False
         self._manifest_cache: Dict[str, str] = {}
 
+        # Config-driven limits (items 11, 16, 17)
+        self.max_conv_messages: int = int(self.config.get("max_conv_messages", 20))
+        self.max_rows: int = int(self.config.get("max_rows", 500))
+        self.query_timeout: Optional[float] = (
+            float(self.config["query_timeout"]) if self.config.get("query_timeout") else None
+        )
+
     # ── Config & provider init ─────────────────────────────────────────────────
 
     def _load_config(self) -> Dict[str, Any]:
@@ -171,11 +263,14 @@ class QuerySession:
 
         llm_config = self.config.get("llm", {})
         if not llm_config or "provider" not in llm_config or "api_key" not in llm_config:
-            raise ValueError("LLM configuration missing or incomplete in tabletalk.yaml")
+            raise ValueError(
+                "LLM configuration missing or incomplete in tabletalk.yaml. "
+                "Ensure llm.provider and llm.api_key (or ${ENV_VAR}) are set."
+            )
         try:
             return get_llm_provider(llm_config)
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize LLM provider: {e}")
+            raise RuntimeError(f"Failed to initialize LLM provider: {e}") from e
 
     def get_db_provider(self) -> Optional[DatabaseProvider]:
         """Lazily initialize the database provider for query execution."""
@@ -184,7 +279,6 @@ class QuerySession:
         self._db_loaded = True
         from tabletalk.factories import get_db_provider
 
-        # Support both 'profile' reference and inline 'provider' block
         if "profile" in self.config:
             provider_config: Dict[str, Any] = {"profile": self.config["profile"]}
         else:
@@ -199,9 +293,10 @@ class QuerySession:
             logger.warning(f"Could not initialize DB provider for execution: {e}")
             return None
 
-    # ── Manifest ───────────────────────────────────────────────────────────────
+    # ── Manifest (item 1 — structured caching) ────────────────────────────────
 
     def load_manifest(self, manifest_file: str) -> str:
+        """Load manifest text, caching in memory to avoid repeated disk reads."""
         if manifest_file in self._manifest_cache:
             return self._manifest_cache[manifest_file]
         path = os.path.join(self.project_folder, "manifest", manifest_file)
@@ -236,7 +331,8 @@ class QuerySession:
             {"role": "system", "content": self._SYSTEM_PROMPT.format(schema=schema)}
         ]
         if history:
-            messages.extend(history)
+            # Honour the configurable conversation window (item 11)
+            messages.extend(history[-self.max_conv_messages :])
         messages.append({"role": "user", "content": question})
         return messages
 
@@ -244,10 +340,10 @@ class QuerySession:
         """Single-turn SQL generation (non-streaming)."""
         messages = self._build_messages(manifest_data, question)
         try:
-            chunks = list(self.llm_provider.generate_chat_stream(messages))
-            return self._clean_sql("".join(chunks))
+            text, _ = _collect_stream(self.llm_provider.generate_chat_stream(messages))
+            return self._clean_sql(text)
         except Exception as e:
-            raise RuntimeError(f"Error generating SQL: {e}")
+            raise RuntimeError(f"Error generating SQL: {e}") from e
 
     def generate_sql_stream(
         self, manifest_data: str, question: str
@@ -267,9 +363,9 @@ class QuerySession:
             for chunk in self.llm_provider.generate_chat_stream(messages):
                 yield chunk
         except Exception as e:
-            raise RuntimeError(f"Error generating SQL: {e}")
+            raise RuntimeError(f"Error generating SQL: {e}") from e
 
-    # ── Execution ──────────────────────────────────────────────────────────────
+    # ── Execution (items 16, 17) ───────────────────────────────────────────────
 
     _READ_ONLY_PREFIXES = ("SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC")
 
@@ -280,15 +376,65 @@ class QuerySession:
         return first_word in QuerySession._READ_ONLY_PREFIXES
 
     def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
+        """
+        Execute SQL with optional timeout (item 16) and row-count cap (item 17).
+        Writes to audit log if enabled (item 18).
+        """
         db = self.get_db_provider()
         if db is None:
             raise RuntimeError("No database provider configured for execution.")
+
         if self.config.get("safe_mode", False) and not self._is_read_only_sql(sql):
             raise ValueError(
                 "Only SELECT queries are allowed when safe_mode is enabled. "
                 "Set 'safe_mode: false' in tabletalk.yaml to allow writes."
             )
-        return db.execute_query(sql)
+
+        # Query timeout via thread future (item 16) — database-agnostic
+        if self.query_timeout is not None:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(db.execute_query, sql)
+                try:
+                    results = future.result(timeout=self.query_timeout)
+                except FuturesTimeoutError:
+                    raise RuntimeError(
+                        f"Query timed out after {self.query_timeout}s. "
+                        "Increase 'query_timeout' in tabletalk.yaml or optimise the query."
+                    )
+        else:
+            results = db.execute_query(sql)
+
+        # Row cap (item 17)
+        if len(results) > self.max_rows:
+            logger.info(
+                f"Result set truncated from {len(results)} to {self.max_rows} rows (max_rows limit)."
+            )
+            results = results[: self.max_rows]
+
+        # Audit log (item 18)
+        self._write_audit_log("execute", sql=sql, row_count=len(results))
+
+        return results
+
+    # ── Audit logging (item 18) ────────────────────────────────────────────────
+
+    def _audit_log_path(self) -> str:
+        return os.path.join(self.project_folder, ".tabletalk_audit.jsonl")
+
+    def _write_audit_log(self, action: str, **kwargs: Any) -> None:
+        """Append a structured entry to the audit log when audit_log: true in config."""
+        if not self.config.get("audit_log", False):
+            return
+        entry: Dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            **kwargs,
+        }
+        try:
+            with open(self._audit_log_path(), "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            logger.debug(f"Audit log write failed: {e}")
 
     # ── Explanation ───────────────────────────────────────────────────────────
 
@@ -343,16 +489,25 @@ class QuerySession:
             logger.debug(f"suggest_questions failed: {e}")
             return []
 
-    # ── History ───────────────────────────────────────────────────────────────
+    # ── History (items 25, 26) ─────────────────────────────────────────────────
 
-    def save_history(self, manifest: str, question: str, sql: str) -> None:
+    def save_history(
+        self,
+        manifest: str,
+        question: str,
+        sql: str,
+        metrics: Optional[QueryMetrics] = None,
+    ) -> None:
+        """Append a query record to history, including metrics when available."""
         path = os.path.join(self.project_folder, ".tabletalk_history.jsonl")
-        entry = {
+        entry: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "manifest": manifest,
             "question": question,
             "sql": sql,
         }
+        if metrics:
+            entry["metrics"] = metrics.to_dict()
         try:
             with open(path, "a") as f:
                 f.write(json.dumps(entry) + "\n")
@@ -373,6 +528,42 @@ class QuerySession:
                     except json.JSONDecodeError:
                         pass
         return entries[-limit:]
+
+    # ── Usage stats (item 25) ──────────────────────────────────────────────────
+
+    def get_usage_stats(self, limit: int = 100) -> Dict[str, Any]:
+        """
+        Aggregate token usage and latency stats from recent history.
+        Returns totals and averages across queries that recorded metrics.
+        """
+        entries = self.get_history(limit=limit)
+        total_prompt = 0
+        total_completion = 0
+        total_gen_ms = 0.0
+        total_exec_ms = 0.0
+        count_with_metrics = 0
+
+        for e in entries:
+            m = e.get("metrics")
+            if m:
+                total_prompt += m.get("prompt_tokens", 0)
+                total_completion += m.get("completion_tokens", 0)
+                total_gen_ms += m.get("generation_ms", 0.0)
+                total_exec_ms += m.get("execution_ms", 0.0)
+                count_with_metrics += 1
+
+        return {
+            "query_count": len(entries),
+            "queries_with_metrics": count_with_metrics,
+            "total_prompt_tokens": total_prompt,
+            "total_completion_tokens": total_completion,
+            "avg_generation_ms": (
+                round(total_gen_ms / count_with_metrics, 1) if count_with_metrics else None
+            ),
+            "avg_execution_ms": (
+                round(total_exec_ms / count_with_metrics, 1) if count_with_metrics else None
+            ),
+        }
 
     # ── Favorites ─────────────────────────────────────────────────────────────
 
@@ -413,6 +604,7 @@ class QuerySession:
 
 
 # ── Parser ─────────────────────────────────────────────────────────────────────
+
 
 class Parser:
     def __init__(self, project_folder: str, db_provider: DatabaseProvider):
@@ -485,7 +677,8 @@ class Parser:
                         logger.warning(f"Invalid table entry in '{schema_name}'.")
 
                 try:
-                    compact_tables = self.db_provider.get_compact_tables(
+                    # Use cached introspection (item 4)
+                    compact_tables = self.db_provider.get_cached_compact_tables(
                         schema_name, table_names
                     )
                     for ct in compact_tables:
