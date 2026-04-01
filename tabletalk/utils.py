@@ -46,6 +46,13 @@ llm:
 
 contexts: contexts
 output: manifest
+
+# ── Optional tuning ────────────────────────────────────────────────────────────
+# safe_mode: true          # block non-SELECT queries
+# max_rows: 500            # cap result set size (item 17)
+# query_timeout: 30        # kill queries after N seconds (item 16)
+# max_conv_messages: 20    # conversation history window (item 11)
+# audit_log: false         # set true to write .tabletalk_audit.jsonl (item 18)
 """
 
     with open(config_path, "w") as f:

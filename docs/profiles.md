@@ -66,23 +66,13 @@ When `profile` is set, the `provider` block is ignored. tabletalk loads the cred
 tabletalk profiles list
 ```
 
-```
-analytics_dev
-analytics_prod
-snowflake_staging
-```
-
 ### Test a profile
 
 ```bash
 tabletalk profiles test analytics_prod
 ```
 
-Attempts to connect to the database and reports success or failure:
-
-```
-✓ analytics_prod — connected (postgres 16.1 on prod-db.company.com)
-```
+Attempts to connect to the database and reports success or failure.
 
 ### Delete a profile
 
@@ -90,7 +80,37 @@ Attempts to connect to the database and reports success or failure:
 tabletalk profiles delete analytics_old
 ```
 
-Permanently removes the profile from `~/.tabletalk/profiles.yml`.
+Permanently removes the profile from `~/.tabletalk/profiles.yml` and deletes any secrets stored in the OS keychain.
+
+---
+
+## Credential security (keyring)
+
+By default, passwords are stored in plaintext in `~/.tabletalk/profiles.yml`. tabletalk prints a warning when saving sensitive fields to plaintext.
+
+**To store passwords in the OS keychain instead**, install `keyring`:
+
+```bash
+pip install keyring
+# or
+uv add 'tabletalk[keyring]'
+```
+
+When keyring is available, `tabletalk connect` automatically stores `password` and `credentials` fields in the OS credential store (macOS Keychain, Windows Credential Manager, or GNOME Keyring / KWallet on Linux). The YAML file stores a `__keyring__` sentinel instead of the actual secret.
+
+```yaml
+# profiles.yml with keyring enabled
+analytics_prod:
+  type: postgres
+  host: prod-db.company.com
+  database: analytics
+  user: analyst
+  password: __keyring__    # actual password stored in OS keychain
+```
+
+`get_profile()` transparently merges the keyring secret back at read time — no changes required in `tabletalk.yaml`.
+
+**Fallback:** If keyring is unavailable or the OS keychain operation fails, tabletalk falls back to plaintext with a warning logged. Your workflow is never blocked.
 
 ---
 
@@ -120,8 +140,6 @@ local_duckdb:
   type: duckdb
   database_path: /Users/will/data/analytics.duckdb
 ```
-
-The profile name is the top-level key (e.g., `analytics_prod`).
 
 ---
 
@@ -207,12 +225,13 @@ my_sqlite:
 
 ## Security notes
 
-- `~/.tabletalk/profiles.yml` contains plaintext passwords. Restrict file permissions:
+- Install `keyring` to store passwords in the OS keychain rather than plaintext YAML.
+- If not using keyring, restrict file permissions:
 
   ```bash
   chmod 600 ~/.tabletalk/profiles.yml
   ```
 
-- For CI/CD environments, prefer inline `provider` config with `${ENV_VAR}` substitution rather than committing profiles.
+- For CI/CD environments, prefer inline `provider` config with `${ENV_VAR}` substitution rather than using profiles at all.
 
-- Never commit `~/.tabletalk/profiles.yml` to version control — it's in your home directory specifically to keep it out of project repos.
+- Never commit `~/.tabletalk/profiles.yml` to version control — it lives in your home directory specifically to keep it out of project repos.

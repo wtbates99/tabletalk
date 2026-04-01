@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tabletalk"
-version = "0.2.1"
+version = "0.3.0"
 description = "Natural language to SQL — the dbt companion for AI-powered data workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,6 +39,7 @@ bigquery  = ["google-cloud-bigquery>=3.0.0"]
 snowflake = ["snowflake-connector-python>=3.0"]
 duckdb    = ["duckdb>=0.9"]
 azuresql  = ["pymssql>=2.2"]
+keyring   = ["keyring>=24.0"]
 all = [
     "psycopg2-binary>=2.9",
     "mysql-connector-python>=8.0",
@@ -46,6 +47,7 @@ all = [
     "snowflake-connector-python>=3.0",
     "duckdb>=0.9",
     "pymssql>=2.2",
+    "keyring>=24.0",
 ]
 
 [project.scripts]
