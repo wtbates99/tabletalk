@@ -431,6 +431,122 @@ Delete a saved favorite by name.
 
 ---
 
+## Prometheus Metrics
+
+### `GET /metrics`
+
+Expose all tabletalk metrics in Prometheus text format. Suitable for Prometheus scrape configs.
+
+```bash
+curl http://localhost:5000/metrics
+```
+
+**Response:** `text/plain; version=0.0.4`
+
+```
+# HELP tabletalk_queries_total Total number of SQL generation requests
+# TYPE tabletalk_queries_total counter
+tabletalk_queries_total_total 47.0
+# TYPE tabletalk_generation_seconds histogram
+tabletalk_generation_seconds_bucket{le="0.005"} 0
+...
+tabletalk_generation_seconds_sum 67.23
+tabletalk_generation_seconds_count 47
+```
+
+### `GET /metrics/json`
+
+Same metrics as a JSON snapshot — useful for dashboards that can't consume Prometheus format.
+
+---
+
+## Result Cache
+
+### `GET /cache/stats`
+
+Return result cache statistics.
+
+**Response:**
+```json
+{
+  "size": 12,
+  "hits": 34,
+  "misses": 8,
+  "hit_rate": 0.81,
+  "ttl": 300
+}
+```
+
+### `POST /cache/invalidate`
+
+Invalidate cached query results.
+
+**Request:**
+```json
+{ "manifest": "sales.txt" }   // omit to clear all
+```
+
+Configure cache TTL with `TABLETALK_CACHE_TTL` env var (default `300` seconds). Disable with `TABLETALK_CACHE_ENABLED=false`.
+
+---
+
+## Webhooks
+
+### `GET /webhooks`
+
+List all registered webhook subscriptions.
+
+**Response:**
+```json
+{
+  "webhooks": [
+    {"url": "https://example.com/hook", "event": "query_complete"}
+  ]
+}
+```
+
+### `POST /webhooks`
+
+Register a webhook URL.
+
+**Request:**
+```json
+{
+  "url": "https://example.com/hook",
+  "event": "query_complete"
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `url` | required | Webhook URL (must start with `http`) |
+| `event` | `"*"` | Event to subscribe to: `query_complete` or `"*"` for all |
+
+### `DELETE /webhooks`
+
+Unregister a webhook URL.
+
+**Request:**
+```json
+{ "url": "https://example.com/hook" }
+```
+
+**Webhook payload** (sent as `POST` to registered URLs on `query_complete`):
+
+```json
+{
+  "event": "query_complete",
+  "question": "Total revenue by month",
+  "manifest": "sales.txt",
+  "sql": "SELECT DATE_TRUNC(...) ...",
+  "row_count": 12,
+  "generation_ms": 1243.1,
+  "execution_ms": 44.2
+}
+```
+
+---
+
 ## Consuming the streaming API
 
 ### Python (httpx)

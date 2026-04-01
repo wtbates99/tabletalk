@@ -10,12 +10,19 @@ tabletalk is "dbt and Terraform had a kid for agents" — it brings the declarat
 
 ```
 tabletalk/
-├── cli.py              # Click CLI — init, apply, validate, diff, test, query, serve, schedule
-├── app.py              # Flask web server — REST API + SSE streaming
+├── cli.py              # Click CLI — 20+ commands including plan, lint, lock, rollback, promote, discover, watch, agents, openapi
+├── app.py              # Flask web server — REST API + SSE streaming + /metrics + /webhooks + /cache
 ├── interfaces.py       # Core abstractions — QuerySession, Parser, QueryMetrics, base classes
 ├── utils.py            # Project scaffolding and apply helpers
 ├── factories.py        # Provider registry — instantiate LLM and DB providers from config
 ├── profiles.py         # ~/.tabletalk/profiles.yml read/write, keyring integration, dbt import
+├── state.py            # Remote state — local/S3/GCS backends, lock files, snapshots, rollback, promote
+├── registry.py         # Agent registry — named agent fleet management with permissions
+├── memory.py           # Per-agent persistent fact memory (key/value YAML store)
+├── cache.py            # SQL result TTL cache — in-process, thread-safe, LRU eviction
+├── tools.py            # Tool call registry — OpenAI function-calling format, built-in tools
+├── metrics.py          # Prometheus-compatible metrics — counters, gauges, histograms
+├── router.py           # LLM complexity router — heuristic scoring → fast vs powerful model
 ├── static/
 │   └── index.html      # Single-page web UI (vanilla JS, no build step)
 └── providers/
@@ -189,9 +196,11 @@ def _get_session() -> QuerySession:
 | `GET` | `/health` | Enhanced readiness probe (manifests + DB + LLM) |
 | `GET` | `/config` | Active LLM provider, model, and runtime limits |
 | `GET` | `/stats` | Aggregate token usage and latency stats |
+| `GET` | `/metrics` | Prometheus-format metrics |
+| `GET` | `/metrics/json` | Metrics snapshot as JSON |
 | `GET` | `/manifests` | List compiled manifests |
 | `POST` | `/select_manifest` | Load a manifest, reset conversation |
-| `POST` | `/chat/stream` | Main SSE streaming endpoint (rate-limited) |
+| `POST` | `/chat/stream` | Main SSE streaming endpoint (rate-limited, cached) |
 | `POST` | `/fix/stream` | Fix failing SQL (SSE) |
 | `POST` | `/execute` | Execute SQL, return results |
 | `POST` | `/export` | Execute SQL, return CSV or JSON download |
@@ -200,6 +209,9 @@ def _get_session() -> QuerySession:
 | `POST` | `/reset` | Clear conversation context |
 | `GET` | `/history` | Recent query history with metrics |
 | `GET/POST/DELETE` | `/favorites` | Saved queries CRUD |
+| `GET` | `/cache/stats` | Result cache statistics |
+| `POST` | `/cache/invalidate` | Invalidate cached results |
+| `GET/POST/DELETE` | `/webhooks` | Webhook subscription management |
 | `POST` | `/query` | Legacy non-streaming endpoint (backward compat) |
 
 ### Rate limiting
@@ -298,6 +310,148 @@ QuerySession.generate_sql_conversational()
     │   └─ returns JSON array of questions → SSE suggestions event
     │
     └─ save_history(question, sql, manifest, metrics=QueryMetrics(...))
+```
+
+---
+
+---
+
+## State management (`state.py`)
+
+Remote state follows the same pattern as Terraform backends.
+
+**Backends:** `local://` (default), `s3://` (requires `boto3`), `gcs://` (requires `google-cloud-storage`).
+
+Configure in `tabletalk.yaml`:
+
+```yaml
+state:
+  backend: s3
+  bucket: my-tabletalk-state
+  prefix: projects/myproject
+```
+
+**Key functions:**
+
+| Function | Description |
+|----------|-------------|
+| `write_lock(project)` | SHA-256 fingerprint lock of current manifests |
+| `check_lock(project)` | Compare manifests to lock — returns drift list |
+| `snapshot_manifests(project)` | Copy manifests to `.tabletalk_history/<timestamp>/` |
+| `rollback(project, steps)` | Restore from N snapshots ago (auto-snapshots first) |
+| `promote(src, tgt, manifests)` | Copy manifests between environments |
+
+---
+
+## Agent registry (`registry.py`)
+
+Stores named agents in `.tabletalk_agents.yaml`. Each agent has a name, default manifest, permissions (`read`, `execute`, `admin`), and optional description.
+
+```python
+from tabletalk.registry import register_agent, agent_has_permission
+
+register_agent(project, "analyst", manifest="sales.txt", permissions=["read"])
+if agent_has_permission(project, "analyst", "execute"):
+    ...
+```
+
+---
+
+## Per-agent memory (`memory.py`)
+
+Key/value fact store per agent, persisted in `.tabletalk_memory/<agent>.yaml`.
+
+```python
+from tabletalk.memory import set_fact, get_fact
+
+set_fact(project, "analyst", "preferred_timezone", "UTC")
+tz = get_fact(project, "analyst", "preferred_timezone")
+```
+
+---
+
+## Result cache (`cache.py`)
+
+Thread-safe TTL cache for SQL results. Keyed by `(manifest, sql)` — SQL is normalized (whitespace collapsed, uppercased) before hashing so semantically identical queries share cache entries.
+
+```python
+from tabletalk.cache import ResultCache
+
+cache = ResultCache(ttl=300, max_entries=500)
+rows = cache.get(manifest, sql)
+if rows is None:
+    rows = db.execute_query(sql)
+    cache.set(manifest, sql, rows)
+```
+
+The web server uses a module-level singleton. Configure TTL with `TABLETALK_CACHE_TTL` and disable with `TABLETALK_CACHE_ENABLED=false`.
+
+---
+
+## Tool call registry (`tools.py`)
+
+Agents can be given a set of Python callables that the LLM can invoke via function calling.
+
+```python
+from tabletalk.tools import ToolRegistry
+
+reg = ToolRegistry()
+
+@reg.tool(description="Return today's date")
+def get_today() -> str:
+    return date.today().isoformat()
+
+# Export schemas for OpenAI function-calling format
+schemas = reg.schemas()
+
+# Dispatch LLM tool call
+result = reg.call("get_today", {})
+```
+
+---
+
+## Metrics (`metrics.py`)
+
+Process-wide Prometheus-compatible metrics registry. No external dependency for collection — `prometheus-client` is only needed to push to a gateway.
+
+```python
+from tabletalk.metrics import get_registry, timer
+
+reg = get_registry()
+reg.inc("tabletalk_queries_total")
+reg.observe("tabletalk_generation_seconds", 1.234)
+
+with timer("tabletalk_execution_seconds", registry=reg):
+    results = db.execute_query(sql)
+
+print(reg.format_prometheus())
+```
+
+Exposed via `GET /metrics` (Prometheus text) and `GET /metrics/json`.
+
+---
+
+## LLM router (`router.py`)
+
+Routes queries to a fast/cheap model or a powerful/expensive model based on a lightweight complexity heuristic.
+
+```python
+from tabletalk.router import score_complexity, route_model
+
+score = score_complexity("total revenue by month")   # → 0.18 (simple)
+model = route_model(llm_config, score)               # → "gpt-4o-mini"
+```
+
+Configure in `tabletalk.yaml`:
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o             # powerful model — used for complex queries
+  fast_model: gpt-4o-mini   # cheap model — used for simple queries
+  router:
+    enabled: true
+    threshold: 0.5          # 0–1; above this → powerful model
 ```
 
 ---

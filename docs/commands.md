@@ -12,15 +12,25 @@ Options:
 Commands:
   init      Scaffold a new tabletalk project
   apply     Introspect DB and compile agent manifests
+  plan      Preview what apply would change (non-destructive)
+  lint      Lint context YAML files for errors
   validate  Dry-run health check — config, contexts, DB, LLM
   diff      Show stale context files and table-level changes
   test      Smoke-test SQL generation against every manifest
+  lock      Write SHA-256 fingerprint lock file
+  check     Verify manifests against lock file
+  rollback  Restore manifests from a previous snapshot
+  promote   Copy manifests between project environments
+  discover  Auto-generate context YAMLs from live schema
+  watch     Auto-apply when context files change
   query     Start an interactive agent session
   serve     Launch the web UI
   connect   Save a database connection profile
   profiles  Manage saved connection profiles
+  agents    Manage the agent registry
   history   View recent query history
   schedule  Manage and run scheduled queries
+  openapi   Generate OpenAPI spec for the REST API
 ```
 
 ---
@@ -405,3 +415,221 @@ tabletalk schedule run ./my_project  # run schedules for a specific project
 ```
 
 Results are written to `<output_dir>/<name>_<timestamp>.csv`. Schedule state is persisted in `.tabletalk_schedules.json`.
+
+---
+
+## `tabletalk plan`
+
+Preview what `tabletalk apply` would change — without connecting to the database or writing any files.
+
+```bash
+tabletalk plan [DIR]
+```
+
+Shows a table with each context file, its status (`CREATE` / `UPDATE` / `no-op`), and the tables it declares. Think of it like `terraform plan`.
+
+---
+
+## `tabletalk lint`
+
+Lint context YAML files for common issues: missing names, empty table lists, duplicate table references.
+
+```bash
+tabletalk lint [DIR]
+```
+
+Exits with code 1 if errors are found. Clean for `warnings` (missing descriptions, etc.).
+
+**CI usage:**
+
+```yaml
+- run: tabletalk lint
+```
+
+---
+
+## `tabletalk lock`
+
+Write `.tabletalk.lock` with SHA-256 fingerprints of all manifests in `manifest/`.
+
+```bash
+tabletalk lock [DIR]
+```
+
+Use this after `apply` to pin the exact schema fingerprint. Commit `.tabletalk.lock` to version control to detect schema drift in CI.
+
+---
+
+## `tabletalk check`
+
+Verify manifests against `.tabletalk.lock`. Exits with code 1 if drift is detected.
+
+```bash
+tabletalk check [DIR]
+```
+
+**Example drift output:**
+
+```
+Manifest drift detected:
+  • CHANGED  sales.txt
+  • ADDED    new_context.txt (not in lock)
+```
+
+**CI usage (fail on unexpected schema changes):**
+
+```yaml
+- run: tabletalk check
+```
+
+---
+
+## `tabletalk rollback`
+
+Restore manifests from a previous snapshot.
+
+```bash
+tabletalk rollback [DIR] [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--steps INTEGER` | `1` | How many snapshots to roll back |
+| `--list` | off | List available snapshots without rolling back |
+
+Every `tabletalk apply` creates a snapshot automatically in `.tabletalk_history/`. The current manifests are auto-snapshotted before any rollback.
+
+```bash
+tabletalk rollback                  # roll back 1 step
+tabletalk rollback --steps 3        # roll back 3 steps
+tabletalk rollback --list           # list available snapshots
+```
+
+---
+
+## `tabletalk promote`
+
+Copy compiled manifests from one project to another (e.g. dev → staging → prod).
+
+```bash
+tabletalk promote SOURCE TARGET [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--manifest TEXT` | Promote only this manifest (repeatable; default: all) |
+
+```bash
+tabletalk promote projects/dev projects/staging
+tabletalk promote projects/staging projects/prod --manifest sales.txt
+```
+
+Validates that `TARGET` has a `tabletalk.yaml` before writing. Writes `.tabletalk.lock` in the target after promotion.
+
+---
+
+## `tabletalk discover`
+
+Auto-generate context YAML files by introspecting the live database schema.
+
+```bash
+tabletalk discover [DIR] [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--schema TEXT` | Introspect only this schema (default: all schemas) |
+| `--overwrite` | Overwrite existing context files |
+
+```bash
+tabletalk discover                  # discover all schemas
+tabletalk discover --schema public  # only public schema
+tabletalk discover --overwrite      # regenerate existing contexts
+```
+
+Creates one `contexts/<schema>.yaml` per schema discovered. Run `tabletalk apply` afterwards to compile the manifests.
+
+---
+
+## `tabletalk watch`
+
+Watch context files for changes and automatically run `tabletalk apply` when they change.
+
+```bash
+tabletalk watch [DIR] [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--interval INTEGER` | `5` | Poll interval in seconds |
+
+```bash
+tabletalk watch                    # watch current directory
+tabletalk watch --interval 2       # check every 2 seconds
+```
+
+Press `Ctrl-C` to stop. Useful during active context development.
+
+---
+
+## `tabletalk agents`
+
+Manage the named agent registry (`.tabletalk_agents.yaml`).
+
+### `tabletalk agents register NAME`
+
+Register a named agent.
+
+```bash
+tabletalk agents register analyst \
+  --manifest sales.txt \
+  --permissions read,execute \
+  --description "Sales analytics bot"
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--manifest TEXT` | — | Default manifest for this agent |
+| `--permissions TEXT` | `read` | Comma-separated: `read`, `execute`, `admin` |
+| `--description TEXT` | — | Human-readable description |
+
+### `tabletalk agents list`
+
+List all registered agents with their manifest, permissions, and last-seen timestamp.
+
+### `tabletalk agents remove NAME`
+
+Remove an agent from the registry.
+
+---
+
+## `tabletalk openapi`
+
+Generate an OpenAPI 3.0 spec for the tabletalk REST API.
+
+```bash
+tabletalk openapi [DIR] [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output FILE` | stdout | Write spec to this file |
+| `--base-url TEXT` | `http://localhost:5000` | Server base URL |
+
+```bash
+tabletalk openapi                          # print to stdout
+tabletalk openapi --output openapi.yaml    # write to file
+tabletalk openapi --base-url https://api.example.com/tabletalk
+```

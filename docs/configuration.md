@@ -263,6 +263,53 @@ tabletalk serve
 
 ---
 
+---
+
+### `slow_query_threshold_ms`
+
+```yaml
+slow_query_threshold_ms: 5000    # default: 5000ms (5 seconds)
+```
+
+Queries that exceed this threshold are logged as warnings and appended to the audit log as `slow_query` events. Set to a lower value for stricter monitoring.
+
+---
+
+### `state`
+
+Remote state backend configuration. Defaults to local filesystem.
+
+```yaml
+state:
+  backend: local         # local | s3 | gcs
+  bucket: my-state       # s3 / gcs only
+  prefix: myproject      # optional key prefix
+```
+
+- `local` — manifests live in the `manifest/` directory (default)
+- `s3` — requires `uv add 'tabletalk[s3]'`
+- `gcs` — requires `uv add 'tabletalk[gcs]'`
+
+---
+
+### `llm.router`
+
+LLM complexity router — routes simple queries to a fast model and complex queries to a powerful model.
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o             # powerful model for complex queries
+  fast_model: gpt-4o-mini   # fast model for simple queries
+  router:
+    enabled: true
+    threshold: 0.5          # complexity score 0–1; above → powerful model
+```
+
+See `tabletalk/router.py` for the scoring heuristic.
+
+---
+
 ## Multiple environments
 
 The recommended pattern for multiple environments is to use profiles:

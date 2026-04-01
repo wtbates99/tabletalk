@@ -245,6 +245,10 @@ class QuerySession:
         self.query_timeout: Optional[float] = (
             float(self.config["query_timeout"]) if self.config.get("query_timeout") else None
         )
+        # Slow query threshold — queries exceeding this are logged as warnings (item 19)
+        self.slow_query_threshold_ms: float = float(
+            self.config.get("slow_query_threshold_ms", 5000)
+        )
 
     # ── Config & provider init ─────────────────────────────────────────────────
 
@@ -391,6 +395,7 @@ class QuerySession:
             )
 
         # Query timeout via thread future (item 16) — database-agnostic
+        _exec_start = time.monotonic()
         if self.query_timeout is not None:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(db.execute_query, sql)
@@ -410,6 +415,15 @@ class QuerySession:
                 f"Result set truncated from {len(results)} to {self.max_rows} rows (max_rows limit)."
             )
             results = results[: self.max_rows]
+
+        # Slow query log (item 19)
+        exec_ms = (time.monotonic() - _exec_start) * 1000
+        if exec_ms >= self.slow_query_threshold_ms:
+            logger.warning(
+                f"SLOW QUERY ({exec_ms:.0f}ms >= {self.slow_query_threshold_ms:.0f}ms threshold): "
+                f"{sql[:200]}"
+            )
+            self._write_audit_log("slow_query", sql=sql, execution_ms=round(exec_ms, 1))
 
         # Audit log (item 18)
         self._write_audit_log("execute", sql=sql, row_count=len(results))
@@ -528,6 +542,37 @@ class QuerySession:
                     except json.JSONDecodeError:
                         pass
         return entries[-limit:]
+
+    # ── Query cost estimation (item 16) ───────────────────────────────────────
+
+    _COST_PER_1K_INPUT: Dict[str, float] = {
+        "gpt-4o": 0.005,
+        "gpt-4o-mini": 0.00015,
+        "gpt-4-turbo": 0.01,
+        "claude-opus-4-6": 0.015,
+        "claude-sonnet-4-6": 0.003,
+        "claude-haiku-4-5": 0.00025,
+    }
+    _COST_PER_1K_OUTPUT: Dict[str, float] = {
+        "gpt-4o": 0.015,
+        "gpt-4o-mini": 0.0006,
+        "gpt-4-turbo": 0.03,
+        "claude-opus-4-6": 0.075,
+        "claude-sonnet-4-6": 0.015,
+        "claude-haiku-4-5": 0.00125,
+    }
+
+    def estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+        """
+        Estimate USD cost for a query given token counts.
+        Returns None if the model is not in the known pricing table.
+        """
+        model = self.config.get("llm", {}).get("model", "")
+        in_rate = self._COST_PER_1K_INPUT.get(model)
+        out_rate = self._COST_PER_1K_OUTPUT.get(model)
+        if in_rate is None or out_rate is None:
+            return None
+        return (prompt_tokens / 1000 * in_rate) + (completion_tokens / 1000 * out_rate)
 
     # ── Usage stats (item 25) ──────────────────────────────────────────────────
 

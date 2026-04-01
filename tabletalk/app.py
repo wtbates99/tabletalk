@@ -6,17 +6,22 @@ Improvements in this file:
   item 10 — /export endpoint: download results as CSV or JSON
   item 13 — explain toggle: honour explain/suggest flags from the client
   item 15 — /api/query REST endpoint for programmatic integration
+  item 17 — /metrics endpoint: Prometheus-compatible metrics
+  item 18 — Result caching: TTL cache for repeated identical queries
   item 20 — Rate limiting: per-session sliding-window cap on /chat/stream
   item 27 — Enhanced /health: checks DB connectivity and LLM config
+  item 28 — Webhook triggers: POST to registered URLs on query completion
 """
 import csv
 import io
 import json
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.request import Request as UrlRequest, urlopen
 
 from flask import Flask, Response, jsonify, request, send_from_directory, session
 from flask import stream_with_context
@@ -50,6 +55,50 @@ def _check_rate_limit(key: str) -> bool:
         return False
     _rate_limit_store[key].append(now)
     return True
+
+
+# ── Prometheus metrics (item 17) ──────────────────────────────────────────────
+
+from tabletalk.metrics import get_registry as _get_metrics_registry  # noqa: E402
+
+# ── Result cache (item 18) ────────────────────────────────────────────────────
+# Module-level cache; TTL is read from TABLETALK_CACHE_TTL env var (default 300s).
+
+_CACHE_TTL = int(os.environ.get("TABLETALK_CACHE_TTL", "300"))
+_CACHE_ENABLED = os.environ.get("TABLETALK_CACHE_ENABLED", "true").lower() == "true"
+
+from tabletalk.cache import ResultCache  # noqa: E402
+
+_result_cache = ResultCache(ttl=_CACHE_TTL)
+
+# ── Webhooks (item 28) ────────────────────────────────────────────────────────
+# Registered webhook URLs are stored in-memory (reset on restart).
+# Persist them yourself via POST /webhooks if you need durability.
+
+_webhooks: List[Dict[str, str]] = []  # [{url, event}]
+_webhook_lock = threading.Lock()
+
+_WEBHOOK_TIMEOUT = 5  # seconds
+
+
+def _fire_webhook(event: str, payload: Dict[str, Any]) -> None:
+    """POST payload to all webhooks registered for *event* (fire-and-forget)."""
+    with _webhook_lock:
+        targets = [w["url"] for w in _webhooks if w.get("event") in (event, "*")]
+    if not targets:
+        return
+
+    body = json.dumps({"event": event, **payload}).encode("utf-8")
+
+    def _post(url: str) -> None:
+        try:
+            req = UrlRequest(url, data=body, headers={"Content-Type": "application/json"})
+            urlopen(req, timeout=_WEBHOOK_TIMEOUT)
+        except Exception as exc:
+            logger.debug(f"Webhook to {url} failed: {exc}")
+
+    for url in targets:
+        threading.Thread(target=_post, args=(url,), daemon=True).start()
 
 
 # ── Session singleton with auto-reload (item 8) ────────────────────────────────
@@ -273,14 +322,27 @@ def chat_stream() -> Union[Tuple[Response, int], Response]:
         )[-max_conv:]
         session["conversation"] = conv
 
-        # 2 ── Execute
+        # 2 ── Execute (with optional result cache — item 18)
         results: List[Dict[str, Any]] = []
         execution_ms = 0.0
+        cache_hit = False
         if auto_execute:
             exec_start = time.monotonic()
             try:
-                results = qs.execute_sql(sql)
-                execution_ms = (time.monotonic() - exec_start) * 1000
+                if _CACHE_ENABLED:
+                    cached = _result_cache.get(manifest_file, sql)
+                    if cached is not None:
+                        results = cached
+                        cache_hit = True
+                        execution_ms = 0.0
+                    else:
+                        results = qs.execute_sql(sql)
+                        execution_ms = (time.monotonic() - exec_start) * 1000
+                        _result_cache.set(manifest_file, sql, results)
+                else:
+                    results = qs.execute_sql(sql)
+                    execution_ms = (time.monotonic() - exec_start) * 1000
+
                 columns = list(results[0].keys()) if results else []
                 rows = [
                     [("" if v is None else str(v)) for v in row.values()]
@@ -293,6 +355,7 @@ def chat_stream() -> Union[Tuple[Response, int], Response]:
                         "rows": rows,
                         "count": len(results),
                         "execution_ms": round(execution_ms, 1),
+                        "cached": cache_hit,
                     }
                 )
             except Exception as e:
@@ -311,6 +374,28 @@ def chat_stream() -> Union[Tuple[Response, int], Response]:
             completion_tokens=usage.get("completion_tokens", 0),
         )
         qs.save_history(manifest_file, question, sql, metrics=metrics)
+
+        # Record Prometheus-style metrics (item 17)
+        _reg = _get_metrics_registry()
+        _reg.inc("tabletalk_queries_total")
+        if auto_execute:
+            _reg.inc("tabletalk_executions_total")
+        _reg.observe("tabletalk_generation_seconds", generation_ms / 1000)
+        if execution_ms:
+            _reg.observe("tabletalk_execution_seconds", execution_ms / 1000)
+
+        # Fire webhooks for query_complete (item 28)
+        _fire_webhook(
+            "query_complete",
+            {
+                "question": question,
+                "manifest": manifest_file,
+                "sql": sql,
+                "row_count": len(results),
+                "generation_ms": round(generation_ms, 1),
+                "execution_ms": round(execution_ms, 1),
+            },
+        )
 
         # 3 ── Explain (item 13 — togglable)
         if do_explain and results:
@@ -661,3 +746,91 @@ def query_legacy() -> Union[Tuple[Response, int], Response]:
         return jsonify({"sql": sql})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Prometheus metrics endpoint (item 17) ────────────────────────────────────
+
+
+@app.route("/metrics")
+def get_metrics() -> Response:
+    """
+    Expose metrics in Prometheus text format.
+
+    Scrape with: curl http://localhost:5000/metrics
+    Or configure your Prometheus scrape config to target this endpoint.
+    """
+    reg = _get_metrics_registry()
+    return Response(reg.format_prometheus(), mimetype="text/plain; version=0.0.4")
+
+
+@app.route("/metrics/json")
+def get_metrics_json() -> Union[Tuple[Response, int], Response]:
+    """Return metrics snapshot as JSON — useful for dashboards."""
+    reg = _get_metrics_registry()
+    return jsonify(reg.snapshot())
+
+
+# ── Cache management (item 18) ────────────────────────────────────────────────
+
+
+@app.route("/cache/stats")
+def cache_stats() -> Union[Tuple[Response, int], Response]:
+    """Return result cache statistics."""
+    return jsonify(_result_cache.stats())
+
+
+@app.route("/cache/invalidate", methods=["POST"])
+def cache_invalidate() -> Union[Tuple[Response, int], Response]:
+    """Invalidate cached results (optionally scoped to a manifest)."""
+    data = request.json or {}
+    manifest: Optional[str] = data.get("manifest")
+    removed = _result_cache.invalidate(manifest)
+    return jsonify({"ok": True, "removed": removed})
+
+
+# ── Webhooks (item 28) ────────────────────────────────────────────────────────
+
+
+@app.route("/webhooks", methods=["GET"])
+def list_webhooks() -> Union[Tuple[Response, int], Response]:
+    """List all registered webhook subscriptions."""
+    with _webhook_lock:
+        return jsonify({"webhooks": list(_webhooks)})
+
+
+@app.route("/webhooks", methods=["POST"])
+def register_webhook() -> Union[Tuple[Response, int], Response]:
+    """
+    Register a webhook URL.
+
+    Request body:
+        {
+            "url": "https://example.com/hook",
+            "event": "query_complete"   // or "*" for all events
+        }
+    """
+    data = request.json or {}
+    url = (data.get("url") or "").strip()
+    event = (data.get("event") or "*").strip()
+    if not url or not url.startswith("http"):
+        return jsonify({"error": "url is required and must start with http"}), 400
+    with _webhook_lock:
+        # Deduplicate
+        existing = [w for w in _webhooks if w["url"] == url and w["event"] == event]
+        if not existing:
+            _webhooks.append({"url": url, "event": event})
+    return jsonify({"ok": True, "url": url, "event": event})
+
+
+@app.route("/webhooks", methods=["DELETE"])
+def unregister_webhook() -> Union[Tuple[Response, int], Response]:
+    """Unregister a webhook URL."""
+    data = request.json or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+    with _webhook_lock:
+        before = len(_webhooks)
+        _webhooks[:] = [w for w in _webhooks if w["url"] != url]
+        removed = before - len(_webhooks)
+    return jsonify({"ok": True, "removed": removed})
