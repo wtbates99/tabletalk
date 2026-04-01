@@ -84,7 +84,7 @@ def postgres_provider(
         password=postgres_db["password"],
     )
     yield provider
-    provider.connection.close()
+    provider._pool.closeall()
 
 
 def test_basic_query(postgres_provider: PostgresProvider) -> None:

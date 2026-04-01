@@ -99,7 +99,7 @@ def mysql_provider(
         password=mysql_db["password"],
     )
     yield provider
-    provider.connection.close()
+    # MySQLConnectionPool is cleaned up on GC; no explicit close needed
 
 
 def test_basic_query(mysql_provider: MySQLProvider) -> None:
