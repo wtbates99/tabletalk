@@ -1149,5 +1149,576 @@ def schedule_run(project_folder: str, force: bool) -> None:
     console.print(f"\n[muted]Ran {ran} schedule(s).[/muted]")
 
 
+# ── plan (item 1) ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+def plan(project_folder: str) -> None:
+    """
+    Show what 'tabletalk apply' would do — without writing any files.
+    Compares context files to manifests and lists tables that would change.
+    """
+    import yaml
+
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
+    if not os.path.exists(config_path):
+        console.print("[error]tabletalk.yaml not found.[/error]")
+        return
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+
+    contexts_folder = os.path.join(project_folder, config.get("contexts", "contexts"))
+    manifest_folder = os.path.join(project_folder, config.get("output", "manifest"))
+
+    if not os.path.isdir(contexts_folder):
+        console.print("[error]Contexts folder not found.[/error]")
+        return
+
+    plan_table = Table(show_header=True, header_style="bold", title="Plan")
+    plan_table.add_column("Context")
+    plan_table.add_column("Status")
+    plan_table.add_column("Tables in Context")
+
+    changes = 0
+    for cf in sorted(os.listdir(contexts_folder)):
+        if not cf.endswith(".yaml"):
+            continue
+        mf = os.path.join(manifest_folder, cf.replace(".yaml", ".txt"))
+        ctx_path = os.path.join(contexts_folder, cf)
+
+        try:
+            with open(ctx_path) as f:
+                ctx_data = yaml.safe_load(f) or {}
+            tables = []
+            for schema_item in (ctx_data.get("datasets") or ctx_data.get("schemas", [])):
+                for t in schema_item.get("tables", []):
+                    tname = t if isinstance(t, str) else t.get("name", "")
+                    tables.append(f"{schema_item['name']}.{tname}")
+        except Exception as e:
+            plan_table.add_row(cf, f"[error]parse error: {e}[/error]", "")
+            changes += 1
+            continue
+
+        if not os.path.exists(mf):
+            status = "[warning]CREATE[/warning]"
+            changes += 1
+        elif os.path.getmtime(ctx_path) > os.path.getmtime(mf):
+            status = "[warning]UPDATE[/warning]"
+            changes += 1
+        else:
+            status = "[success]no-op[/success]"
+
+        plan_table.add_row(cf, status, ", ".join(tables[:5]) + ("…" if len(tables) > 5 else ""))
+
+    console.print(plan_table)
+    if changes:
+        console.print(f"\n[warning]{changes} manifest(s) would be updated by 'tabletalk apply'.[/warning]")
+    else:
+        console.print("\n[success]Nothing to apply.[/success]")
+
+
+# ── lint (item 5) ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+def lint(project_folder: str) -> None:
+    """
+    Lint context YAML files for common issues:
+    missing names, empty table lists, duplicate table references, etc.
+    Exits with code 1 if any errors are found.
+    """
+    import yaml
+
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
+    if not os.path.exists(config_path):
+        console.print("[error]tabletalk.yaml not found.[/error]")
+        sys.exit(1)
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+
+    contexts_folder = os.path.join(project_folder, config.get("contexts", "contexts"))
+    if not os.path.isdir(contexts_folder):
+        console.print(f"[error]Contexts folder not found: {contexts_folder}[/error]")
+        sys.exit(1)
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    for cf in sorted(os.listdir(contexts_folder)):
+        if not cf.endswith(".yaml"):
+            continue
+        ctx_path = os.path.join(contexts_folder, cf)
+        try:
+            with open(ctx_path) as f:
+                ctx_data = yaml.safe_load(f)
+        except Exception as e:
+            errors.append(f"{cf}: YAML parse error — {e}")
+            continue
+
+        if not isinstance(ctx_data, dict):
+            errors.append(f"{cf}: not a YAML mapping")
+            continue
+        if "name" not in ctx_data:
+            errors.append(f"{cf}: missing 'name' field")
+        if not ctx_data.get("description"):
+            warnings.append(f"{cf}: missing 'description' (recommended for LLM context)")
+        datasets = ctx_data.get("datasets") or ctx_data.get("schemas", [])
+        if not datasets:
+            warnings.append(f"{cf}: no datasets/schemas defined")
+        all_tables: List[str] = []
+        for ds in datasets:
+            if "name" not in ds:
+                errors.append(f"{cf}: dataset missing 'name'")
+            tables = ds.get("tables", [])
+            if not tables:
+                warnings.append(f"{cf}/{ds.get('name','?')}: no tables listed")
+            for t in tables:
+                full = f"{ds.get('name','')}.{t if isinstance(t, str) else t.get('name','')}"
+                if full in all_tables:
+                    errors.append(f"{cf}: duplicate table reference '{full}'")
+                all_tables.append(full)
+
+        if not [x for x in errors if cf in x]:
+            console.print(f"[success]✓ {cf}[/success]")
+
+    for w in warnings:
+        console.print(f"[warning]⚠  {w}[/warning]")
+    for e in errors:
+        console.print(f"[error]✗ {e}[/error]")
+
+    if errors:
+        console.print(f"\n[error]Lint failed with {len(errors)} error(s).[/error]")
+        sys.exit(1)
+    elif warnings:
+        console.print(f"\n[warning]Lint passed with {len(warnings)} warning(s).[/warning]")
+    else:
+        console.print("\n[success]All context files are valid.[/success]")
+
+
+# ── check (item 6 — lock drift) ───────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+def check(project_folder: str) -> None:
+    """
+    Check manifest integrity against the lock file (.tabletalk.lock).
+    Exits with code 1 if drift is detected.
+    """
+    from tabletalk.state import check_lock
+
+    drifts = check_lock(project_folder)
+    if not drifts:
+        lock_path = os.path.join(project_folder, ".tabletalk.lock")
+        if not os.path.exists(lock_path):
+            console.print("[muted]No lock file found. Run 'tabletalk lock' to create one.[/muted]")
+        else:
+            console.print("[success]✓ Manifests match lock file — no drift detected.[/success]")
+        return
+
+    console.print("[error]Manifest drift detected:[/error]")
+    for d in drifts:
+        console.print(f"  [error]• {d}[/error]")
+    console.print(
+        "\n[muted]Run 'tabletalk apply' to regenerate or 'tabletalk lock' to update the lock.[/muted]"
+    )
+    sys.exit(1)
+
+
+# ── lock ──────────────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+def lock(project_folder: str) -> None:
+    """Write (or update) .tabletalk.lock with SHA-256 fingerprints of current manifests."""
+    from tabletalk.state import write_lock
+
+    path = write_lock(project_folder)
+    console.print(f"[success]✓ Lock written: {path}[/success]")
+
+
+# ── rollback (item 10) ────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+@click.option("--steps", default=1, show_default=True, help="Number of snapshots to roll back.")
+@click.option("--list", "list_only", is_flag=True, default=False, help="List available snapshots.")
+def rollback(project_folder: str, steps: int, list_only: bool) -> None:
+    """Restore manifests from a previous snapshot."""
+    from tabletalk.state import list_snapshots
+    from tabletalk.state import rollback as _rollback
+
+    snapshots = list_snapshots(project_folder)
+    if list_only or not snapshots:
+        if not snapshots:
+            console.print("[muted]No snapshots available. Run 'tabletalk apply' to create one.[/muted]")
+            return
+        t = Table(show_header=True, header_style="bold", title="Snapshots")
+        t.add_column("#")
+        t.add_column("Timestamp")
+        for i, s in enumerate(snapshots, 1):
+            t.add_row(str(i), s)
+        console.print(t)
+        return
+
+    if not click.confirm(
+        f"Roll back {steps} step(s)? Current manifests will be auto-snapshotted first.",
+        default=False,
+    ):
+        return
+    try:
+        label = _rollback(project_folder, steps=steps)
+        console.print(f"[success]✓ Rolled back to snapshot: {label}[/success]")
+    except IndexError as e:
+        console.print(f"[error]{e}[/error]")
+        sys.exit(1)
+
+
+# ── promote (item 9) ──────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("source")
+@click.argument("target")
+@click.option("--manifest", "manifests", multiple=True, help="Specific manifest to promote (repeatable).")
+def promote(source: str, target: str, manifests: tuple) -> None:
+    """
+    Copy compiled manifests from SOURCE project to TARGET project.
+
+    Example:
+        tabletalk promote projects/dev projects/staging
+        tabletalk promote projects/staging projects/prod --manifest sales.txt
+    """
+    from tabletalk.state import promote as _promote
+
+    try:
+        promoted = _promote(source, target, list(manifests) or None)
+        for name in promoted:
+            console.print(f"[success]✓ Promoted: {name}[/success]")
+        console.print(f"\n[success]Lock updated in: {target}[/success]")
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"[error]{e}[/error]")
+        sys.exit(1)
+
+
+# ── agents (item 4) ───────────────────────────────────────────────────────────
+
+
+@cli.group()
+def agents() -> None:
+    """Manage the agent registry."""
+    pass
+
+
+@agents.command("register")
+@click.argument("name")
+@click.argument("project_folder", default=os.getcwd())
+@click.option("--manifest", default=None, help="Default manifest for this agent.")
+@click.option("--permissions", default="read", show_default=True,
+              help="Comma-separated permissions: read, execute, admin.")
+@click.option("--description", default="", help="Human-readable description.")
+def agents_register(
+    name: str, project_folder: str, manifest: Optional[str], permissions: str, description: str
+) -> None:
+    """Register a named agent in the project registry."""
+    from tabletalk.registry import register_agent
+
+    perms = [p.strip() for p in permissions.split(",") if p.strip()]
+    entry = register_agent(project_folder, name, manifest=manifest,
+                           permissions=perms, description=description)
+    console.print(f"[success]✓ Agent '{entry['name']}' registered.[/success]")
+    console.print(f"  Permissions: {', '.join(entry['permissions'])}")
+    if entry.get("manifest"):
+        console.print(f"  Manifest: {entry['manifest']}")
+
+
+@agents.command("list")
+@click.argument("project_folder", default=os.getcwd())
+def agents_list(project_folder: str) -> None:
+    """List all registered agents."""
+    from tabletalk.registry import list_agents
+
+    entries = list_agents(project_folder)
+    if not entries:
+        console.print("[muted]No agents registered. Use 'tabletalk agents register'.[/muted]")
+        return
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("Name")
+    t.add_column("Manifest")
+    t.add_column("Permissions")
+    t.add_column("Last Seen")
+    t.add_column("Description")
+    for a in entries:
+        t.add_row(
+            a["name"],
+            a.get("manifest") or "",
+            ", ".join(a.get("permissions", [])),
+            (a.get("last_seen") or "never")[:19],
+            a.get("description", "")[:50],
+        )
+    console.print(t)
+
+
+@agents.command("remove")
+@click.argument("name")
+@click.argument("project_folder", default=os.getcwd())
+def agents_remove(name: str, project_folder: str) -> None:
+    """Remove an agent from the registry."""
+    from tabletalk.registry import remove_agent
+
+    if remove_agent(project_folder, name):
+        console.print(f"[success]✓ Agent '{name}' removed.[/success]")
+    else:
+        console.print(f"[error]Agent '{name}' not found.[/error]")
+
+
+# ── discover (item 25) ────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+@click.option("--schema", default=None, help="Introspect only this schema (default: all).")
+@click.option("--overwrite", is_flag=True, default=False,
+              help="Overwrite existing context files.")
+def discover(project_folder: str, schema: Optional[str], overwrite: bool) -> None:
+    """
+    Auto-generate context YAML files from the live database schema.
+
+    Connects to the database configured in tabletalk.yaml, lists all tables
+    in each schema, and writes a context YAML for each one.
+    """
+    import yaml
+
+    config_path = os.path.join(project_folder, "tabletalk.yaml")
+    if not os.path.exists(config_path):
+        console.print("[error]tabletalk.yaml not found.[/error]")
+        return
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+
+    provider_cfg = (
+        {"profile": config["profile"]} if "profile" in config else config.get("provider", {})
+    )
+    if not provider_cfg:
+        console.print("[error]No database provider configured.[/error]")
+        return
+
+    from tabletalk.factories import get_db_provider
+
+    try:
+        db = get_db_provider(provider_cfg)
+        client = db.get_client()
+    except Exception as e:
+        console.print(f"[error]Could not connect: {e}[/error]")
+        return
+
+    # Introspect schemas — provider-specific but we try a generic approach
+    schemas_to_discover: List[str] = [schema] if schema else []
+
+    if not schemas_to_discover:
+        # Try generic information_schema query
+        try:
+            rows = db.execute_query(
+                "SELECT DISTINCT table_schema FROM information_schema.tables "
+                "WHERE table_schema NOT IN ('information_schema','pg_catalog',"
+                "'sys','performance_schema','mysql') ORDER BY table_schema"
+            )
+            schemas_to_discover = [r.get("table_schema") or list(r.values())[0] for r in rows]
+        except Exception:
+            schemas_to_discover = [config.get("provider", {}).get("database", "public")]
+
+    contexts_dir = os.path.join(project_folder, config.get("contexts", "contexts"))
+    os.makedirs(contexts_dir, exist_ok=True)
+
+    written = 0
+    for s_name in schemas_to_discover:
+        ctx_file = os.path.join(contexts_dir, f"{s_name}.yaml")
+        if os.path.exists(ctx_file) and not overwrite:
+            console.print(f"[muted]Skipping {s_name}.yaml (already exists; use --overwrite)[/muted]")
+            continue
+        try:
+            tables = db.get_compact_tables(s_name)
+        except Exception as e:
+            console.print(f"[warning]Could not introspect schema '{s_name}': {e}[/warning]")
+            continue
+
+        table_entries = []
+        for ct in tables:
+            tname = ct["t"].split(".")[-1] if "." in ct["t"] else ct["t"]
+            entry: dict = {"name": tname}
+            if ct.get("d"):
+                entry["description"] = ct["d"]
+            table_entries.append(entry)
+
+        ctx_content = {
+            "name": s_name,
+            "description": f"Auto-discovered schema: {s_name}",
+            "version": "1.0",
+            "datasets": [
+                {
+                    "name": s_name,
+                    "description": f"Tables in {s_name}",
+                    "tables": table_entries,
+                }
+            ],
+        }
+        with open(ctx_file, "w") as f:
+            yaml.dump(ctx_content, f, default_flow_style=False, sort_keys=False)
+        console.print(
+            f"[success]✓ {s_name}.yaml — {len(table_entries)} table(s)[/success]"
+        )
+        written += 1
+
+    if written:
+        console.print(f"\n[muted]Run 'tabletalk apply' to generate manifests.[/muted]")
+    else:
+        console.print("[muted]No new context files written.[/muted]")
+
+
+# ── watch (item 22) ───────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+@click.option("--interval", default=5, show_default=True,
+              help="Poll interval in seconds.")
+def watch(project_folder: str, interval: int) -> None:
+    """
+    Watch context files for changes and automatically run 'tabletalk apply'.
+    Press Ctrl-C to stop.
+    """
+    import time as _time
+
+    console.print(
+        f"[bold cyan]tabletalk watch[/bold cyan] — polling every {interval}s. "
+        "Press Ctrl-C to stop."
+    )
+    last_state: dict = {}
+
+    def _snapshot() -> dict:
+        contexts_path = os.path.join(project_folder, "contexts")
+        if not os.path.isdir(contexts_path):
+            return {}
+        return {
+            f: os.path.getmtime(os.path.join(contexts_path, f))
+            for f in os.listdir(contexts_path)
+            if f.endswith(".yaml")
+        }
+
+    last_state = _snapshot()
+
+    try:
+        while True:
+            _time.sleep(interval)
+            current = _snapshot()
+            changed = {
+                f for f in current
+                if f not in last_state or current[f] != last_state.get(f)
+            }
+            if changed:
+                console.print(
+                    f"[warning]Changes detected:[/warning] {', '.join(sorted(changed))}"
+                )
+                console.print("[cyan]Running tabletalk apply…[/cyan]")
+                try:
+                    apply_schema(project_folder)
+                    console.print("[success]✓ Apply complete.[/success]")
+                except Exception as e:
+                    console.print(f"[error]Apply failed: {e}[/error]")
+                last_state = _snapshot()
+    except KeyboardInterrupt:
+        console.print("\n[muted]Watch stopped.[/muted]")
+
+
+# ── openapi (item 27) ─────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("project_folder", default=os.getcwd())
+@click.option("--output", type=click.Path(), default=None,
+              help="Write spec to this file (default: print to stdout).")
+@click.option("--base-url", default="http://localhost:5000", show_default=True)
+def openapi(project_folder: str, output: Optional[str], base_url: str) -> None:
+    """Generate an OpenAPI 3.0 spec for the tabletalk REST API."""
+    spec = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "tabletalk API",
+            "version": "0.4.0",
+            "description": (
+                "Natural language to SQL. "
+                "tabletalk — dbt and Terraform had a kid for agents."
+            ),
+        },
+        "servers": [{"url": base_url}],
+        "paths": {
+            "/health": {"get": {"summary": "Readiness probe", "tags": ["ops"],
+                                "responses": {"200": {"description": "Healthy"},
+                                              "503": {"description": "Degraded"}}}},
+            "/metrics": {"get": {"summary": "Prometheus metrics", "tags": ["ops"],
+                                 "responses": {"200": {"description": "Prometheus text format"}}}},
+            "/config": {"get": {"summary": "Active config", "tags": ["config"],
+                                "responses": {"200": {"description": "Config object"}}}},
+            "/manifests": {"get": {"summary": "List manifests", "tags": ["manifests"],
+                                   "responses": {"200": {"description": "List of manifest files"}}}},
+            "/chat/stream": {"post": {
+                "summary": "Stream SQL generation + execution",
+                "tags": ["query"],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object",
+                    "required": ["question"],
+                    "properties": {
+                        "question": {"type": "string"},
+                        "manifest": {"type": "string"},
+                        "auto_execute": {"type": "boolean", "default": True},
+                        "explain": {"type": "boolean", "default": True},
+                        "suggest": {"type": "boolean", "default": True},
+                    },
+                }}}},
+                "responses": {"200": {"description": "SSE stream"}},
+            }},
+            "/api/query": {"post": {
+                "summary": "Synchronous query (no streaming)",
+                "tags": ["query"],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object",
+                    "required": ["question", "manifest"],
+                    "properties": {
+                        "question": {"type": "string"},
+                        "manifest": {"type": "string"},
+                        "execute": {"type": "boolean", "default": True},
+                    },
+                }}}},
+                "responses": {"200": {"description": "SQL + results"}},
+            }},
+            "/webhooks": {
+                "get": {"summary": "List webhooks", "tags": ["webhooks"],
+                        "responses": {"200": {"description": "Webhook list"}}},
+                "post": {"summary": "Register webhook", "tags": ["webhooks"],
+                         "responses": {"200": {"description": "Created"}}},
+                "delete": {"summary": "Unregister webhook", "tags": ["webhooks"],
+                           "responses": {"200": {"description": "Deleted"}}},
+            },
+        },
+    }
+
+    import yaml
+
+    spec_yaml = yaml.dump(spec, default_flow_style=False, sort_keys=False)
+
+    if output:
+        with open(output, "w") as f:
+            f.write(spec_yaml)
+        console.print(f"[success]✓ OpenAPI spec written to: {output}[/success]")
+    else:
+        console.print(spec_yaml)
+
+
 if __name__ == "__main__":
     cli()
