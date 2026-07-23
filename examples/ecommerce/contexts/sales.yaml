@@ -1,10 +1,10 @@
 # contexts/sales.yaml
 #
-# "Sales" agent context — orders, line items, customers, and products.
+# "Sales" agent context — trusted dbt order facts plus the product sales graph.
 #
-# This context gives an agent the full order graph so it can answer revenue,
-# funnel, and product-mix questions.  It is intentionally broader than the
-# `customers` context — like a dbt model that joins multiple source tables.
+# Revenue and customer questions should use the curated dbt `fct_orders` model.
+# Raw line-item/product relations remain available for product-mix questions
+# until they are replaced by a dedicated dbt line-item fact.
 #
 # Sample questions this agent can answer:
 #   - "What is total revenue this month?"
@@ -16,20 +16,24 @@
 
 name: sales
 description: >-
-  Order processing, revenue, and product sales.
-  Joins orders, line items, customers, and products for
-  end-to-end sales analysis.
+  Trusted dbt order facts plus product-level sales detail.
+  Prefer fct_orders for order revenue, customer, status, and city analysis.
 version: "1.0"
 
 datasets:
   - name: main
     description: "Primary ecommerce schema"
     tables:
+      # No duplicated description: TableTalk imports this model's business
+      # meaning, columns, tests, and lineage from dbt's manifest.json.
+      - name: fct_orders
+
       - name: orders
         description: >-
           Customer orders. status can be: pending, shipped, delivered, cancelled.
-          total_amount is the final charged amount (after discounts).
-          discount_amount is the absolute value of any discount applied.
+          total_amount is the gross line-item total before the order discount.
+          discount_amount is the absolute order-level discount. For recognized
+          net revenue, exclude cancelled orders and subtract the discount once.
 
       - name: order_items
         description: >-

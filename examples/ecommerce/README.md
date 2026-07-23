@@ -29,13 +29,18 @@ pip install "tabletalk[duckdb]"
 # 3. Create the database
 python seed.py
 
-# 4. Compile context definitions → manifests
+# 4. Build the trusted dbt models and semantic artifact
+cd dbt_project
+uv run --with dbt-duckdb dbt build --profiles-dir .
+cd ..
+
+# 5. Compile dbt-enriched context definitions → agent manifests
 tabletalk apply
 
-# 5. Start an agent session (interactive CLI)
+# 6. Start an agent session (interactive CLI)
 tabletalk query
 
-# 6. Or launch the web UI
+# 7. Or launch the web UI
 tabletalk serve
 ```
 
@@ -51,7 +56,7 @@ error; it does not switch to a paid provider or synthesize SQL locally.
 ecommerce/
 ├── tabletalk.yaml          # Project config (database + LLM)
 ├── seed.py                 # Creates and seeds ecommerce.duckdb
-├── dbt_project/            # Optional dbt project and semantic metadata
+├── dbt_project/            # Trusted models, tests, lineage, and semantic metadata
 │
 ├── contexts/               # Agent context definitions
 │   ├── customers.yaml      # "Customers" agent — customer profiles & value
@@ -66,16 +71,22 @@ ecommerce/
     └── marketing.txt
 ```
 
-To enrich the agents from dbt after `dbt compile` or `dbt build`, add this to
-`tabletalk.yaml`:
+The example enables native dbt context in `tabletalk.yaml`:
 
 ```yaml
 dbt:
   manifest: dbt_project/target/manifest.json
 ```
 
-`tabletalk apply` then injects matching dbt model and column descriptions,
-tests, and lineage into the compact context sent to Ollama.
+After `dbt build`, `tabletalk apply` injects matching dbt model and column
+descriptions, tests, and lineage into the compact context sent to Ollama. If
+the configured artifact is missing, TableTalk stops with a clear instruction
+to build dbt instead of silently running with weaker context.
+
+For example, the Sales context receives `fct_orders`' revenue definition,
+column documentation, upstream lineage, and dbt tests. A revenue question can
+therefore query the trusted mart instead of reconstructing its business logic
+from raw tables.
 
 ---
 
@@ -137,7 +148,10 @@ Grants access to: `customers` only.
 ---
 
 ### sales.yaml
-Grants access to: `orders`, `order_items`, `customers`, `products`, `categories`.
+Grants access to the trusted dbt `fct_orders` mart plus `orders`,
+`order_items`, `customers`, `products`, and `categories`. Ollama prefers
+`fct_orders` for revenue, customer, status, and city questions; the raw product
+graph remains available for product-mix analysis.
 
 **Sample questions:**
 - What is total revenue this month?
@@ -240,7 +254,6 @@ cd dbt_project
 uv run --with dbt-duckdb dbt build --profiles-dir .
 cd ..
 
-# Enable dbt.manifest in tabletalk.yaml, then:
 uv run tabletalk apply .
 uv run tabletalk serve
 ```

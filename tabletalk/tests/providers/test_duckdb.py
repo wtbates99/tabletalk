@@ -254,8 +254,13 @@ class TestDuckDBTypeMap:
     def test_date_maps_to_D(self, duckdb_mem):
         assert duckdb_mem.get_database_type_map()["DATE"] == "D"
 
-    def test_timestamp_maps_to_TS(self, duckdb_mem):
-        assert duckdb_mem.get_database_type_map()["TIMESTAMP"] == "TS"
+    def test_timestamp_without_timezone_maps_to_DT(self, duckdb_mem):
+        assert duckdb_mem.get_database_type_map()["TIMESTAMP"] == "DT"
+
+    def test_timestamp_with_timezone_maps_to_TS(self, duckdb_mem):
+        type_map = duckdb_mem.get_database_type_map()
+        assert type_map["TIMESTAMP WITH TIME ZONE"] == "TS"
+        assert type_map["TIMESTAMPTZ"] == "TS"
 
     def test_json_maps_to_J(self, duckdb_mem):
         assert duckdb_mem.get_database_type_map()["JSON"] == "J"

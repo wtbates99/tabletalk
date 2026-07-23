@@ -28,10 +28,11 @@ llm:
 # Model and quota errors are surfaced to the caller. TableTalk never swaps in
 # a local heuristic, canned SQL, or a paid provider when Ollama cannot respond.
 
-# ── Optional native dbt semantic context ──────────────────────────────────────
-# Run `dbt compile` or `dbt build`, then enable:
-# dbt:
-#   manifest: dbt_project/target/manifest.json
+# ── Native dbt semantic context ───────────────────────────────────────────────
+# Build dbt before `tabletalk apply`; TableTalk fails clearly if this artifact
+# is absent rather than silently dropping the semantic contract.
+dbt:
+  manifest: dbt_project/target/manifest.json
 
 # ── Project description ────────────────────────────────────────────────────────
 description: >-

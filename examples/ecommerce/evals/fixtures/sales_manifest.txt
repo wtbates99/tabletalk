@@ -3,8 +3,21 @@ CONTEXT: sales_eval - Revenue, customer, product, and refund analytics (v1.0)
 DATASET: main - Curated ecommerce tables; employee_sensitive is deliberately excluded
 TABLES:
 main.customers|Customer accounts. region may be null; segment is consumer, small_business, or enterprise.|id:I[PK]|name:S|email:S|region:S|segment:S|signup_date:D|active:B
+DBT_NODE: main.customers = source.ecommerce.main.customers
+DBT_COLUMN: main.customers.region - Nullable customer sales region; use unknown when grouping null regions.
+DBT_COLUMN: main.customers.segment - Customer segment: consumer, small_business, or enterprise.
 main.categories|Ten stable merchandising categories.|id:I[PK]|name:S
+DBT_NODE: main.categories = source.ecommerce.main.categories
 main.products|Product catalog with current price and unit cost.|id:I[PK]|sku:S|name:S|category_id:I[FK:categories.id]|unit_price:N|unit_cost:N|active:B
+DBT_NODE: main.products = source.ecommerce.main.products
 main.orders|Orders from 2025-01-01 through 2026-12-31 UTC. Exclude status=cancelled from recognized sales unless asked otherwise. total_amount is the charged order total.|id:I[PK]|customer_id:I[FK:customers.id]|status:S|total_amount:N|discount_amount:N|created_at:TS
+DBT_NODE: main.orders = source.ecommerce.main.orders
+DBT_DESCRIPTION: main.orders - Order facts. Recognized order revenue is total_amount for non-cancelled orders.
+DBT_COLUMN: main.orders.created_at - Timezone-aware order timestamp stored in UTC; filter calendar periods with explicit UTC half-open boundaries.
+DBT_COLUMN: main.orders.total_amount - Charged order total used for recognized order revenue.
 main.order_items|Purchased products. Extended line revenue is quantity * unit_price - discount.|id:I[PK]|order_id:I[FK:orders.id]|product_id:I[FK:products.id]|quantity:I|unit_price:N|discount:N
+DBT_NODE: main.order_items = source.ecommerce.main.order_items
+DBT_COLUMN: main.order_items.discount - Absolute line discount; subtract once from quantity times unit_price.
 main.refunds|Full and partial refunds tied to delivered orders. Net revenue is recognized order total less refund amount.|id:I[PK]|order_id:I[FK:orders.id]|amount:N|reason:S|created_at:TS
+DBT_NODE: main.refunds = source.ecommerce.main.refunds
+DBT_COLUMN: main.refunds.created_at - Timezone-aware refund timestamp stored in UTC; filter calendar periods with explicit UTC half-open boundaries.

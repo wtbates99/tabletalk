@@ -1061,7 +1061,10 @@
           $("#eval-run-header").querySelector("h2").textContent = result.passed
             ? `${result.passed_count} contracts passed. Ready to ship.`
             : `${result.failed_count} contract${result.failed_count === 1 ? "" : "s"} need attention.`;
-          $("#progress-label").textContent = result.passed ? "Release gate passed" : "Release gate failed";
+          $("#progress-label").textContent = result.passed
+            ? `Run complete · ${result.passed_count} passed`
+            : `Run complete · ${result.failed_count} failed, ${result.passed_count} passed`;
+          $("#progress-count").textContent = `${result.cases.length} cases`;
         } else if (event.type === "error") {
           throw new Error(event.error);
         }

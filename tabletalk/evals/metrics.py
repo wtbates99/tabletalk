@@ -55,7 +55,13 @@ def compare_results(
     expected_config: dict[str, Any],
     reference: list[dict[str, Any]] | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Compare scalar or tabular query results using the configured semantics."""
+    """Compare scalar or tabular query results using the configured semantics.
+
+    SQL column aliases are presentation details, not answer correctness. When
+    reference SQL supplies the ground truth and both queries return the same
+    number of columns, compare corresponding result columns by position while
+    retaining the expected names in diagnostics.
+    """
     expected_type = expected_config.get("type")
     if reference is not None:
         expected_rows = reference
@@ -96,8 +102,27 @@ def compare_results(
     else:
         columns = []
 
+    alias_mapping: dict[str, str] = {}
+    if actual and expected_rows and reference is not None:
+        actual_columns = list(actual[0].keys())
+        reference_columns = list(expected_rows[0].keys())
+        can_align_by_position = (
+            len(actual_columns) == len(reference_columns)
+            and all(column in reference_columns for column in columns)
+        )
+        if can_align_by_position:
+            alias_mapping = {
+                column: actual_columns[reference_columns.index(column)]
+                for column in columns
+            }
+
     missing_columns = sorted(
-        column for column in columns if any(column not in row for row in actual)
+        column
+        for column in columns
+        if any(
+            (alias_mapping.get(column, column)) not in row
+            for row in actual
+        )
     )
     if missing_columns:
         return False, {
@@ -105,7 +130,13 @@ def compare_results(
             "missing_columns": missing_columns,
         }
 
-    actual_rows = [_project_row(row, columns) for row in actual]
+    actual_rows = [
+        {
+            column: row.get(alias_mapping.get(column, column))
+            for column in columns
+        }
+        for row in actual
+    ]
     normalized_expected = [_project_row(row, columns) for row in expected_rows]
     ignore_order = comparison.get("row_order", "ignore") == "ignore"
 
@@ -133,7 +164,11 @@ def compare_results(
                     "expected_row": expected_row,
                 }
             unmatched.pop(match_index)
-        return True, {"row_count": len(actual_rows), "columns": columns}
+        return True, {
+            "row_count": len(actual_rows),
+            "columns": columns,
+            "actual_column_mapping": alias_mapping,
+        }
 
     for index, (actual_row, expected_row) in enumerate(zip(actual_rows, normalized_expected)):
         if not _row_matches(actual_row, expected_row, columns, tolerance):
@@ -143,7 +178,11 @@ def compare_results(
                 "actual_row": actual_row,
                 "expected_row": expected_row,
             }
-    return True, {"row_count": len(actual_rows), "columns": columns}
+    return True, {
+        "row_count": len(actual_rows),
+        "columns": columns,
+        "actual_column_mapping": alias_mapping,
+    }
 
 
 def sql_execution_metric(trace: ExecutionTrace) -> MetricResult:

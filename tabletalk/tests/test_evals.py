@@ -165,6 +165,22 @@ class TestResultComparison:
         assert not passed
         assert details["reason"] == "expected row was not found"
 
+    def test_reference_comparison_ignores_query_aliases(self):
+        passed, details = compare_results(
+            [{"customer_region": "east", "total_revenue": 100.0}],
+            {
+                "type": "table",
+                "columns": ["region", "revenue"],
+                "comparison": {"row_order": "ignore"},
+            },
+            reference=[{"region": "east", "revenue": 100.0}],
+        )
+        assert passed
+        assert details["actual_column_mapping"] == {
+            "region": "customer_region",
+            "revenue": "total_revenue",
+        }
+
 
 class TestSQLAnalysis:
     def test_extracts_qualified_tables_columns_and_joins(self):

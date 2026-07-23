@@ -61,7 +61,9 @@ class DuckDBProvider(DatabaseProvider):
             "BOOL": "B",
             "DATE": "D",
             "TIME": "T",
-            "TIMESTAMP": "TS",
+            # Match the cross-provider compact type contract: DT is a naive
+            # wall-clock timestamp; TS is a timezone-aware instant.
+            "TIMESTAMP": "DT",
             "TIMESTAMP WITH TIME ZONE": "TS",
             "TIMESTAMPTZ": "TS",
             "INTERVAL": "IV",

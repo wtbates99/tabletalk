@@ -2,16 +2,36 @@ version: 2
 
 models:
   - name: fct_orders
-    description: "One row per order — enriched with customer info and item count"
+    description: >-
+      One row per order, enriched with customer attributes and item count.
+      Use net_revenue for recognized order revenue after excluding status=cancelled.
     columns:
       - name: order_id
         description: "Primary key"
         tests:
           - unique
           - not_null
+      - name: customer_id
+        description: "Customer foreign key from the source order"
       - name: customer_name
         description: "Denormalized from customers table"
+      - name: city
+        description: "Customer city at model build time"
+      - name: status
+        description: >-
+          Order state: pending, shipped, delivered, or cancelled. Exclude
+          cancelled orders from recognized revenue unless explicitly requested.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [pending, shipped, delivered, cancelled]
+      - name: total_amount
+        description: "Gross line-item total before the order-level discount"
+      - name: discount_amount
+        description: "Absolute order-level discount; subtract exactly once"
       - name: net_revenue
-        description: "total_amount minus discount_amount"
+        description: "Recognized order value before refunds: total_amount minus discount_amount"
       - name: item_count
         description: "Number of line items in the order"
+      - name: created_at
+        description: "Order creation timestamp"
