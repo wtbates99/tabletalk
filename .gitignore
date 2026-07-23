@@ -65,8 +65,24 @@ user_settings.json
 
 # Database
 *.db
+*.duckdb
+*.duckdb.wal
 examples/ecommerce/evals/fixtures/*.duckdb
 __pycache__
+
+# TableTalk generated output and per-user runtime state
+/examples/*/manifest/
+.tabletalk_history.jsonl
+.tabletalk_favorites.json
+.tabletalk_audit.jsonl
+.tabletalk_schedules.json
+.tabletalk_history/
+.tabletalk_memory/
+
+# dbt generated and per-user state
+.user.yml
+/examples/*/dbt_project/dbt_packages/
+/examples/*/dbt_project/logs/
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
