@@ -1,23 +1,23 @@
 :root {
-  --ink: #171913;
-  --ink-soft: #242720;
-  --paper: #f3f2e9;
-  --paper-2: #ebe9dd;
-  --panel: #fbfaf3;
-  --line: #d5d3c5;
-  --line-strong: #aaa99a;
-  --text: #1b1d18;
-  --muted: #6c6f65;
-  --faint: #929589;
-  --acid: #c8f25f;
-  --acid-bright: #d9ff76;
-  --acid-dark: #5f7b18;
-  --coral: #ff735e;
-  --blue: #4d7cff;
-  --green: #188a56;
-  --red: #c94137;
-  --amber: #b96f13;
-  --shadow: 0 18px 50px rgba(27, 29, 24, 0.12);
+  --ink: #111113;
+  --ink-soft: #1d1d20;
+  --paper: #f5f5f4;
+  --paper-2: #ececea;
+  --panel: #ffffff;
+  --line: #d8d8d5;
+  --line-strong: #9b9b98;
+  --text: #121214;
+  --muted: #626264;
+  --faint: #8b8b8e;
+  --acid: #d51f2e;
+  --acid-bright: #ff5260;
+  --acid-dark: #a70f1d;
+  --coral: #d51f2e;
+  --blue: #d51f2e;
+  --green: #171719;
+  --red: #d51f2e;
+  --amber: #9b4b12;
+  --shadow: 0 18px 50px rgba(17, 17, 19, 0.1);
   --sans: "DM Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   --rail-w: 248px;
@@ -28,17 +28,18 @@
 }
 
 [data-theme="dark"] {
-  --ink: #10120f;
-  --ink-soft: #1a1d18;
-  --paper: #171915;
-  --paper-2: #1d201a;
-  --panel: #21241e;
-  --line: #363a31;
-  --line-strong: #555b4d;
-  --text: #f0f1e8;
-  --muted: #a0a497;
-  --faint: #777c70;
-  --acid-dark: #c8f25f;
+  --ink: #09090a;
+  --ink-soft: #151517;
+  --paper: #121214;
+  --paper-2: #19191c;
+  --panel: #1d1d20;
+  --line: #343438;
+  --line-strong: #5a5a60;
+  --text: #f5f5f4;
+  --muted: #aaaab0;
+  --faint: #7d7d84;
+  --acid-dark: #ff5260;
+  --green: #f5f5f4;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
   color-scheme: dark;
 }
@@ -286,7 +287,7 @@ select:focus-visible {
 }
 
 .agent-item.active {
-  background: rgba(200, 242, 95, 0.1);
+  background: rgba(213, 31, 46, 0.14);
   color: var(--acid-bright);
 }
 
@@ -300,13 +301,34 @@ select:focus-visible {
 .agent-item.active .agent-dot {
   background: var(--acid);
   border-color: var(--acid);
-  box-shadow: 0 0 0 4px rgba(200, 242, 95, 0.08);
+  box-shadow: 0 0 0 4px rgba(213, 31, 46, 0.12);
+}
+
+.agent-copy {
+  min-width: 0;
 }
 
 .agent-name {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-copy small {
+  color: #66666c;
+  display: block;
+  font-family: var(--mono);
+  font-size: 7px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.agent-item.active .agent-copy small {
+  color: #d6a0a5;
 }
 
 .agent-count {
@@ -349,7 +371,7 @@ select:focus-visible {
 .live-dot {
   background: var(--acid);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(200, 242, 95, 0.12);
+  box-shadow: 0 0 0 3px rgba(213, 31, 46, 0.14);
   height: 6px;
   width: 6px;
 }
@@ -364,7 +386,7 @@ select:focus-visible {
 }
 
 .usage-chip {
-  background: rgba(200, 242, 95, 0.1);
+  background: rgba(213, 31, 46, 0.14);
   border-radius: 99px;
   color: var(--acid);
   margin-left: auto;
@@ -903,6 +925,43 @@ kbd {
   padding-top: 22px;
 }
 
+.question-topline {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.thread-save {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  display: inline-flex;
+  font-family: var(--mono);
+  font-size: 8px;
+  gap: 6px;
+  letter-spacing: 0.07em;
+  padding: 6px 9px;
+}
+
+.thread-save:hover:not(:disabled) {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.thread-save:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.thread-save.saved {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  opacity: 1;
+}
+
 .turn-label,
 .section-overline,
 .panel-kicker,
@@ -938,6 +997,39 @@ kbd {
   display: flex;
   justify-content: space-between;
   padding: 12px 16px;
+}
+
+.answer-status-group {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.turn-confidence {
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  padding: 4px 7px;
+}
+
+.turn-confidence.medium {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  color: var(--red);
+}
+
+.turn-confidence.high {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.turn-confidence.low {
+  background: color-mix(in srgb, var(--red) 8%, var(--panel));
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .answer-run-id {
@@ -1749,10 +1841,90 @@ kbd {
   font-size: 21px;
   letter-spacing: -0.04em;
   margin: 5px 0 0;
+  text-transform: capitalize;
 }
 
 .close-evidence {
   display: none;
+}
+
+.agent-detail-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-top: 15px;
+  padding: 13px;
+}
+
+.agent-detail-card > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.agent-detail-meta {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 11px;
+  padding-top: 10px;
+}
+
+.agent-detail-meta span,
+.agent-persona > span {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.08em;
+}
+
+.agent-detail-meta strong {
+  color: var(--text);
+  display: block;
+  font-size: 8px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.agent-detail-stats {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 10px;
+}
+
+.agent-detail-stats span {
+  background: var(--paper);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  padding: 7px;
+  text-transform: uppercase;
+}
+
+.agent-detail-stats strong {
+  color: var(--red);
+  display: block;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.agent-persona {
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 9px;
+}
+
+.agent-persona p {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+  margin: 5px 0 0;
 }
 
 .confidence-card {

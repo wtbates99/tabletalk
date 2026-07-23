@@ -12,10 +12,43 @@ sources:
         description: "Line items within each order"
       - name: products
         description: "Product catalogue with pricing and cost"
+        columns:
+          - name: id
+            description: "Stable product primary key"
+            tests: [unique, not_null]
+          - name: sku
+            description: "Human-readable stock keeping unit"
+          - name: active
+            description: >-
+              Whether the product is currently offered for sale. Discontinued
+              products can retain inventory but should be excluded when a user
+              explicitly asks for active products.
       - name: categories
         description: "Product category taxonomy"
       - name: inventory
-        description: "Stock levels by product and warehouse"
+        description: >-
+          Current stock by product and warehouse. A row needs reorder when
+          quantity is less than or equal to reorder_point.
+        columns:
+          - name: product_id
+            description: "Product foreign key"
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('main', 'products')
+                    field: id
+          - name: warehouse
+            description: "Warehouse carrying this inventory position"
+            tests: [not_null]
+          - name: quantity
+            description: "Current on-hand units; zero means out of stock"
+            tests: [not_null]
+          - name: reorder_point
+            description: >-
+              Restock threshold. At or below means quantity <= reorder_point;
+              strictly below means quantity < reorder_point.
+            tests: [not_null]
       - name: campaigns
         description: "Marketing campaigns with budget and spend"
       - name: campaign_conversions

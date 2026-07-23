@@ -41,5 +41,6 @@ description: >-
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 contexts: contexts      # directory containing agent context definitions
+agents: agents          # optional personas/owners/sample questions by context
 output: manifest        # directory where compiled manifests are written
 safe_mode: true         # generated SQL must remain read-only

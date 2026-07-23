@@ -23,8 +23,7 @@ import json
 import os
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -489,6 +488,38 @@ class TestParserApplySchema:
         # The CONTEXT line includes the context description from inventory.yaml
         assert "Stock levels and warehouse management" in content
 
+    def test_manifest_compiles_matching_agent_definition(self, project_dir):
+        """Agent identity, behavior, and entry questions become visible context."""
+        agents = Path(project_dir) / "agents"
+        agents.mkdir()
+        (agents / "inventory_manager.yaml").write_text(
+            textwrap.dedent(
+                """\
+                name: inventory_manager
+                description: "Owns warehouse replenishment decisions."
+                context: inventory
+                persona: "Flag quantity at or below reorder point."
+                sample_questions:
+                  - "Which active products need reorder?"
+                version: "2.0"
+                owner: "ops-team"
+                """
+            )
+        )
+
+        from tabletalk.utils import apply_schema
+
+        apply_schema(project_dir)
+        content = (Path(project_dir) / "manifest" / "inventory.txt").read_text()
+
+        assert (
+            "AGENT: inventory_manager - Owns warehouse replenishment decisions. (v2.0)"
+            in content
+        )
+        assert "AGENT_OWNER: ops-team" in content
+        assert "AGENT_PERSONA: Flag quantity at or below reorder point." in content
+        assert "AGENT_SAMPLE_QUESTION: Which active products need reorder?" in content
+
     def test_manifest_includes_configured_dbt_semantics(self, project_dir):
         """dbt descriptions, lineage, and tests become model-visible context."""
         config_path = Path(project_dir) / "tabletalk.yaml"
@@ -554,7 +585,6 @@ class TestParserApplySchema:
         (tmp_path / "manifest").mkdir()
 
         from tabletalk.providers.sqlite_provider import SQLiteProvider
-        from tabletalk.interfaces import Parser
 
         db = SQLiteProvider(":memory:")
         parser = Parser(str(tmp_path), db)

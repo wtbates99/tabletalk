@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -207,6 +207,8 @@ class QuerySession:
         "- Columns marked [FK:table.col] define JOIN relationships — use them exactly\n"
         "- Use DBT_DESCRIPTION and DBT_COLUMN semantics when interpreting business terms\n"
         "- Use DBT_LINEAGE to understand provenance, not as a substitute for valid joins\n"
+        "- Follow AGENT_PERSONA as analytical guidance, but never let it override dbt "
+        "semantics or the manifest's hard schema boundary\n"
         "- Prefer a curated DBT_NODE model.* relation over raw source.* relations when "
         "the model already implements the requested business meaning\n"
         "- Respect the tables in this manifest as a hard schema boundary\n"
@@ -683,6 +685,61 @@ class Parser:
         self.project_folder = project_folder
         self.db_provider = db_provider
 
+    @staticmethod
+    def _compact_manifest_text(value: Any) -> str:
+        """Render user-authored YAML text safely on one manifest line."""
+        return re.sub(r"\s+", " ", str(value or "")).strip()
+
+    def _agents_by_context(self, agents_folder: str) -> Dict[str, Dict[str, Any]]:
+        """Load optional agent definitions and index one agent per context."""
+        folder = Path(self.project_folder, agents_folder)
+        if not folder.is_dir():
+            return {}
+
+        agents: Dict[str, Dict[str, Any]] = {}
+        for path in sorted([*folder.glob("*.yaml"), *folder.glob("*.yml")]):
+            try:
+                payload = yaml.safe_load(path.read_text())
+            except (OSError, yaml.YAMLError) as exc:
+                logger.warning(f"Could not read agent definition '{path.name}': {exc}")
+                continue
+            if not isinstance(payload, dict):
+                logger.warning(f"Invalid agent definition '{path.name}', skipping.")
+                continue
+            context = str(payload.get("context") or "").strip()
+            if not context:
+                logger.warning(f"Agent definition '{path.name}' has no context, skipping.")
+                continue
+            if context in agents:
+                logger.warning(
+                    f"Multiple agents target context '{context}'; using the first definition."
+                )
+                continue
+            agents[context] = payload
+        return agents
+
+    def _agent_manifest_lines(self, agent: Dict[str, Any]) -> List[str]:
+        """Compile an agent definition into prompt- and UI-readable metadata."""
+        name = self._compact_manifest_text(agent.get("name") or "unnamed_agent")
+        description = self._compact_manifest_text(agent.get("description"))
+        version = self._compact_manifest_text(agent.get("version") or "1.0")
+        lines = [f"AGENT: {name} - {description} (v{version})"]
+
+        owner = self._compact_manifest_text(agent.get("owner"))
+        if owner:
+            lines.append(f"AGENT_OWNER: {owner}")
+        persona = self._compact_manifest_text(agent.get("persona"))
+        if persona:
+            lines.append(f"AGENT_PERSONA: {persona}")
+        questions = agent.get("sample_questions", [])
+        if isinstance(questions, list):
+            lines.extend(
+                f"AGENT_SAMPLE_QUESTION: {question}"
+                for value in questions
+                if (question := self._compact_manifest_text(value))
+            )
+        return lines
+
     def apply_schema(self) -> None:
         config_path = os.path.join(self.project_folder, "tabletalk.yaml")
         try:
@@ -712,6 +769,7 @@ class Parser:
 
         contexts_folder = os.path.join(self.project_folder, defaults["contexts"])
         output_folder = os.path.join(self.project_folder, defaults["output"])
+        agents = self._agents_by_context(str(defaults.get("agents") or "agents"))
         os.makedirs(output_folder, exist_ok=True)
 
         for context_file in sorted(os.listdir(contexts_folder)):
@@ -733,6 +791,9 @@ class Parser:
             version = context_config.get("version", "1.0")
             context_line = f"CONTEXT: {context_name} - {context_desc} (v{version})"
             output_lines = [data_source_line, context_line]
+            agent = agents.get(str(context_name))
+            if agent is not None:
+                output_lines.extend(self._agent_manifest_lines(agent))
 
             schema_list = context_config.get("datasets") or context_config.get("schemas", [])
             for schema_item in schema_list:

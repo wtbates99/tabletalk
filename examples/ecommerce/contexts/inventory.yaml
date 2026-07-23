@@ -37,5 +37,6 @@ datasets:
 
       - name: categories
         description: >-
-          Product categories: Electronics, Clothing, Books, Home.
-          Use for category-level inventory summaries.
+          Product category taxonomy covering electronics, clothing, books,
+          home, outdoors, fitness, office, beauty, food, and toys.
+          Use it for category-level inventory summaries.

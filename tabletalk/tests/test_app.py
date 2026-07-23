@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -181,10 +181,11 @@ class TestListManifests:
 
         assert data["metadata"]["customers.txt"]["context_source"] == "tabletalk_context"
         assert data["metadata"]["customers.txt"]["dbt_enriched"] is False
+        assert data["metadata"]["customers.txt"]["context"]["name"] == "customers"
+        assert data["metadata"]["customers.txt"]["table_count"] == 1
 
     def test_missing_manifest_folder(self, flask_app, project_with_manifest):
         import shutil
-        import tabletalk.app as app_mod
 
         shutil.rmtree(Path(project_with_manifest) / "manifest")
         r = flask_app.get("/manifests")
@@ -215,6 +216,8 @@ class TestSelectManifest:
         data = json.loads(r.data)
         assert "details" in data
         assert "DATA_SOURCE" in data["details"]
+        assert data["context"]["name"] == "customers"
+        assert data["table_count"] == 1
 
     def test_missing_manifest_name(self, flask_app):
         r = flask_app.post(

@@ -215,6 +215,61 @@ def _resolve_project_manifest(filename: str) -> Path:
     return candidate
 
 
+def _manifest_named_header(content: str, prefix: str) -> Dict[str, str]:
+    """Parse ``PREFIX: name - description (vN)`` from a compiled manifest."""
+    line = next(
+        (
+            item.strip()
+            for item in content.splitlines()
+            if item.strip().startswith(f"{prefix}:")
+        ),
+        "",
+    )
+    value = line[len(prefix) + 1 :].strip() if line else ""
+    version = ""
+    if value.endswith(")") and " (v" in value:
+        value, raw_version = value.rsplit(" (v", 1)
+        version = raw_version[:-1]
+    name, separator, description = value.partition(" - ")
+    return {
+        "name": name.strip(),
+        "description": description.strip() if separator else "",
+        "version": version,
+    }
+
+
+def _manifest_summary(content: str) -> Dict[str, Any]:
+    """Return the compiled agent boundary metadata needed by the UI."""
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    tables = [
+        line.split("|", 1)[0]
+        for line in lines
+        if line.count("|") >= 2
+        and not line.startswith(("DATA_SOURCE:", "DBT_", "AGENT_"))
+    ]
+    dbt_nodes = [line for line in lines if line.startswith("DBT_NODE:")]
+    return {
+        "context_source": "dbt_manifest" if dbt_nodes else "tabletalk_context",
+        "dbt_enriched": bool(dbt_nodes),
+        "context": _manifest_named_header(content, "CONTEXT"),
+        "agent": _manifest_named_header(content, "AGENT"),
+        "owner": next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in lines
+                if line.startswith("AGENT_OWNER:")
+            ),
+            "",
+        ),
+        "table_count": len(tables),
+        "tables": tables,
+        "dbt_model_count": sum("= model." in line for line in dbt_nodes),
+        "dbt_source_count": sum("= source." in line for line in dbt_nodes),
+        "lineage_count": sum(line.startswith("DBT_LINEAGE:") for line in lines),
+        "test_count": sum(line.startswith("DBT_TESTS:") for line in lines),
+    }
+
+
 @app.route("/manifests")
 def list_manifests() -> Union[Tuple[Response, int], Response]:
     manifest_folder = os.path.join(project_folder, "manifest")
@@ -227,12 +282,7 @@ def list_manifests() -> Union[Tuple[Response, int], Response]:
         try:
             with open(path) as manifest_file:
                 content = manifest_file.read()
-            metadata[filename] = {
-                "context_source": (
-                    "dbt_manifest" if "DBT_NODE:" in content else "tabletalk_context"
-                ),
-                "dbt_enriched": "DBT_NODE:" in content,
-            }
+            metadata[filename] = _manifest_summary(content)
         except OSError:
             metadata[filename] = {
                 "context_source": "unknown",
@@ -261,9 +311,7 @@ def select_manifest() -> Union[Tuple[Response, int], Response]:
         {
             "message": f"Manifest '{manifest}' selected",
             "details": content,
-            "context_source": (
-                "dbt_manifest" if "DBT_NODE:" in content else "tabletalk_context"
-            ),
+            **_manifest_summary(content),
         }
     )
 

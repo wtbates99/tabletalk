@@ -293,15 +293,33 @@
     <aside id="evidence-rail" class="evidence-rail" aria-label="Answer evidence">
       <div class="evidence-head">
         <div>
-          <span class="panel-kicker">LIVE RECEIPT</span>
-          <h2>Evidence</h2>
+          <span class="panel-kicker">ACTIVE DATA AGENT</span>
+          <h2 id="agent-detail-name">Choose an agent</h2>
         </div>
         <button id="close-evidence" class="bare-icon close-evidence">×</button>
       </div>
 
+      <div class="agent-detail-card">
+        <p id="agent-detail-description">
+          Select an agent to see exactly what it can query and which dbt contract it uses.
+        </p>
+        <div class="agent-detail-meta">
+          <span>OWNER <strong id="agent-detail-owner">—</strong></span>
+          <span>CONTEXT <strong id="agent-detail-source">—</strong></span>
+        </div>
+        <div id="agent-detail-stats" class="agent-detail-stats">
+          <span><strong>0</strong> tables</span>
+          <span><strong>0</strong> models</span>
+        </div>
+        <div class="agent-persona">
+          <span>BEHAVIOR</span>
+          <p id="agent-detail-persona">No agent selected.</p>
+        </div>
+      </div>
+
       <div class="confidence-card">
         <div class="confidence-top">
-          <span id="confidence-state">WAITING FOR A QUESTION</span>
+          <span id="confidence-state">EVIDENCE CONFIDENCE</span>
           <span id="confidence-percent">—</span>
         </div>
         <div class="confidence-line"><span id="confidence-fill"></span></div>

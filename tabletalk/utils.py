@@ -50,6 +50,8 @@ llm:
 #   manifest: ../my_dbt_project/target/manifest.json
 
 contexts: contexts
+# Optional agent personas. Definitions are matched to contexts during apply.
+agents: agents
 output: manifest
 safe_mode: true
 

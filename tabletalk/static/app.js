@@ -14,6 +14,7 @@
     pendingSave: null,
     turnCounter: 0,
     charts: [],
+    activeTurn: null,
   };
 
   const STAGES = ["scope", "compose", "execute", "ground"];
@@ -136,7 +137,7 @@
 
   function setupTheme() {
     const saved = localStorage.getItem("tabletalk-theme");
-    const theme = saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const theme = saved || "light";
     document.documentElement.dataset.theme = theme;
     $("#theme-icon").textContent = theme === "dark" ? "☀" : "◐";
   }
@@ -188,26 +189,75 @@
     };
   }
 
+  function parseNamedHeader(raw) {
+    let value = String(raw || "").trim();
+    let version = "";
+    const versionMatch = value.match(/\s+\(v([^)]+)\)$/);
+    if (versionMatch) {
+      version = versionMatch[1];
+      value = value.slice(0, versionMatch.index).trim();
+    }
+    const separator = value.indexOf(" - ");
+    return {
+      name: separator >= 0 ? value.slice(0, separator).trim() : value,
+      description: separator >= 0 ? value.slice(separator + 3).trim() : "",
+      version,
+    };
+  }
+
   function parseManifest(content) {
-    const parsed = { source: "", context: "", datasets: [], tables: [] };
+    const parsed = {
+      source: "",
+      context: {},
+      agent: {},
+      owner: "",
+      persona: "",
+      sampleQuestions: [],
+      datasets: [],
+      tables: [],
+      dbtNodes: [],
+      lineageCount: 0,
+      testCount: 0,
+    };
     let dataset = "";
+    let currentTable = null;
     for (const sourceLine of String(content || "").split(/\r?\n/)) {
       const line = sourceLine.trim();
       if (line.startsWith("DATA_SOURCE:")) {
         parsed.source = line.slice("DATA_SOURCE:".length).trim();
       } else if (line.startsWith("CONTEXT:")) {
-        parsed.context = line.slice("CONTEXT:".length).trim();
+        parsed.context = parseNamedHeader(line.slice("CONTEXT:".length));
+      } else if (line.startsWith("AGENT:")) {
+        parsed.agent = parseNamedHeader(line.slice("AGENT:".length));
+      } else if (line.startsWith("AGENT_OWNER:")) {
+        parsed.owner = line.slice("AGENT_OWNER:".length).trim();
+      } else if (line.startsWith("AGENT_PERSONA:")) {
+        parsed.persona = line.slice("AGENT_PERSONA:".length).trim();
+      } else if (line.startsWith("AGENT_SAMPLE_QUESTION:")) {
+        parsed.sampleQuestions.push(line.slice("AGENT_SAMPLE_QUESTION:".length).trim());
       } else if (line.startsWith("DATASET:")) {
         dataset = line.slice("DATASET:".length).split(" - ")[0].trim();
         parsed.datasets.push(dataset);
+      } else if (line.startsWith("DBT_NODE:")) {
+        const [relation, uniqueId = ""] = line.slice("DBT_NODE:".length).split(" = ");
+        const node = { relation: relation.trim(), uniqueId: uniqueId.trim() };
+        parsed.dbtNodes.push(node);
+        if (currentTable && currentTable.name === node.relation) currentTable.dbtNode = node;
+      } else if (line.startsWith("DBT_LINEAGE:")) {
+        parsed.lineageCount += 1;
+        if (currentTable) currentTable.hasLineage = true;
+      } else if (line.startsWith("DBT_TESTS:")) {
+        parsed.testCount += 1;
+        if (currentTable) currentTable.hasTests = true;
       } else if (line && !line.endsWith(":") && line.includes("|")) {
         const [fullName, description, ...fields] = line.split("|");
-        parsed.tables.push({
+        currentTable = {
           name: fullName.trim(),
           dataset,
           description: (description || "").trim(),
           fields: fields.filter(Boolean).map(parseField),
-        });
+        };
+        parsed.tables.push(currentTable);
       }
     }
     return parsed;
@@ -228,12 +278,19 @@
       }
       manifests.forEach((manifest) => {
         const metadata = payload.metadata?.[manifest] || {};
+        const agentName = metadata.agent?.name || manifestLabel(manifest);
+        const agentDescription =
+          metadata.agent?.description || metadata.context?.description || "Scoped data context";
         const button = document.createElement("button");
         button.className = "agent-item";
         button.dataset.manifest = manifest;
+        button.title = agentDescription;
         button.innerHTML = `
           <span class="agent-dot"></span>
-          <span class="agent-name">${escapeHTML(manifestLabel(manifest))}</span>
+          <span class="agent-copy">
+            <span class="agent-name">${escapeHTML(agentName.replaceAll("_", " "))}</span>
+            <small>${escapeHTML(`${metadata.table_count || 0} tables${metadata.owner ? ` · ${metadata.owner}` : ""}`)}</small>
+          </span>
           <span class="agent-count">${metadata.dbt_enriched ? "DBT" : "CTX"}</span>
         `;
         button.addEventListener("click", () => selectManifest(manifest));
@@ -241,11 +298,13 @@
 
         const option = document.createElement("option");
         option.value = manifest;
-        option.textContent = manifestLabel(manifest);
+        option.textContent = agentName.replaceAll("_", " ");
         select.append(option);
       });
       if (state.currentManifest && manifests.includes(state.currentManifest)) {
         await selectManifest(state.currentManifest, false);
+      } else {
+        await selectManifest(manifests[0], false);
       }
     } catch (error) {
       list.innerHTML = `<div class="rail-loading">${escapeHTML(error.message)}</div>`;
@@ -265,8 +324,12 @@
         item.classList.toggle("active", item.dataset.manifest === manifest);
       });
       $("#mobile-agent-select").value = manifest;
-      $("#active-agent-label").textContent = manifestLabel(manifest);
+      const agentName =
+        state.manifestSchema.agent.name || state.manifestSchema.context.name || manifestLabel(manifest);
+      $("#active-agent-label").textContent = agentName.replaceAll("_", " ");
+      renderAgentDetails();
       renderSchema();
+      renderAgentSampleQuestions();
       setStage(
         "scope",
         "done",
@@ -279,6 +342,45 @@
     } catch (error) {
       showToast(`Could not select agent: ${error.message}`);
     }
+  }
+
+  function renderAgentSampleQuestions() {
+    const questions = (state.manifestSchema?.sampleQuestions || []).slice(0, 3);
+    if (!questions.length) return;
+    renderSuggestions($("#suggestion-row"), questions);
+    const welcome = $("#welcome-prompts");
+    welcome.innerHTML = questions.map((question, index) => `
+      <button class="prompt-card" data-question="${escapeHTML(question)}">
+        <span class="prompt-index">${String(index + 1).padStart(2, "0")}</span>
+        <span class="prompt-text">${escapeHTML(question)}</span>
+        <span class="prompt-arrow">↗</span>
+      </button>
+    `).join("");
+    bindPromptCards(welcome);
+  }
+
+  function renderAgentDetails() {
+    const schema = state.manifestSchema;
+    if (!schema) return;
+    const agentName = schema.agent.name || schema.context.name || manifestLabel(state.currentManifest);
+    const description =
+      schema.agent.description || schema.context.description || "Scoped database context";
+    const modelCount = schema.dbtNodes.filter((node) => node.uniqueId.startsWith("model.")).length;
+    const sourceCount = schema.dbtNodes.filter((node) => node.uniqueId.startsWith("source.")).length;
+
+    $("#agent-detail-name").textContent = agentName.replaceAll("_", " ");
+    $("#agent-detail-description").textContent = description;
+    $("#agent-detail-owner").textContent = schema.owner || "Unassigned";
+    $("#agent-detail-source").textContent =
+      schema.contextSource === "dbt_manifest" ? "dbt manifest" : "context manifest";
+    $("#agent-detail-stats").innerHTML = `
+      <span><strong>${schema.tables.length}</strong> tables</span>
+      <span><strong>${modelCount}</strong> models</span>
+      <span><strong>${sourceCount}</strong> sources</span>
+      <span><strong>${schema.testCount}</strong> tested nodes</span>
+    `;
+    $("#agent-detail-persona").textContent =
+      schema.persona || "Answers within the compiled schema boundary and dbt semantic contract.";
   }
 
   function renderSchema(filter = "") {
@@ -438,54 +540,82 @@
   }
 
   function updateConfidence() {
-    const done = STAGES.filter((stage) =>
-      $(`.pipeline-step[data-stage="${stage}"]`)?.classList.contains("done")
-    ).length;
-    const failed = STAGES.some((stage) =>
-      $(`.pipeline-step[data-stage="${stage}"]`)?.classList.contains("failed")
-    );
-    const active = STAGES.some((stage) =>
-      $(`.pipeline-step[data-stage="${stage}"]`)?.classList.contains("active")
-    );
-    const percent = done * 25;
+    const view = state.activeTurn;
+    const dbtScoped = Boolean(state.manifestSchema?.dbtNodes?.length);
+    let percent = state.currentManifest ? (dbtScoped ? 25 : 15) : 0;
+    let label = state.currentManifest ? "CONTEXT READY" : "WAITING FOR A QUESTION";
+    let copy = state.currentManifest
+      ? "Confidence starts with the active agent's compiled schema and dbt contract."
+      : "Choose an agent to establish the schema boundary before asking a question.";
+
+    if (view) {
+      if (view.evidence.sqlGenerated) percent += 20;
+      if (view.evidence.executed) percent += 30;
+      if (Number(view.evidence.rowCount) > 0) percent += 15;
+      if (view.evidence.grounded) percent += 10;
+
+      if (view.evidence.failed) {
+        percent = Math.min(percent, 45);
+        label = "LOW · INCOMPLETE";
+        copy =
+          "Ollama or the database returned an error. The receipt is incomplete and no fallback was inserted.";
+      } else if (view.evidence.executed && Number(view.evidence.rowCount) === 0) {
+        label = "MEDIUM · EMPTY RESULT";
+        copy =
+          "The SQL executed successfully, but zero rows cannot prove the filters matched the user's intent. Review the SQL and agent boundary.";
+      } else if (percent >= 85) {
+        label = "HIGH · GROUNDED";
+        copy =
+          "The agent was scoped, SQL executed, rows were returned, and the finding is attached to database evidence.";
+      } else if (percent >= 60) {
+        label = "MEDIUM · EXECUTED";
+        copy =
+          "The database receipt is present, but one or more grounding signals are still missing.";
+      } else {
+        label = "LOW · IN PROGRESS";
+        copy = "Ollama and the database are still assembling this answer's evidence.";
+      }
+    }
+
+    percent = Math.max(0, Math.min(percent, 100));
     $("#confidence-fill").style.width = `${percent}%`;
-    $("#confidence-percent").textContent = done ? `${percent}%` : "—";
-    if (failed) {
-      $("#confidence-state").textContent = "RECEIPT INCOMPLETE";
-      $("#confidence-copy").textContent =
-        "The AI or database returned an error. Nothing local was substituted; inspect the failed stage and retry.";
-    } else if (done === 4) {
-      $("#confidence-state").textContent = "FULL RECEIPT";
-      $("#confidence-copy").textContent =
-        "The compiled context scoped the model, SQL executed, and the finding was grounded in returned rows.";
-    } else if (active) {
-      $("#confidence-state").textContent = "ASSEMBLING EVIDENCE";
-      $("#confidence-copy").textContent =
-        "Ollama and the database are building this receipt live. No heuristic answer is inserted.";
-    } else if (done) {
-      $("#confidence-state").textContent = "CONTEXT READY";
-      $("#confidence-copy").textContent =
-        "The selected agent is bounded by its compiled context manifest.";
-    } else {
-      $("#confidence-state").textContent = "WAITING FOR A QUESTION";
-      $("#confidence-copy").textContent =
-        "A receipt will assemble here as the agent scopes, composes, executes, and grounds an answer.";
+    $("#confidence-percent").textContent = percent ? `${percent}%` : "—";
+    $("#confidence-state").textContent = label;
+    $("#confidence-copy").textContent = copy;
+    if (view?.confidence) {
+      view.confidence.textContent = `${label} · ${percent}%`;
+      view.confidence.classList.toggle("low", percent < 60);
+      view.confidence.classList.toggle("medium", percent >= 60 && percent < 85);
+      view.confidence.classList.toggle("high", percent >= 85);
+      view.confidence.title = copy;
     }
   }
 
   function createAnswerTurn(question) {
     state.turnCounter += 1;
+    const agentName =
+      state.manifestSchema?.agent?.name ||
+      state.manifestSchema?.context?.name ||
+      manifestLabel(state.currentManifest);
     const turn = document.createElement("article");
     turn.className = "conversation-turn";
     turn.innerHTML = `
       <section class="question-turn">
-        <span class="turn-label">QUESTION / ${String(state.turnCounter).padStart(2, "0")}</span>
+        <div class="question-topline">
+          <span class="turn-label">QUESTION / ${String(state.turnCounter).padStart(2, "0")}</span>
+          <button class="thread-save" disabled title="Save this question and its generated SQL">
+            <span>◇</span> SAVE QUESTION
+          </button>
+        </div>
         <h2 class="question-text">${escapeHTML(question)}</h2>
       </section>
       <section class="answer-card">
         <header class="answer-head">
-          <span class="answer-run-id">OLLAMA · ${escapeHTML(manifestLabel(state.currentManifest))}</span>
-          <span class="answer-state">COMPOSING SQL</span>
+          <span class="answer-run-id">OLLAMA · ${escapeHTML(agentName.replaceAll("_", " "))}</span>
+          <div class="answer-status-group">
+            <span class="turn-confidence">SCOPING</span>
+            <span class="answer-state">COMPOSING SQL</span>
+          </div>
         </header>
         <div class="finding-block">
           <div class="finding-title">
@@ -511,9 +641,11 @@
       </section>
     `;
     $("#conversation").append(turn);
-    return {
+    const view = {
       root: turn,
       state: $(".answer-state", turn),
+      confidence: $(".turn-confidence", turn),
+      saveButton: $(".thread-save", turn),
       finding: $(".finding-text", turn),
       result: $(".result-mount", turn),
       code: $("code", turn),
@@ -526,7 +658,19 @@
       results: null,
       generationMs: null,
       executionMs: null,
+      manifest: state.currentManifest,
+      evidence: {
+        sqlGenerated: false,
+        executed: false,
+        rowCount: null,
+        grounded: false,
+        failed: false,
+      },
     };
+    view.saveButton.addEventListener("click", () => quickSaveTurn(view));
+    state.activeTurn = view;
+    updateConfidence();
+    return view;
   }
 
   function setAnswerState(view, label, status = "") {
@@ -547,13 +691,39 @@
     if (window.Prism) window.Prism.highlightElement(view.code);
     view.sqlActions.innerHTML = `
       <button data-action="copy">COPY</button>
-      <button data-action="save">SAVE</button>
+      <button data-action="save">SAVE AS</button>
     `;
+    view.saveButton.disabled = false;
     $('[data-action="copy"]', view.sqlActions).addEventListener("click", async () => {
       await navigator.clipboard.writeText(view.sql);
       showToast("SQL copied.");
     });
     $('[data-action="save"]', view.sqlActions).addEventListener("click", () => openSaveModal(view));
+  }
+
+  async function quickSaveTurn(view) {
+    if (!view.sql || view.saveButton.disabled) return;
+    const question = $(".question-text", view.root)?.textContent?.trim() || "Saved question";
+    view.saveButton.disabled = true;
+    view.saveButton.innerHTML = "<span>↻</span> SAVING";
+    try {
+      await api("/favorites", {
+        method: "POST",
+        body: JSON.stringify({
+          name: question.slice(0, 80),
+          manifest: view.manifest,
+          question,
+          sql: view.sql,
+        }),
+      });
+      view.saveButton.classList.add("saved");
+      view.saveButton.innerHTML = "<span>✓</span> SAVED";
+      showToast("Question saved to the Library.");
+    } catch (error) {
+      view.saveButton.disabled = false;
+      view.saveButton.innerHTML = "<span>◇</span> SAVE QUESTION";
+      showToast(error.message);
+    }
   }
 
   function renderResults(view, payload) {
@@ -616,8 +786,8 @@
               datasets: [{
                 label: columns[1],
                 data: rows.map((row) => Number(row[1])),
-                backgroundColor: "#c8f25f",
-                borderColor: "#5f7b18",
+                backgroundColor: "#d51f2e",
+                borderColor: "#8f0d18",
                 borderWidth: 1,
               }],
             },
@@ -716,10 +886,14 @@
         body: JSON.stringify({ sql: view.sql }),
       });
       renderResults(view, payload);
+      view.evidence.executed = true;
+      view.evidence.rowCount = Number(payload.count || 0);
+      view.evidence.failed = false;
       view.error.innerHTML = "";
       setStage("execute", "done", `${payload.count} rows returned`);
       setAnswerState(view, "FIX EXECUTED", "done");
       view.receipt.innerHTML = "<strong>OLLAMA SQL EXECUTED</strong> · database receipt attached";
+      updateConfidence();
     } catch (error) {
       renderError(view, error.message, { fixable: true });
       setStage("execute", "failed", "Fixed query was rejected");
@@ -750,6 +924,7 @@
     resizeComposer();
     $("#welcome").hidden = true;
     $("#suggestion-row").innerHTML = "";
+    state.activeTurn = null;
     resetEvidence();
     setStage("scope", "done", scopeMeta());
     setStage("compose", "active", "Ollama is generating SQL");
@@ -773,6 +948,7 @@
             break;
           case "sql_done": {
             finalizeSQL(view, event.sql || view.sql);
+            view.evidence.sqlGenerated = true;
             view.generationMs = Number(event.generation_ms);
             $("#metric-generation").textContent = formatMs(event.generation_ms);
             const tokens = Number(event.prompt_tokens || 0) + Number(event.completion_tokens || 0);
@@ -792,6 +968,8 @@
           }
           case "results":
             receivedResults = true;
+            view.evidence.executed = true;
+            view.evidence.rowCount = Number(event.count || 0);
             view.executionMs = Number(event.execution_ms);
             renderResults(view, event);
             $("#metric-execution").textContent = formatMs(event.execution_ms);
@@ -814,6 +992,7 @@
             break;
           case "execute_error":
             streamFailed = true;
+            view.evidence.failed = true;
             setStage("execute", "failed", "Database rejected generated SQL");
             setStage("ground", "failed", "No result to ground");
             setAnswerState(view, "EXECUTION FAILED", "failed");
@@ -827,11 +1006,13 @@
             view.finding.textContent += event.content || "";
             break;
           case "explain_done":
+            view.evidence.grounded = true;
             setStage("ground", "done", "Finding grounded by Ollama");
             setAnswerState(view, "RECEIPT COMPLETE", "done");
             break;
           case "explain_error":
             streamFailed = true;
+            view.evidence.failed = true;
             setStage("ground", "failed", "Ollama explanation failed");
             setAnswerState(view, "GROUNDING FAILED", "failed");
             if (!explanationStarted) {
@@ -847,6 +1028,7 @@
             break;
           case "error":
             streamFailed = true;
+            view.evidence.failed = true;
             setStage("compose", "failed", "Ollama SQL request failed");
             setStage("execute", "failed", "Not attempted");
             setStage("ground", "failed", "Not attempted");
@@ -871,6 +1053,7 @@
         }
       });
     } catch (error) {
+      view.evidence.failed = true;
       setStage("compose", "failed", "Ollama request failed");
       setStage("execute", "failed", "Not attempted");
       setStage("ground", "failed", "Not attempted");
@@ -892,6 +1075,7 @@
     state.pendingSave = {
       question: $(".question-text", view.root)?.textContent || "",
       sql: view.sql,
+      manifest: view.manifest,
     };
     $("#save-name").value = "";
     $("#save-overlay").hidden = false;
@@ -914,7 +1098,7 @@
         method: "POST",
         body: JSON.stringify({
           name,
-          manifest: state.currentManifest,
+          manifest: state.pendingSave.manifest,
           question: state.pendingSave.question,
           sql: state.pendingSave.sql,
         }),
@@ -933,6 +1117,7 @@
       $$(".conversation-turn", $("#conversation")).forEach((turn) => turn.remove());
       $("#welcome").hidden = false;
       state.turnCounter = 0;
+      state.activeTurn = null;
       resetEvidence();
       if (state.currentManifest) await loadAISuggestions();
       showToast("Started a clean thread.");

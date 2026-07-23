@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
+"""Create a large, deterministic ecommerce database for the TableTalk demo.
+
+The generated data is intentionally broad enough for meaningful revenue,
+inventory, customer, and marketing conversations while remaining fast to
+rebuild on a laptop. Re-running the script recreates the database in place.
 """
-seed.py — Create and populate the ecommerce DuckDB database.
 
-Usage:
-    python seed.py
-
-Creates ./ecommerce.duckdb with a realistic ecommerce schema:
-  - customers           (5 records)
-  - categories          (3 records)
-  - products            (10 records)
-  - inventory           (10 records)
-  - orders              (12 records)
-  - order_items         (20 records)
-  - campaigns           (4 records)
-  - campaign_conversions (8 records)
-
-Re-running this script drops and recreates all tables (idempotent).
-"""
 from __future__ import annotations
 
+import csv
 import os
+import random
 import sys
+from datetime import date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 try:
     import duckdb
@@ -30,13 +25,84 @@ except ImportError:
 
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "ecommerce.duckdb")
+SEED = 20260723
+CUSTOMER_COUNT = 5_000
+PRODUCT_COUNT = 250
+ORDER_COUNT = 25_000
+
+CATEGORY_NAMES = [
+    "Electronics",
+    "Clothing",
+    "Books",
+    "Home",
+    "Outdoors",
+    "Fitness",
+    "Office",
+    "Beauty",
+    "Food",
+    "Toys",
+]
+WAREHOUSES = ["east", "central", "west"]
+CITIES = [
+    ("New York", "US"),
+    ("Los Angeles", "US"),
+    ("Chicago", "US"),
+    ("Houston", "US"),
+    ("Phoenix", "US"),
+    ("Philadelphia", "US"),
+    ("San Antonio", "US"),
+    ("San Diego", "US"),
+    ("Dallas", "US"),
+    ("San Jose", "US"),
+    ("Austin", "US"),
+    ("Seattle", "US"),
+    ("Denver", "US"),
+    ("Boston", "US"),
+    ("Atlanta", "US"),
+    ("Toronto", "CA"),
+    ("Vancouver", "CA"),
+    ("London", "GB"),
+]
+STATUSES = ["delivered", "shipped", "pending", "cancelled"]
+STATUS_WEIGHTS = [0.72, 0.10, 0.10, 0.08]
+CHANNELS = ["email", "social", "search", "affiliate"]
 
 
-def seed(db_path: str = DB_PATH) -> None:
-    conn = duckdb.connect(db_path)
-    print(f"Seeding {db_path} ...")
+def money(value: float | Decimal) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # ── Drop existing tables (in FK-safe order) ───────────────────────────────
+
+def insert_rows(connection, table: str, rows: list[tuple]) -> None:
+    """Bulk-load rows with DuckDB COPY so the large seed stays quick."""
+    if not rows:
+        return
+    null_marker = "__TABLETALK_NULL__"
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(mode="w", newline="", suffix=".csv", delete=False) as file:
+            temporary_path = Path(file.name)
+            writer = csv.writer(file)
+            writer.writerows(
+                [null_marker if value is None else value for value in row] for row in rows
+            )
+        escaped_path = str(temporary_path).replace("'", "''")
+        connection.execute(
+            f"COPY {table} FROM '{escaped_path}' (FORMAT CSV, NULL '{null_marker}')"
+        )
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def create_schema(connection) -> None:
+    # dbt relations may still exist from a prior build and depend on sources.
+    for statement in [
+        "DROP VIEW IF EXISTS stg_orders",
+        "DROP VIEW IF EXISTS stg_customers",
+        "DROP TABLE IF EXISTS fct_orders",
+    ]:
+        connection.execute(statement)
+
     for table in [
         "campaign_conversions",
         "order_items",
@@ -47,270 +113,339 @@ def seed(db_path: str = DB_PATH) -> None:
         "campaigns",
         "customers",
     ]:
-        conn.execute(f"DROP TABLE IF EXISTS {table}")
+        connection.execute(f"DROP TABLE IF EXISTS {table}")
 
-    # ── Schema ────────────────────────────────────────────────────────────────
-
-    conn.execute(
+    connection.execute(
         """
         CREATE TABLE customers (
-            id          INTEGER PRIMARY KEY,
-            name        VARCHAR NOT NULL,
-            email       VARCHAR UNIQUE NOT NULL,
-            phone       VARCHAR,
-            city        VARCHAR,
-            country     VARCHAR DEFAULT 'US',
+            id INTEGER PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            email VARCHAR UNIQUE NOT NULL,
+            phone VARCHAR,
+            city VARCHAR,
+            country VARCHAR DEFAULT 'US',
             signup_date DATE NOT NULL,
-            active      BOOLEAN DEFAULT TRUE,
-            lifetime_value DECIMAL(10,2) DEFAULT 0.00
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            active BOOLEAN DEFAULT TRUE,
+            lifetime_value DECIMAL(12, 2) DEFAULT 0.00
+        );
         CREATE TABLE categories (
-            id          INTEGER PRIMARY KEY,
-            name        VARCHAR NOT NULL,
-            slug        VARCHAR UNIQUE NOT NULL,
+            id INTEGER PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            slug VARCHAR UNIQUE NOT NULL,
             description VARCHAR
-        )
-        """
-    )
-
-    conn.execute(
-        """
+        );
         CREATE TABLE products (
-            id          INTEGER PRIMARY KEY,
-            sku         VARCHAR UNIQUE NOT NULL,
-            name        VARCHAR NOT NULL,
+            id INTEGER PRIMARY KEY,
+            sku VARCHAR UNIQUE NOT NULL,
+            name VARCHAR NOT NULL,
             description VARCHAR,
-            price       DECIMAL(10,2) NOT NULL,
-            cost        DECIMAL(10,2),
+            price DECIMAL(12, 2) NOT NULL,
+            cost DECIMAL(12, 2),
             category_id INTEGER REFERENCES categories(id),
-            active      BOOLEAN DEFAULT TRUE,
-            created_at  DATE NOT NULL
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            active BOOLEAN DEFAULT TRUE,
+            created_at DATE NOT NULL
+        );
         CREATE TABLE inventory (
-            id            INTEGER PRIMARY KEY,
-            product_id    INTEGER NOT NULL REFERENCES products(id),
-            warehouse     VARCHAR DEFAULT 'main',
-            quantity      INTEGER NOT NULL DEFAULT 0,
-            reorder_point INTEGER DEFAULT 10,
-            updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            id INTEGER PRIMARY KEY,
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            warehouse VARCHAR NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            reorder_point INTEGER NOT NULL DEFAULT 10,
+            updated_at TIMESTAMP NOT NULL
+        );
         CREATE TABLE orders (
-            id               INTEGER PRIMARY KEY,
-            customer_id      INTEGER NOT NULL REFERENCES customers(id),
-            status           VARCHAR DEFAULT 'pending',
-            total_amount     DECIMAL(10,2) NOT NULL,
-            discount_amount  DECIMAL(10,2) DEFAULT 0.00,
+            id BIGINT PRIMARY KEY,
+            customer_id INTEGER NOT NULL REFERENCES customers(id),
+            status VARCHAR DEFAULT 'pending',
+            total_amount DECIMAL(12, 2) NOT NULL,
+            discount_amount DECIMAL(12, 2) DEFAULT 0.00,
             shipping_address VARCHAR,
-            created_at       TIMESTAMP NOT NULL,
-            shipped_at       TIMESTAMP,
-            delivered_at     TIMESTAMP
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            created_at TIMESTAMP NOT NULL,
+            shipped_at TIMESTAMP,
+            delivered_at TIMESTAMP
+        );
         CREATE TABLE order_items (
-            id          INTEGER PRIMARY KEY,
-            order_id    INTEGER NOT NULL REFERENCES orders(id),
-            product_id  INTEGER NOT NULL REFERENCES products(id),
-            quantity    INTEGER NOT NULL,
-            unit_price  DECIMAL(10,2) NOT NULL,
-            discount    DECIMAL(10,2) DEFAULT 0.00
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            id BIGINT PRIMARY KEY,
+            order_id BIGINT NOT NULL REFERENCES orders(id),
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            quantity INTEGER NOT NULL,
+            unit_price DECIMAL(12, 2) NOT NULL,
+            discount DECIMAL(12, 2) DEFAULT 0.00
+        );
         CREATE TABLE campaigns (
-            id          INTEGER PRIMARY KEY,
-            name        VARCHAR NOT NULL,
-            channel     VARCHAR,
-            budget      DECIMAL(10,2),
-            spend       DECIMAL(10,2) DEFAULT 0.00,
-            start_date  DATE,
-            end_date    DATE,
-            active      BOOLEAN DEFAULT TRUE
-        )
-        """
-    )
-
-    conn.execute(
-        """
+            id INTEGER PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            channel VARCHAR,
+            budget DECIMAL(12, 2),
+            spend DECIMAL(12, 2) DEFAULT 0.00,
+            start_date DATE,
+            end_date DATE,
+            active BOOLEAN DEFAULT TRUE
+        );
         CREATE TABLE campaign_conversions (
-            id           INTEGER PRIMARY KEY,
-            campaign_id  INTEGER NOT NULL REFERENCES campaigns(id),
-            customer_id  INTEGER NOT NULL REFERENCES customers(id),
+            id BIGINT PRIMARY KEY,
+            campaign_id INTEGER NOT NULL REFERENCES campaigns(id),
+            customer_id INTEGER NOT NULL REFERENCES customers(id),
             converted_at TIMESTAMP NOT NULL,
-            revenue      DECIMAL(10,2)
+            revenue DECIMAL(12, 2)
+        );
+        """
+    )
+
+
+def seed(db_path: str = DB_PATH) -> None:
+    rng = random.Random(SEED)
+    connection = duckdb.connect(db_path)
+    print(f"Seeding {db_path} ...")
+    create_schema(connection)
+    connection.execute("BEGIN TRANSACTION")
+
+    categories = [
+        (
+            category_id,
+            name,
+            name.lower().replace(" ", "-"),
+            f"Curated {name.lower()} assortment for the ecommerce catalogue",
         )
-        """
-    )
-
-    # ── Seed data ─────────────────────────────────────────────────────────────
-
-    conn.execute(
-        """
-        INSERT INTO customers VALUES
-            (1,  'Alice Johnson',    'alice@example.com',    '555-0101', 'New York',      'US', '2023-06-15', TRUE,  499.96),
-            (2,  'Bob Smith',        'bob@example.com',      '555-0102', 'Los Angeles',   'US', '2023-07-01', TRUE,  149.99),
-            (3,  'Carol Williams',   'carol@example.com',    '555-0103', 'Chicago',       'US', '2023-08-20', TRUE,  189.97),
-            (4,  'David Brown',      'david@example.com',    '555-0104', 'Houston',       'US', '2023-09-10', TRUE,  299.98),
-            (5,  'Eve Davis',        'eve@example.com',      '555-0105', 'Phoenix',       'US', '2023-10-05', FALSE,   0.00),
-            (6,  'Frank Miller',     'frank@example.com',    '555-0106', 'Philadelphia',  'US', '2023-11-12', TRUE,  89.99),
-            (7,  'Grace Wilson',     'grace@example.com',    '555-0107', 'San Antonio',   'US', '2023-12-01', TRUE,  219.97),
-            (8,  'Henry Taylor',     'henry@example.com',    '555-0108', 'San Diego',     'US', '2024-01-03', TRUE,  134.98),
-            (9,  'Iris Anderson',    'iris@example.com',     '555-0109', 'Dallas',        'US', '2024-01-20', TRUE,  449.97),
-            (10, 'Jack Thomas',      'jack@example.com',     '555-0110', 'San Jose',      'US', '2024-02-14', TRUE,  74.99)
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO categories VALUES
-            (1, 'Electronics', 'electronics', 'Gadgets, headphones, and accessories'),
-            (2, 'Clothing',    'clothing',    'Apparel, shoes, and fashion accessories'),
-            (3, 'Books',       'books',       'Technical books and educational resources'),
-            (4, 'Home',        'home',        'Home goods and kitchen accessories')
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO products VALUES
-            (1,  'ELEC-001', 'Wireless Headphones',    'Noise-cancelling over-ear headphones', 149.99, 75.00, 1, TRUE,  '2023-01-10'),
-            (2,  'ELEC-002', 'USB-C Hub',              '7-in-1 USB-C hub for laptops',          49.99, 20.00, 1, TRUE,  '2023-01-15'),
-            (3,  'ELEC-003', 'Mechanical Keyboard',    'TKL mechanical keyboard, RGB backlit', 129.99, 60.00, 1, TRUE,  '2023-02-01'),
-            (4,  'CLTH-001', 'Organic Cotton Tee',     '100%% organic cotton, unisex',          29.99, 10.00, 2, TRUE,  '2023-03-01'),
-            (5,  'CLTH-002', 'Running Shorts',         'Lightweight moisture-wicking shorts',   39.99, 15.00, 2, TRUE,  '2023-03-15'),
-            (6,  'CLTH-003', 'Merino Wool Sweater',    'Premium merino wool, machine washable', 89.99, 40.00, 2, TRUE,  '2023-04-01'),
-            (7,  'BOOK-001', 'Clean Code',             'A handbook of agile software craftsmanship', 34.99, 12.00, 3, TRUE, '2023-05-01'),
-            (8,  'BOOK-002', 'Designing Data-Intensive Applications', 'A deep dive into data systems', 44.99, 15.00, 3, TRUE, '2023-05-15'),
-            (9,  'HOME-001', 'Pour-Over Coffee Set',   'Manual pour-over coffee kit with filters', 59.99, 22.00, 4, TRUE, '2023-06-01'),
-            (10, 'HOME-002', 'Bamboo Cutting Board',   'Large bamboo cutting board with juice groove', 34.99, 12.00, 4, FALSE, '2023-06-15')
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO inventory VALUES
-            (1,  1, 'main',  45, 10, '2024-01-15'),
-            (2,  2, 'main',   8,  5, '2024-01-15'),
-            (3,  3, 'main',  22, 10, '2024-01-15'),
-            (4,  4, 'main', 120, 20, '2024-01-15'),
-            (5,  5, 'main',  15, 10, '2024-01-15'),
-            (6,  6, 'main',  30, 10, '2024-01-15'),
-            (7,  7, 'main',  62, 10, '2024-01-15'),
-            (8,  8, 'main',  41, 10, '2024-01-15'),
-            (9,  9, 'main',  18,  8, '2024-01-15'),
-            (10, 10, 'main',  0,  5, '2024-01-15')
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO orders VALUES
-            (1,  1,  'delivered', 199.98,  0.00, '100 Main St, New York, NY',    '2024-01-05 09:00', '2024-01-07', '2024-01-09'),
-            (2,  2,  'delivered',  49.99,  0.00, '200 Oak Ave, Los Angeles, CA', '2024-01-08 11:30', '2024-01-10', '2024-01-12'),
-            (3,  3,  'delivered',  74.98,  0.00, '300 Pine Rd, Chicago, IL',     '2024-01-10 14:00', '2024-01-12', '2024-01-14'),
-            (4,  4,  'delivered', 149.99,  0.00, '400 Elm St, Houston, TX',      '2024-01-12 16:45', '2024-01-14', '2024-01-16'),
-            (5,  1,  'delivered',  34.99,  0.00, '100 Main St, New York, NY',    '2024-01-15 08:00', '2024-01-17', '2024-01-19'),
-            (6,  6,  'delivered',  89.99,  0.00, '600 Maple Dr, Philadelphia',   '2024-01-18 10:00', '2024-01-20', '2024-01-22'),
-            (7,  7,  'shipped',   219.97,  0.00, '700 Oak Ln, San Antonio, TX',  '2024-01-22 09:00', '2024-01-24', NULL),
-            (8,  8,  'shipped',   134.98,  5.00, '800 Pine St, San Diego, CA',   '2024-01-25 13:00', '2024-01-27', NULL),
-            (9,  9,  'pending',   449.97,  0.00, '900 Elm Ave, Dallas, TX',      '2024-01-28 15:00', NULL, NULL),
-            (10, 10, 'pending',    74.99,  0.00, '1000 Main Blvd, San Jose, CA', '2024-01-30 11:00', NULL, NULL),
-            (11, 1,  'delivered', 129.99, 13.00, '100 Main St, New York, NY',    '2024-02-01 09:00', '2024-02-03', '2024-02-05'),
-            (12, 3,  'cancelled', 114.99, 0.00,  '300 Pine Rd, Chicago, IL',     '2024-02-05 14:00', NULL, NULL)
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO order_items VALUES
-            (1,  1,  1, 1, 149.99, 0.00),
-            (2,  1,  4, 1,  29.99, 0.00),
-            (3,  1,  5, 1,  39.99, 0.00),
-            (4,  2,  2, 1,  49.99, 0.00),
-            (5,  3,  4, 1,  29.99, 0.00),
-            (6,  3,  5, 1,  39.99, 0.00),
-            (7,  3,  7, 0,  34.99, 0.00),
-            (8,  4,  1, 1, 149.99, 0.00),
-            (9,  5,  7, 1,  34.99, 0.00),
-            (10, 6,  6, 1,  89.99, 0.00),
-            (11, 7,  1, 1, 149.99, 0.00),
-            (12, 7,  3, 1, 129.99, 0.00),
-            (13, 7,  4, 1,  29.99, 0.00),
-            (14, 7,  5, 1,  39.99, 0.00),
-            (15, 8,  6, 1,  89.99, 5.00),
-            (16, 8,  8, 1,  44.99, 0.00),
-            (17, 9,  1, 1, 149.99, 0.00),
-            (18, 9,  3, 1, 129.99, 0.00),
-            (19, 9,  8, 1,  44.99, 0.00),
-            (20, 9,  9, 1,  59.99, 0.00)
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO campaigns VALUES
-            (1, 'New Year Sale',        'email',   5000.00, 4800.00, '2024-01-01', '2024-01-15', FALSE),
-            (2, 'Winter Clearance',     'social', 10000.00, 9200.00, '2024-01-10', '2024-01-31', FALSE),
-            (3, 'Loyalty Rewards Feb',  'email',   3000.00, 1200.00, '2024-02-01', '2024-02-28', FALSE),
-            (4, 'Spring Preview',       'social',  8000.00,  500.00, '2024-03-01', '2024-03-31', TRUE)
-        """
-    )
-
-    conn.execute(
-        """
-        INSERT INTO campaign_conversions VALUES
-            (1, 1, 1,  '2024-01-06 10:00', 199.98),
-            (2, 1, 3,  '2024-01-11 14:30',  74.98),
-            (3, 1, 6,  '2024-01-19 09:15',  89.99),
-            (4, 2, 2,  '2024-01-09 11:00',  49.99),
-            (5, 2, 4,  '2024-01-13 16:00', 149.99),
-            (6, 2, 7,  '2024-01-22 09:30', 219.97),
-            (7, 3, 1,  '2024-02-02 08:00', 129.99),
-            (8, 3, 8,  '2024-01-26 13:30', 134.98)
-        """
-    )
-
-    conn.close()
-
-    # Count rows in each table
-    conn = duckdb.connect(db_path)
-    tables = [
-        "customers", "categories", "products", "inventory",
-        "orders", "order_items", "campaigns", "campaign_conversions",
+        for category_id, name in enumerate(CATEGORY_NAMES, 1)
     ]
-    print("\n  Table                   Rows")
-    print("  " + "-" * 30)
-    for t in tables:
-        n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-        print(f"  {t:<25} {n:>4}")
-    conn.close()
+    insert_rows(connection, "categories", categories)
 
+    products = []
+    created_start = date(2022, 1, 1)
+    for product_id in range(1, PRODUCT_COUNT + 1):
+        category_id = ((product_id - 1) % len(CATEGORY_NAMES)) + 1
+        category = CATEGORY_NAMES[category_id - 1]
+        price = money(rng.uniform(8, 750))
+        cost = money(price * Decimal(str(rng.uniform(0.28, 0.72))))
+        products.append(
+            (
+                product_id,
+                f"{category[:4].upper()}-{product_id:04d}",
+                f"{category} Product {product_id:03d}",
+                f"Representative {category.lower()} item {product_id:03d}",
+                price,
+                cost,
+                category_id,
+                product_id % 29 != 0,
+                created_start + timedelta(days=rng.randrange(1_000)),
+            )
+        )
+    insert_rows(connection, "products", products)
+
+    customers = []
+    signup_start = date(2022, 1, 1)
+    for customer_id in range(1, CUSTOMER_COUNT + 1):
+        city, country = rng.choice(CITIES)
+        customers.append(
+            (
+                customer_id,
+                f"Customer {customer_id:05d}",
+                f"customer{customer_id:05d}@example.test",
+                f"555-{customer_id % 10_000:04d}",
+                city,
+                country,
+                signup_start + timedelta(days=rng.randrange(1_825)),
+                customer_id % 37 != 0,
+                money(0),
+            )
+        )
+    insert_rows(connection, "customers", customers)
+
+    inventory = []
+    inventory_id = 1
+    updated_at = datetime(2026, 12, 31, 23, 59, 59)
+    for product_id in range(1, PRODUCT_COUNT + 1):
+        for warehouse_index, warehouse in enumerate(WAREHOUSES):
+            reorder_point = rng.randint(8, 35)
+            quantity = rng.randint(18, 180)
+
+            # Stable edge cases make the primary inventory question useful:
+            # zero stock, below threshold, and exactly on the threshold.
+            if product_id % 41 == 0 and warehouse_index == 0:
+                quantity = 0
+            elif product_id % 17 == 0 and warehouse_index == 1:
+                quantity = reorder_point
+            elif product_id % 13 == 0 and warehouse_index == 2:
+                quantity = max(0, reorder_point - rng.randint(1, 5))
+
+            inventory.append(
+                (
+                    inventory_id,
+                    product_id,
+                    warehouse,
+                    quantity,
+                    reorder_point,
+                    updated_at,
+                )
+            )
+            inventory_id += 1
+    insert_rows(connection, "inventory", inventory)
+
+    price_by_product = {row[0]: row[4] for row in products}
+    city_by_customer = {row[0]: row[4] for row in customers}
+    orders = []
+    order_items = []
+    item_id = 1
+    order_start = datetime(2024, 1, 1)
+    order_span_seconds = 3 * 365 * 24 * 60 * 60
+
+    # Keep the final 250 customers order-free for anti-join questions.
+    for order_id in range(1, ORDER_COUNT + 1):
+        customer_id = rng.randint(1, CUSTOMER_COUNT - 250)
+        status = rng.choices(STATUSES, weights=STATUS_WEIGHTS, k=1)[0]
+        created_at = order_start + timedelta(seconds=rng.randrange(order_span_seconds))
+        line_count = rng.randint(1, 5)
+        subtotal = Decimal("0")
+
+        for _ in range(line_count):
+            product_id = rng.randint(1, PRODUCT_COUNT)
+            quantity = rng.randint(1, 4)
+            unit_price = price_by_product[product_id]
+            line_discount = money(
+                unit_price
+                * quantity
+                * Decimal(str(rng.choice([0, 0, 0, 0.05, 0.10])))
+            )
+            subtotal += unit_price * quantity - line_discount
+            order_items.append(
+                (
+                    item_id,
+                    order_id,
+                    product_id,
+                    quantity,
+                    unit_price,
+                    line_discount,
+                )
+            )
+            item_id += 1
+
+        order_discount = (
+            money(subtotal * Decimal("0.05"))
+            if order_id % 17 == 0
+            else money(0)
+        )
+        shipped_at = (
+            created_at + timedelta(days=rng.randint(1, 3))
+            if status in {"shipped", "delivered"}
+            else None
+        )
+        delivered_at = (
+            shipped_at + timedelta(days=rng.randint(1, 5))
+            if status == "delivered" and shipped_at
+            else None
+        )
+        city = city_by_customer[customer_id]
+        orders.append(
+            (
+                order_id,
+                customer_id,
+                status,
+                money(subtotal),
+                order_discount,
+                f"{100 + customer_id % 9_000} Commerce St, {city}",
+                created_at,
+                shipped_at,
+                delivered_at,
+            )
+        )
+
+    insert_rows(connection, "orders", orders)
+    insert_rows(connection, "order_items", order_items)
+
+    campaigns = []
+    campaign_start = date(2024, 1, 1)
+    for campaign_id in range(1, 25):
+        start_date = campaign_start + timedelta(days=(campaign_id - 1) * 45)
+        end_date = start_date + timedelta(days=44)
+        budget = money(rng.uniform(5_000, 60_000))
+        spend = money(budget * Decimal(str(rng.uniform(0.72, 1.0))))
+        campaigns.append(
+            (
+                campaign_id,
+                f"{CHANNELS[(campaign_id - 1) % len(CHANNELS)].title()} "
+                f"Campaign {campaign_id:02d}",
+                CHANNELS[(campaign_id - 1) % len(CHANNELS)],
+                budget,
+                spend,
+                start_date,
+                end_date,
+                end_date >= date(2026, 12, 1),
+            )
+        )
+    insert_rows(connection, "campaigns", campaigns)
+
+    conversions = []
+    conversion_id = 1
+    eligible_orders = [row for row in orders if row[2] == "delivered"]
+    for order in eligible_orders:
+        if order[0] % 4 != 0:
+            continue
+        campaign_id = ((order[0] - 1) % len(campaigns)) + 1
+        conversions.append(
+            (
+                conversion_id,
+                campaign_id,
+                order[1],
+                order[6] + timedelta(hours=rng.randint(1, 72)),
+                money(order[3] - order[4]),
+            )
+        )
+        conversion_id += 1
+    insert_rows(connection, "campaign_conversions", conversions)
+
+    connection.execute(
+        """
+        UPDATE customers AS c
+        SET lifetime_value = totals.value
+        FROM (
+            SELECT customer_id,
+                   SUM(total_amount - discount_amount) AS value
+            FROM orders
+            WHERE status <> 'cancelled'
+            GROUP BY customer_id
+        ) AS totals
+        WHERE c.id = totals.customer_id
+        """
+    )
+
+    connection.execute("COMMIT")
+    connection.execute("ANALYZE")
+
+    table_names = [
+        "customers",
+        "categories",
+        "products",
+        "inventory",
+        "orders",
+        "order_items",
+        "campaigns",
+        "campaign_conversions",
+    ]
+    counts = {
+        table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in table_names
+    }
+    low_stock = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM inventory i
+        JOIN products p ON p.id = i.product_id
+        WHERE p.active = TRUE AND i.quantity <= i.reorder_point
+        """
+    ).fetchone()[0]
+    connection.close()
+
+    print("\n  Table                   Rows")
+    print("  " + "-" * 36)
+    for table in table_names:
+        print(f"  {table:<25} {counts[table]:>9,}")
+    print(f"\n  Active low-stock rows: {low_stock:,}")
     print(f"\n✓ Database seeded at {db_path}")
     print("\nNext steps:")
-    print("  tabletalk apply    — compile context definitions into manifests")
-    print("  tabletalk query    — start an interactive agent session")
-    print("  tabletalk serve    — launch the web UI at http://localhost:5000")
+    print("  cd dbt_project && uv run --with dbt-duckdb dbt build --profiles-dir .")
+    print("  cd .. && uv run tabletalk apply .")
+    print("  uv run tabletalk serve --port 5000")
 
 
 if __name__ == "__main__":

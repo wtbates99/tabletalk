@@ -31,7 +31,7 @@ datasets:
       - name: orders
         description: >-
           Customer orders. status can be: pending, shipped, delivered, cancelled.
-          total_amount is the gross line-item total before the order discount.
+          total_amount is the subtotal after line discounts and before the order discount.
           discount_amount is the absolute order-level discount. For recognized
           net revenue, exclude cancelled orders and subtract the discount once.
 

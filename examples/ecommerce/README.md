@@ -1,6 +1,9 @@
 # Ecommerce — tabletalk Example Project
 
-This is a complete, runnable example of a **tabletalk** project.
+This is a complete, runnable example of a **tabletalk** project. Its
+deterministic seed contains 5,000 customers, 250 products across three
+warehouses, 25,000 orders, roughly 75,000 line items, and thousands of campaign
+conversions—large enough for meaningful analytical questions without a download.
 It demonstrates the core concept: **tabletalk is dbt for agents**.
 
 ```
@@ -287,11 +290,11 @@ After running `python seed.py`:
 
 | Table                  | Rows |
 |------------------------|------|
-| customers              |   10 |
-| categories             |    4 |
-| products               |   10 |
-| inventory              |   10 |
-| orders                 |   12 |
-| order_items            |   20 |
-| campaigns              |    4 |
-| campaign_conversions   |    8 |
+| customers              | 5,000 |
+| categories             |    10 |
+| products               |   250 |
+| inventory              |   750 |
+| orders                 | 25,000 |
+| order_items            | ~75,000 |
+| campaigns              |    24 |
+| campaign_conversions   | ~4,400 |

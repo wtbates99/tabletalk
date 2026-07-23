@@ -26,7 +26,7 @@ models:
               arguments:
                 values: [pending, shipped, delivered, cancelled]
       - name: total_amount
-        description: "Gross line-item total before the order-level discount"
+        description: "Order subtotal after line discounts and before the order-level discount"
       - name: discount_amount
         description: "Absolute order-level discount; subtract exactly once"
       - name: net_revenue
