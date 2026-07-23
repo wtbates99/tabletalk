@@ -31,6 +31,7 @@ import yaml
 from click.testing import CliRunner
 
 from tabletalk.cli import _default_profile_name, _test_connection, cli
+from tabletalk.tests.conftest import MockLLMProvider
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -111,6 +112,83 @@ class TestTestConnection:
             ok, msg = _test_connection({"type": "postgres", "host": "x"})
         assert ok is False
         assert "Missing driver" in msg or "psycopg2" in msg
+
+
+# ── tabletalk eval run ────────────────────────────────────────────────────────
+
+
+class TestEvalCommand:
+    def test_eval_run_terminal_passes(self, runner, project_with_manifest, tmp_path):
+        suite = tmp_path / "eval.yaml"
+        suite.write_text(
+            yaml.dump(
+                {
+                    "version": 1,
+                    "suite": {"name": "cli-eval", "manifest": "customers.txt"},
+                    "cases": [
+                        {
+                            "name": "customer-count",
+                            "input": {"message": "Count customers"},
+                            "expected": {
+                                "result": {
+                                    "type": "scalar",
+                                    "reference_sql": "SELECT COUNT(*) FROM customers",
+                                }
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        llm = MockLLMProvider(default_response="SELECT COUNT(*) FROM customers")
+        with patch("tabletalk.factories.get_llm_provider", return_value=llm):
+            result = runner.invoke(
+                cli,
+                [
+                    "eval",
+                    "run",
+                    str(suite),
+                    "--project-folder",
+                    project_with_manifest,
+                ],
+            )
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+        assert "1 passed, 0 failed" in result.output
+
+    def test_eval_run_failure_returns_nonzero(
+        self, runner, project_with_manifest, tmp_path
+    ):
+        suite = tmp_path / "eval.yaml"
+        suite.write_text(
+            yaml.dump(
+                {
+                    "version": 1,
+                    "suite": {"name": "cli-eval", "manifest": "customers.txt"},
+                    "cases": [
+                        {
+                            "name": "wrong-count",
+                            "input": {"message": "Count customers"},
+                            "expected": {"result": {"type": "scalar", "value": -1}},
+                        }
+                    ],
+                }
+            )
+        )
+        llm = MockLLMProvider(default_response="SELECT COUNT(*) FROM customers")
+        with patch("tabletalk.factories.get_llm_provider", return_value=llm):
+            result = runner.invoke(
+                cli,
+                [
+                    "eval",
+                    "run",
+                    str(suite),
+                    "--project-folder",
+                    project_with_manifest,
+                ],
+            )
+        assert result.exit_code == 1
+        assert "FAIL" in result.output
 
 
 # ── tabletalk init ─────────────────────────────────────────────────────────────

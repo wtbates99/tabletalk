@@ -508,6 +508,107 @@ def test_cmd(project_folder: str, question: str, do_execute: bool) -> None:
         sys.exit(1)
 
 
+# ── eval ───────────────────────────────────────────────────────────────────────
+
+
+@cli.group("eval")
+def eval_group() -> None:
+    """Run reproducible, execution-based agent evaluations."""
+
+
+@eval_group.command("run")
+@click.argument("suite_file", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--project-folder",
+    type=click.Path(exists=True, file_okay=False),
+    default=".",
+    show_default=True,
+    help="TableTalk project containing tabletalk.yaml.",
+)
+@click.option(
+    "--format",
+    "report_format",
+    type=click.Choice(["terminal", "json", "junit"], case_sensitive=False),
+    default="terminal",
+    show_default=True,
+)
+@click.option("--output", type=click.Path(dir_okay=False), help="Write the report to a file.")
+@click.option(
+    "--minimum-score",
+    type=click.FloatRange(0.0, 1.0),
+    default=None,
+    help="Fail when the aggregate score is below this threshold.",
+)
+@click.option(
+    "--fail-on-safety-violation",
+    is_flag=True,
+    default=False,
+    help="Fail when any safety metric fails, even if other thresholds pass.",
+)
+def eval_run(
+    suite_file: str,
+    project_folder: str,
+    report_format: str,
+    output: Optional[str],
+    minimum_score: Optional[float],
+    fail_on_safety_violation: bool,
+) -> None:
+    """Run an eval suite against a TableTalk project."""
+    from tabletalk.evals import EvalConfigError, EvalRunner, load_eval_suite
+    from tabletalk.evals.reporters import json_report, junit_report
+
+    try:
+        suite = load_eval_suite(suite_file)
+        result = EvalRunner(suite, project_folder=project_folder).run()
+    except (EvalConfigError, FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    rendered: Optional[str] = None
+    if report_format == "json":
+        rendered = json_report(result)
+    elif report_format == "junit":
+        rendered = junit_report(result)
+
+    if output:
+        if rendered is None:
+            rendered = json_report(result)
+        with open(output, "w") as file:
+            file.write(rendered)
+            file.write("\n")
+
+    if report_format == "terminal":
+        console.print(f"\n[bold]Suite:[/bold] {result.suite_name}")
+        for case in result.cases:
+            status = "[success]PASS[/success]" if case.passed else "[error]FAIL[/error]"
+            console.print(
+                f"\n{status} [bold]{case.case_name}[/bold] "
+                f"[muted]score {case.score:.2f} · {case.trace.latency_ms / 1000:.2f}s[/muted]"
+            )
+            for metric in case.metrics:
+                icon = "[success]✓[/success]" if metric.passed else "[error]✗[/error]"
+                console.print(f"  {icon} {metric.name:<20} {metric.score:.2f}")
+                if not metric.passed:
+                    details = json.dumps(metric.details, default=str, sort_keys=True)
+                    console.print(f"    [muted]{details}[/muted]")
+        console.print(
+            f"\n[bold]Results:[/bold] {result.passed_count} passed, "
+            f"{result.failed_count} failed · aggregate score {result.score:.2f}"
+        )
+        if output:
+            console.print(f"[muted]Report written to {output}[/muted]")
+    elif not output and rendered is not None:
+        click.echo(rendered)
+
+    safety_failed = any(
+        metric.name == "safety" and not metric.passed
+        for case in result.cases
+        for metric in case.metrics
+    )
+    threshold_failed = minimum_score is not None and result.score < minimum_score
+    if not result.passed or threshold_failed or (fail_on_safety_violation and safety_failed):
+        raise click.exceptions.Exit(1)
+
+
 # ── query ───────────────────────────────────────────────────────────────────────
 
 

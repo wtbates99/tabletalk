@@ -2,6 +2,7 @@
 
 > Define your data sources once. Deploy an AI agent for every dataset.
 > Redeploy anytime your schema changes — like Terraform for analytics agents.
+> Test every change with execution-based evals as code.
 
 tabletalk lets you declaratively define **which data an AI agent can see**,
 then deploy that agent as a natural-language SQL interface.
@@ -231,6 +232,7 @@ Under the hood, `tabletalk apply`:
 |---------|-------------|
 | `tabletalk init` | Scaffold a new project |
 | `tabletalk apply [dir]` | Introspect DB + compile manifests |
+| `tabletalk eval run SUITE` | Run execution, result, structure, safety, and performance evals |
 | `tabletalk query [dir]` | Interactive agent CLI session |
 | `tabletalk serve` | Web UI at http://localhost:5000 |
 | `tabletalk connect` | Save a database connection profile |
@@ -239,6 +241,26 @@ Under the hood, `tabletalk apply`:
 | `tabletalk profiles list` | List saved profiles |
 | `tabletalk profiles delete NAME` | Remove a profile |
 | `tabletalk profiles test NAME` | Test a saved connection |
+
+---
+
+## Evals as code
+
+Eval suites run real agent conversations against deterministic fixtures and
+compare the resulting data with expected values or reference SQL:
+
+```bash
+python examples/ecommerce/evals/seed_fixture.py
+
+tabletalk eval run examples/ecommerce/evals/sales_regression.yaml \
+  --project-folder examples/ecommerce
+```
+
+SQL execution and result correctness are hard gates. Suites can also inspect
+tables and columns through a parsed SQL AST, prevent sensitive access, enforce
+latency/tool/cost budgets, emit JSON or JUnit, and return nonzero in CI. See
+the [eval guide](docs/evals.md) and the
+[12,000-order ecommerce example](examples/ecommerce/evals/README.md).
 
 ---
 

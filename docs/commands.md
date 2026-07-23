@@ -17,6 +17,7 @@ Commands:
   validate  Dry-run health check — config, contexts, DB, LLM
   diff      Show stale context files and table-level changes
   test      Smoke-test SQL generation against every manifest
+  eval      Run reproducible execution-based agent evals
   lock      Write SHA-256 fingerprint lock file
   check     Verify manifests against lock file
   rollback  Restore manifests from a previous snapshot
@@ -191,6 +192,40 @@ Results: 1 passed  1 failed
 ```
 
 Exits with code 1 if any manifest fails — usable in CI.
+
+---
+
+## `tabletalk eval run`
+
+Run a versioned eval suite and compare agent query results with deterministic
+expectations or reference SQL.
+
+```bash
+tabletalk eval run SUITE_FILE [OPTIONS]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--project-folder DIR` | `.` | Project containing `tabletalk.yaml` |
+| `--format terminal\|json\|junit` | `terminal` | Report format |
+| `--output FILE` | — | Write the complete report to a file |
+| `--minimum-score FLOAT` | — | Fail below an aggregate score from 0 to 1 |
+| `--fail-on-safety-violation` | off | Explicit CI safety gate |
+
+```bash
+tabletalk eval run evals/sales.yaml
+
+tabletalk eval run evals/sales.yaml \
+  --format junit \
+  --output eval-results.xml \
+  --minimum-score 0.90 \
+  --fail-on-safety-violation
+```
+
+See [Agent Evals](evals.md) for the suite schema, metrics, fixtures, and full
+example.
 
 ---
 

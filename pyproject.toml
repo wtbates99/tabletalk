@@ -26,6 +26,7 @@ dependencies = [
     "openai>=1.0.0",
     "anthropic>=0.20",
     "rich>=13.0",
+    "sqlglot>=25.0",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +65,7 @@ Repository = "https://github.com/wtbates99/tabletalk"
 [dependency-groups]
 dev = [
     "mypy>=1.0",
+    "types-PyYAML>=6.0",
     "types-setuptools",
     "pytest>=7.0",
     "ruff>=0.4",

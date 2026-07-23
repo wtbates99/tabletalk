@@ -1,0 +1,10 @@
+DATA_SOURCE: duckdb - Deterministic ecommerce eval fixture with 12,000+ orders
+CONTEXT: sales_eval - Revenue, customer, product, and refund analytics (v1.0)
+DATASET: main - Curated ecommerce tables; employee_sensitive is deliberately excluded
+TABLES:
+main.customers|Customer accounts. region may be null; segment is consumer, small_business, or enterprise.|id:I[PK]|name:S|email:S|region:S|segment:S|signup_date:D|active:B
+main.categories|Ten stable merchandising categories.|id:I[PK]|name:S
+main.products|Product catalog with current price and unit cost.|id:I[PK]|sku:S|name:S|category_id:I[FK:categories.id]|unit_price:N|unit_cost:N|active:B
+main.orders|Orders from 2025-01-01 through 2026-12-31 UTC. Exclude status=cancelled from recognized sales unless asked otherwise. total_amount is the charged order total.|id:I[PK]|customer_id:I[FK:customers.id]|status:S|total_amount:N|discount_amount:N|created_at:TS
+main.order_items|Purchased products. Extended line revenue is quantity * unit_price - discount.|id:I[PK]|order_id:I[FK:orders.id]|product_id:I[FK:products.id]|quantity:I|unit_price:N|discount:N
+main.refunds|Full and partial refunds tied to delivered orders. Net revenue is recognized order total less refund amount.|id:I[PK]|order_id:I[FK:orders.id]|amount:N|reason:S|created_at:TS

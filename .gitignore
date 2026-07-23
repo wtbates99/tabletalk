@@ -65,6 +65,7 @@ user_settings.json
 
 # Database
 *.db
+examples/ecommerce/evals/fixtures/*.duckdb
 __pycache__
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm

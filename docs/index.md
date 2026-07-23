@@ -21,6 +21,7 @@ tabletalk query   ≈  dbt run            — agent is live
 - **3 LLM backends** — Ollama (local, no key), OpenAI, Anthropic
 - **Streaming web UI** — token-by-token SQL generation, auto-execution, charts, history
 - **Multi-turn conversations** — agent remembers context across questions
+- **Execution-based evals** — versioned suites, reference SQL, safety gates, and CI reports
 - **dbt integration** — import connections directly from `~/.dbt/profiles.yml`
 - **Safe mode** — read-only enforcement for production databases
 - **No infrastructure** — single `pip install`, runs anywhere Python runs
@@ -53,6 +54,7 @@ pip install "tabletalk[all]"            # all drivers
 | [Profile Management](profiles.md) | Save and reuse database connections |
 | [dbt Integration](dbt-integration.md) | Import connections from `~/.dbt/profiles.yml` |
 | [Safe Mode](safe-mode.md) | Read-only enforcement and production deployment |
+| [Agent Evals](evals.md) | Reproducible fixtures, metrics, traces, and CI integration |
 | [REST API](api-reference.md) | Full API reference for the web server |
 | [Architecture](architecture.md) | Internals for contributors |
 | [Contributing](contributing.md) | How to add providers, tests, and features |
@@ -123,6 +125,7 @@ dbt-integration
 
 web-ui
 safe-mode
+evals
 api-reference
 ```
 
