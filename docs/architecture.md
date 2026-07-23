@@ -314,8 +314,6 @@ QuerySession.generate_sql_conversational()
 
 ---
 
----
-
 ## State management (`state.py`)
 
 Remote state follows the same pattern as Terraform backends.

@@ -19,6 +19,8 @@ Endpoints tested:
   DELETE /favorites/<name>
   GET  /history
   POST /query  (legacy)
+  GET  /api/evals
+  POST /api/evals/run/stream
 """
 from __future__ import annotations
 
@@ -93,6 +95,68 @@ class TestServeIndex:
         assert b"html" in r.data.lower()
 
 
+# ── Eval studio ───────────────────────────────────────────────────────────────
+
+
+class TestEvalStudio:
+    @staticmethod
+    def _write_suite(project_with_manifest):
+        evals = Path(project_with_manifest) / "evals"
+        evals.mkdir(exist_ok=True)
+        suite = evals / "web.yaml"
+        suite.write_text(
+            """\
+version: 1
+suite:
+  name: web-regression
+  manifest: customers.txt
+cases:
+  - name: customer-count
+    input:
+      message: List customers
+    expected:
+      result:
+        type: table
+        reference_sql: SELECT * FROM customers LIMIT 10
+        comparison:
+          row_order: ignore
+"""
+        )
+        return suite
+
+    def test_lists_project_eval_suites(self, flask_app, project_with_manifest):
+        self._write_suite(project_with_manifest)
+        response = flask_app.get("/api/evals")
+        assert response.status_code == 200
+        suites = response.get_json()["suites"]
+        assert suites[0]["name"] == "web-regression"
+        assert suites[0]["case_count"] == 1
+        assert suites[0]["status"] == "ready"
+
+    def test_streams_real_case_progress(self, flask_app, project_with_manifest):
+        self._write_suite(project_with_manifest)
+        response = flask_app.post(
+            "/api/evals/run/stream",
+            json={"suite": "evals/web.yaml"},
+        )
+        assert response.status_code == 200
+        events = _parse_sse(response.data.decode())
+        assert _event_types(events) == [
+            "suite_start",
+            "case_start",
+            "case_complete",
+            "suite_complete",
+        ]
+        assert events[-1]["result"]["passed"] is True
+
+    def test_rejects_suite_path_outside_evals(self, flask_app):
+        response = flask_app.post(
+            "/api/evals/run/stream",
+            json={"suite": "tabletalk.yaml"},
+        )
+        assert response.status_code == 400
+
+
 # ── GET /manifests ─────────────────────────────────────────────────────────────
 
 class TestListManifests:
@@ -110,6 +174,13 @@ class TestListManifests:
         data = json.loads(r.data)
         for name in data["manifests"]:
             assert name.endswith(".txt")
+
+    def test_reports_manifest_context_source(self, flask_app):
+        r = flask_app.get("/manifests")
+        data = json.loads(r.data)
+
+        assert data["metadata"]["customers.txt"]["context_source"] == "tabletalk_context"
+        assert data["metadata"]["customers.txt"]["dbt_enriched"] is False
 
     def test_missing_manifest_folder(self, flask_app, project_with_manifest):
         import shutil
@@ -158,6 +229,16 @@ class TestSelectManifest:
             content_type="application/json",
         )
         assert r.status_code == 404
+
+    def test_rejects_manifest_path_traversal(self, flask_app):
+        r = flask_app.post(
+            "/select_manifest",
+            json={"manifest": "../tabletalk.yaml"},
+            content_type="application/json",
+        )
+
+        assert r.status_code == 400
+        assert "manifest directory" in r.get_json()["error"]
 
 
 # ── POST /chat/stream ──────────────────────────────────────────────────────────
@@ -248,6 +329,34 @@ class TestChatStream:
             content_type="application/json",
         )
         assert r.status_code == 200
+
+    def test_explanation_model_error_is_streamed_without_fallback(self, flask_app):
+        import tabletalk.app as app_mod
+
+        self._select(flask_app)
+        qs = app_mod._get_session()
+
+        def _limit_error(prompt):
+            raise RuntimeError("Ollama Free session limit reached")
+            yield prompt
+
+        qs.llm_provider.generate_response_stream = _limit_error
+        r = flask_app.post(
+            "/chat/stream",
+            json={
+                "question": "list customers",
+                "auto_execute": True,
+                "explain": True,
+                "suggest": False,
+            },
+            content_type="application/json",
+        )
+        events = _parse_sse(r.data.decode())
+
+        assert "results" in _event_types(events)
+        assert "explain_error" in _event_types(events)
+        error = next(event for event in events if event["type"] == "explain_error")
+        assert "Ollama Free session limit reached" in error["error"]
 
 
 # ── POST /fix/stream ───────────────────────────────────────────────────────────
@@ -351,12 +460,27 @@ class TestSuggest:
         data = json.loads(r.data)
         assert "questions" in data
 
-    def test_no_manifest_returns_empty(self, flask_app):
+    def test_no_manifest_returns_error(self, flask_app):
         r = flask_app.post(
             "/suggest", json={}, content_type="application/json"
         )
         data = json.loads(r.data)
-        assert data["questions"] == []
+        assert r.status_code == 400
+        assert data["error"] == "No manifest selected"
+
+    def test_model_error_is_returned_instead_of_empty_fallback(self, flask_app):
+        import tabletalk.app as app_mod
+
+        flask_app.post("/select_manifest", json={"manifest": "customers.txt"})
+        qs = app_mod._get_session()
+        qs.suggest_questions = MagicMock(
+            side_effect=RuntimeError("Ollama Free session limit reached")
+        )
+
+        r = flask_app.post("/suggest", json={"manifest": "customers.txt"})
+
+        assert r.status_code == 502
+        assert "Ollama Free session limit reached" in r.get_json()["error"]
 
 
 # ── POST /reset ────────────────────────────────────────────────────────────────

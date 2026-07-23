@@ -1,162 +1,103 @@
 # Web UI
 
-The tabletalk web UI is a single-page app served by Flask at `http://localhost:5000`.
+TableTalk's web app is an evidence-first data workspace served by Flask:
 
 ```bash
-tabletalk serve            # default port 5000
+tabletalk serve
 tabletalk serve --port 8080
 ```
 
----
+It has three workspaces—**Ask**, **Eval Studio**, and **Library**—plus a live
+Evidence rail. Keyboard shortcuts `1`, `2`, and `3` switch workspaces.
 
-## Layout
+## Ask
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Sidebar (268px)          │  Main area                       │
-│                          │                                   │
-│  tabletalk               │  [sales agent]    ↺ New chat    │
-│  ollama · qwen2.5-coder  │                                   │
-│                          │  ┌─────────────────────────────┐  │
-│  [Context][Saved][History│  │ SQL                    Copy ⭐│  │
-│                          │  │ SELECT ...                   │  │
-│  MANIFESTS               │  └─────────────────────────────┘  │
-│  📋 customers            │                                   │
-│  📋 inventory            │  Results: 12 rows     ↓CSV ↓JSON │
-│  📋 marketing            │  ┌──────┬──────┬───────────────┐ │
-│  📋 sales  ←─ active     │  │ name │ rev  │ [bar chart]   │ │
-│                          │  └──────┴──────┴───────────────┘ │
-│  SCHEMA                  │                                   │
-│  ▶ orders (7)            │  💡 Insight                       │
-│  ▶ order_items (6)       │  The top 5 products account for...│
-│  ▶ products (8)          │                                   │
-│                          │  [What is revenue by city?]       │
-│                          │  [Show top customers]             │
-│                          │                                   │
-│                          │  ┌───────────────────────────┐    │
-│                          │  │ Ask a question…        Send│    │
-│                          │  └───────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
+Choose a compiled data agent in the dark left rail. Agents enriched from a dbt
+`manifest.json` carry a `DBT` badge; ordinary TableTalk contexts carry `CTX`.
+The Evidence rail shows the exact tables and columns inside that agent's hard
+schema boundary.
 
----
+Selecting an agent asks Ollama to read the compiled context and propose three
+relevant questions. These are model-generated—there is no local suggestion
+fallback. Click a field in the schema boundary to insert its fully qualified
+name in the composer.
 
-## Sidebar
+For each question, the interface builds a four-stage receipt:
 
-### Model badge
+1. **Scope** — the compiled context supplied to Ollama;
+2. **Compose** — SQL streamed from the configured Ollama model;
+3. **Execute** — the real database result, row count, and latency;
+4. **Ground** — an Ollama finding based on the returned rows.
 
-Displays the active LLM provider and model name, loaded from the `/config` endpoint:
+The SQL, result table, optional chart, timing, token usage, and execution status
+remain attached to the answer. An execution receipt proves that the query ran;
+it does not claim the answer is correct. Eval Studio provides that release
+confidence.
 
-```
-ollama · qwen2.5-coder:7b
-```
+### Controls
 
-### Manifests
+- **Execute query** runs generated SQL automatically.
+- **Grounded finding** sends returned rows back through Ollama for explanation.
+- **Copy** copies the generated SQL.
+- **Save** stores the question and SQL in Library.
+- **CSV** and **JSON** export the full query result through the server.
+- **Fix with Ollama** sends rejected SQL, the database error, and the compiled
+  context back to the same model. The revised SQL is shown before execution.
+- **New thread** clears conversational context without changing the agent.
 
-Lists all compiled manifests (agents). Click one to load it — the schema tree updates to show the tables that agent can see.
+Press `Enter` to run or `Shift+Enter` for a new line.
 
-Click **↻** to refresh the manifest list without reloading the page.
+## No-fallback AI behavior
 
-### Schema tree
+Natural-language parsing, SQL repair, suggested questions, and grounded findings
+always use the configured LLM. If Ollama returns a model, authentication, or
+Free-tier session-limit error, the failed stage turns red and the exact error
+is preserved in the receipt. TableTalk does not insert canned SQL, use a local
+heuristic parser, or switch to a paid provider.
 
-Shows every table and column in the active agent's scope. Click a column to insert `table.column` into the input box. Double-click a table header to insert the table name.
+Database execution and eval verification are ordinary code by design: they
+observe and verify the AI's work rather than replacing it.
 
-Use the search box to filter by table or column name.
+## Eval Studio
 
-### Saved tab
+Eval Studio discovers YAML suites under `evals/`. Select a suite and run it to
+watch real case events stream into the case board. Each row exposes:
 
-Saved queries (favorites) — questions you've starred. Click a saved query to load it into the input. Click ✕ to delete.
+- case status and aggregate score;
+- SQL execution, result accuracy, safety, structure, answer, and performance
+  metric results when configured;
+- final release score and pass/fail gate.
 
-### History tab
+The UI runs the same versioned suites as:
 
-The 40 most recent queries across all agents, newest first. Click a history entry to load the question into the input box.
-
----
-
-## Chat area
-
-### Sending a question
-
-Type a question and press **Enter** or click **Send**. SQL streams token-by-token as it's generated. When generation completes:
-- Syntax highlighting is applied
-- **Copy** button copies the SQL to clipboard
-- **⭐ Save** button opens the save dialog
-
-### Run toggle
-
-When **Run** is checked, the generated SQL is automatically executed after generation completes. Results appear in a table below the SQL block.
-
-### Explain toggle
-
-When both **Run** and **Explain** are checked, the agent streams a plain-English explanation of the results after execution.
-
-### Auto-suggested follow-ups
-
-After each response, three suggested follow-up questions appear as chips below the SQL. Click one to send it immediately.
-
-### Charts
-
-When results have exactly two columns (a label column and a numeric column), a horizontal bar chart is automatically rendered alongside the results table. Supports up to 40 rows.
-
-### Export
-
-Every results block has **↓ CSV** and **↓ JSON** export buttons. Downloads happen client-side — no server round-trip.
-
-### Fix with AI
-
-If SQL execution fails, an error block appears with a **Fix with AI** button. Clicking it sends the failed SQL and the error message back to the LLM, which generates a corrected version.
-
-### Saving queries
-
-Click **⭐ Save** on any SQL block to save it as a favorite. Enter a name in the dialog. Saved queries appear in the **Saved** tab and can be reused across sessions.
-
----
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Enter` | Send question |
-| `Shift+Enter` | Insert newline in input |
-| `Escape` | Close save dialog |
-
----
-
-## Switching agents
-
-Click any manifest in the sidebar to switch agents mid-session. The context bar at the top shows the active agent. The schema tree updates immediately.
-
-Click **↺ New chat** to clear the conversation context while keeping the same agent.
-
----
-
-## Theme
-
-Click **☀** in the sidebar header to toggle between dark and light mode.
-
----
-
-## Health check
-
-The server exposes a health endpoint suitable for load balancer probes and Docker `HEALTHCHECK`:
-
-```
-GET /health
+```bash
+tabletalk eval run evals/sales.yaml
 ```
 
-Returns:
-- `200 {"status": "ok"}` — manifests are compiled and the project is ready
-- `503 {"status": "degraded", "issues": [...]}` — manifests missing or config invalid
+No synthetic progress is used. If Ollama stops the run, Eval Studio stops and
+shows the model error instead of continuing with a substitute.
 
----
+## Library
 
-## Session security
+Library separates saved questions from recent runs. Reopen an item to restore
+its agent and question in the Ask composer. Saved items can be removed in place.
 
-The web UI uses Flask sessions for conversation state. Set `TABLETALK_SECRET_KEY` in the environment for a stable signing key:
+## Evidence rail and responsive layout
+
+On wide screens the Evidence rail stays visible beside the workspace. Below
+1180px it becomes a slide-over opened by the **Evidence** button. On mobile,
+agents move into the header selector and the navigation becomes compact.
+
+Use **Appearance** to switch themes. The preference is stored in the browser.
+
+## Health and session security
+
+`GET /health` returns `200` when manifests, database configuration, and LLM
+configuration are ready, or `503` with concrete issues.
+
+Set a stable signing secret outside local development:
 
 ```bash
 export TABLETALK_SECRET_KEY=$(openssl rand -hex 32)
 tabletalk serve
 ```
-
-Without this variable, Flask generates a random key at startup — sessions are invalidated on restart.

@@ -63,6 +63,17 @@ class TestInitializeProject:
         assert "contexts" in config
         assert "output" in config
 
+    def test_new_projects_default_to_ollama_free_cloud(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        from tabletalk.utils import initialize_project
+
+        initialize_project()
+        config = yaml.safe_load((tmp_path / "tabletalk.yaml").read_text())
+
+        assert config["llm"]["provider"] == "ollama"
+        assert config["llm"]["model"] == "gemma4:31b-cloud"
+        assert config["llm"]["base_url"] == "http://localhost:11434/v1"
+
     def test_idempotent_when_already_initialized(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
         from tabletalk.utils import initialize_project

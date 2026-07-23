@@ -125,6 +125,12 @@ class TestGetLLMProvider:
         from tabletalk.providers.openai_provider import OpenAIProvider
         assert isinstance(provider, OpenAIProvider)
 
+    def test_ollama_defaults_to_free_cloud_model(self):
+        with patch("tabletalk.providers.openai_provider.OpenAI"):
+            provider = get_llm_provider({"provider": "ollama"})
+
+        assert provider.model == "gemma4:31b-cloud"
+
     def test_unsupported_provider_raises(self):
         with pytest.raises(ValueError, match="Unsupported LLM provider"):
             get_llm_provider({"provider": "grok", "api_key": "x"})

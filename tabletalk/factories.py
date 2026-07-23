@@ -183,7 +183,7 @@ def get_llm_provider(config: Dict[str, Any]) -> LLMProvider:
 
     return OpenAIProvider(
         api_key="ollama",
-        model=config.get("model", "qwen2.5-coder:7b"),
+        model=config.get("model", "gemma4:31b-cloud"),
         max_tokens=max_tokens,
         temperature=temperature,
         base_url=config.get("base_url", "http://localhost:11434/v1"),

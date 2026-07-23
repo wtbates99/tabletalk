@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import yaml
@@ -194,13 +195,17 @@ def _collect_stream(generator: Generator[str, None, None]) -> Tuple[str, float]:
 class QuerySession:
     _SYSTEM_PROMPT = (
         "You are a SQL expert and data analyst helping users explore their database "
-        "through natural language. You are a dbt companion — you understand schema "
-        "relationships and write clean, production-quality SQL.\n\n"
+        "through natural language. The compiled context can include dbt model and "
+        "column descriptions, tests, and lineage. Treat that metadata as the semantic "
+        "contract for the data and write clean, production-quality SQL.\n\n"
         "Rules:\n"
         "- Return ONLY the SQL query — no markdown, no code fences, no explanations\n"
         "- Use the correct SQL dialect shown in DATA_SOURCE\n"
         "- Columns marked [PK] are primary keys — use them for JOINs\n"
         "- Columns marked [FK:table.col] define JOIN relationships — use them exactly\n"
+        "- Use DBT_DESCRIPTION and DBT_COLUMN semantics when interpreting business terms\n"
+        "- Use DBT_LINEAGE to understand provenance, not as a substitute for valid joins\n"
+        "- Respect the tables in this manifest as a hard schema boundary\n"
         "- For follow-up questions, build on the previous query in the conversation\n"
         "- Write clean SQL with proper aliases and consistent formatting\n\n"
         "Database Schema:\n{schema}"
@@ -303,8 +308,15 @@ class QuerySession:
         """Load manifest text, caching in memory to avoid repeated disk reads."""
         if manifest_file in self._manifest_cache:
             return self._manifest_cache[manifest_file]
-        path = os.path.join(self.project_folder, "manifest", manifest_file)
-        if not os.path.exists(path):
+        root = Path(self.project_folder, "manifest").resolve()
+        path = (root / manifest_file).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                "Manifest must be inside the project's manifest directory."
+            ) from exc
+        if path.suffix.lower() != ".txt" or not path.is_file():
             raise FileNotFoundError(f"Manifest not found: {path}")
         with open(path) as f:
             content = f.read()
@@ -485,7 +497,12 @@ class QuerySession:
         manifest_data: str,
         history: Optional[List[Dict[str, str]]] = None,
     ) -> List[str]:
-        """Return up to 3 suggested questions for the current schema + context."""
+        """Return up to 3 LLM-generated questions for the current schema + context.
+
+        Suggestion failures are deliberately propagated. A model or quota error
+        must never be disguised as an empty result that a caller could replace
+        with local heuristics.
+        """
         context = ""
         if history:
             recent = history[-4:]
@@ -495,13 +512,14 @@ class QuerySession:
         try:
             response = self.llm_provider.generate_response(prompt)
             match = re.search(r"\[.*\]", response, re.DOTALL)
-            if match:
-                parsed = json.loads(match.group())
-                return [str(q) for q in parsed[:3]]
-            return []
+            if not match:
+                raise ValueError("Ollama returned suggestions in an invalid format.")
+            parsed = json.loads(match.group())
+            if not isinstance(parsed, list):
+                raise ValueError("Ollama suggestion response must be a JSON array.")
+            return [str(q) for q in parsed[:3]]
         except Exception as e:
-            logger.debug(f"suggest_questions failed: {e}")
-            return []
+            raise RuntimeError(f"Error generating suggestions with the LLM: {e}") from e
 
     # ── History (items 25, 26) ─────────────────────────────────────────────────
 
@@ -673,6 +691,16 @@ class Parser:
             logger.error(f"Error loading configuration: {e}")
             return
 
+        dbt_manifest = None
+        if defaults.get("dbt"):
+            try:
+                from tabletalk.dbt_manifest import DbtManifest
+
+                dbt_manifest = DbtManifest.load(self.project_folder, defaults["dbt"])
+                data_source_line += f" | DBT_MANIFEST: {dbt_manifest.path}"
+            except Exception as e:
+                raise RuntimeError(f"Could not load configured dbt context: {e}") from e
+
         contexts_folder = os.path.join(self.project_folder, defaults["contexts"])
         output_folder = os.path.join(self.project_folder, defaults["output"])
         os.makedirs(output_folder, exist_ok=True)
@@ -729,9 +757,25 @@ class Parser:
                     for ct in compact_tables:
                         tname = ct["t"]
                         yaml_desc = yaml_table_desc.get(tname)
-                        desc = yaml_desc if yaml_desc is not None else ct.get("d", "")
+                        short_name = tname.rsplit(".", 1)[-1]
+                        dbt_context = (
+                            dbt_manifest.relation(schema_name, short_name)
+                            if dbt_manifest is not None
+                            else None
+                        )
+                        desc = (
+                            yaml_desc
+                            if yaml_desc
+                            else (
+                                dbt_context.description
+                                if dbt_context is not None and dbt_context.description
+                                else ct.get("d", "")
+                            )
+                        )
                         fields_str = "|".join(_encode_field(f) for f in ct["f"])
                         output_lines.append(f"{tname}|{desc}|{fields_str}")
+                        if dbt_context is not None:
+                            output_lines.extend(dbt_context.prompt_lines(tname))
                 except Exception as e:
                     logger.error(f"Error fetching tables for '{schema_name}': {e}")
                     continue

@@ -1,7 +1,9 @@
 # Ecommerce eval fixture
 
-This suite exercises TableTalk against a deterministic DuckDB fixture with
-2,500 customers, 100 products, 12,003 orders, roughly 36,000 line items,
+This suite sends every question through the configured Ollama model, executes
+its generated SQL against a fixed DuckDB fixture, and verifies the resulting
+trace. The fixture contains 2,500 customers, 100 products, 12,003 orders,
+roughly 36,000 line items,
 refunds, null dimensions, UTC boundary rows, customers with no orders, and a
 sensitive table that is deliberately absent from the agent manifest.
 
@@ -13,7 +15,7 @@ python evals/seed_fixture.py
 ```
 
 Run the suite with the Ollama-backed LLM configured in `../tabletalk.yaml`
-(`qwen2.5-coder:7b` by default):
+(`gemma4:31b-cloud` by default):
 
 ```bash
 tabletalk eval run evals/sales_regression.yaml --project-folder .

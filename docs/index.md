@@ -18,7 +18,7 @@ tabletalk query   ≈  dbt run            — agent is live
 - **Declarative agents** — one YAML file = one scoped agent
 - **Auto schema introspection** — PKs, FKs, column types detected automatically
 - **7 databases** — Postgres, Snowflake, DuckDB, MySQL, SQLite, BigQuery, Azure SQL
-- **3 LLM backends** — Ollama (local, no key), OpenAI, Anthropic
+- **3 LLM backends** — Ollama Cloud/local (Free default), OpenAI, Anthropic
 - **Streaming web UI** — token-by-token SQL generation, auto-execution, charts, history
 - **Multi-turn conversations** — agent remembers context across questions
 - **Execution-based evals** — versioned suites, reference SQL, safety gates, and CI reports
@@ -52,7 +52,7 @@ pip install "tabletalk[all]"            # all drivers
 | [Databases](databases.md) | Setup guide for all 7 supported databases |
 | [LLM Providers](llm-providers.md) | Ollama, OpenAI, and Anthropic configuration |
 | [Profile Management](profiles.md) | Save and reuse database connections |
-| [dbt Integration](dbt-integration.md) | Import connections from `~/.dbt/profiles.yml` |
+| [dbt Integration](dbt-integration.md) | Import connections and compile `manifest.json` semantics into agents |
 | [Safe Mode](safe-mode.md) | Read-only enforcement and production deployment |
 | [Agent Evals](evals.md) | Reproducible fixtures, metrics, traces, and CI integration |
 | [REST API](api-reference.md) | Full API reference for the web server |

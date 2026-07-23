@@ -5,6 +5,10 @@ the observable behavior. Result accuracy is execution-based: the runner
 compares the agent query result with a literal expectation or a reference SQL
 query instead of grading whether generated SQL merely looks plausible.
 
+Every natural-language step still runs through the configured LLM. Fixtures,
+reference SQL, and structural checks verify the resulting AI trace; they never
+generate substitute SQL or continue with a local model after an LLM error.
+
 ## Quick start
 
 Create `evals/sales.yaml`:

@@ -282,10 +282,10 @@ class TestExplainFixSuggest:
         assert len(questions) == 3
         assert questions[0] == "Q1?"
 
-    def test_suggest_questions_returns_empty_on_bad_json(self, qs):
+    def test_suggest_questions_propagates_bad_llm_output(self, qs):
         qs.llm_provider = MockLLMProvider(default_response="not json at all")
-        questions = qs.suggest_questions("schema")
-        assert questions == []
+        with pytest.raises(RuntimeError, match="invalid format"):
+            qs.suggest_questions("schema")
 
     def test_suggest_questions_with_history(self, qs):
         qs.llm_provider = MockLLMProvider(
@@ -427,6 +427,10 @@ class TestLoadManifest:
         with pytest.raises(FileNotFoundError):
             qs.load_manifest("nonexistent.txt")
 
+    def test_path_traversal_is_rejected(self, qs):
+        with pytest.raises(ValueError, match="manifest directory"):
+            qs.load_manifest("../tabletalk.yaml")
+
     def test_manifest_contains_schema_info(self, qs):
         content = qs.load_manifest("orders.txt")
         assert "DATA_SOURCE" in content
@@ -484,6 +488,57 @@ class TestParserApplySchema:
         content = (Path(project_dir) / "manifest" / "inventory.txt").read_text()
         # The CONTEXT line includes the context description from inventory.yaml
         assert "Stock levels and warehouse management" in content
+
+    def test_manifest_includes_configured_dbt_semantics(self, project_dir):
+        """dbt descriptions, lineage, and tests become model-visible context."""
+        config_path = Path(project_dir) / "tabletalk.yaml"
+        config = yaml.safe_load(config_path.read_text())
+        config["dbt"] = {"manifest": "dbt-target/manifest.json"}
+        config_path.write_text(yaml.safe_dump(config))
+
+        dbt_target = Path(project_dir) / "dbt-target"
+        dbt_target.mkdir()
+        (dbt_target / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "nodes": {
+                        "model.demo.customers": {
+                            "resource_type": "model",
+                            "name": "customers",
+                            "alias": "customers",
+                            "schema": "main",
+                            "description": "Canonical customer dimension.",
+                            "columns": {
+                                "email": {
+                                    "name": "email",
+                                    "description": "Normalized customer email.",
+                                }
+                            },
+                            "depends_on": {"nodes": ["source.demo.customers"]},
+                        },
+                        "test.demo.unique_customers_id": {
+                            "resource_type": "test",
+                            "depends_on": {"nodes": ["model.demo.customers"]},
+                            "test_metadata": {
+                                "name": "unique",
+                                "kwargs": {"column_name": "id"},
+                            },
+                        },
+                    },
+                    "sources": {},
+                }
+            )
+        )
+
+        from tabletalk.utils import apply_schema
+
+        apply_schema(project_dir)
+        content = (Path(project_dir) / "manifest" / "customers.txt").read_text()
+
+        assert "DBT_NODE: customers = model.demo.customers" in content
+        assert "DBT_COLUMN: customers.email - Normalized customer email." in content
+        assert "DBT_LINEAGE: customers <- source.demo.customers" in content
+        assert "DBT_TESTS: customers - unique(id)" in content
 
     def test_missing_contexts_folder_is_graceful(self, tmp_path):
         """Parser doesn't crash if contexts folder is empty."""

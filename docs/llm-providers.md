@@ -1,20 +1,25 @@
 # LLM Providers
 
-tabletalk supports three LLM backends: Ollama (local), OpenAI, and Anthropic. Configure the LLM in the `llm` block of `tabletalk.yaml`.
+tabletalk supports Ollama Cloud, local Ollama models, OpenAI, and Anthropic.
+New projects default to Ollama's Free cloud tier and never switch providers
+automatically.
 
 ---
 
-## Ollama (local, no API key)
+## Ollama Cloud Free (default)
 
-Ollama runs models entirely on your machine. No API key, no data leaving your network, no per-token cost.
+The Ollama daemon provides the same local API while the `-cloud` model runs on
+Ollama's hosted GPUs. There is no paid API key. Ollama account sign-in and Free
+usage limits apply.
 
 ### Setup
 
 1. Install Ollama: [ollama.com](https://ollama.com)
-2. Pull a model:
+2. Sign in and pull the low-usage default:
 
 ```bash
-ollama pull qwen2.5-coder:7b    # recommended default
+ollama signin
+ollama pull gemma4:31b-cloud
 ```
 
 3. Confirm it's running:
@@ -30,8 +35,8 @@ Ollama starts automatically and listens at `http://localhost:11434`.
 ```yaml
 llm:
   provider: ollama
-  api_key: ollama                      # placeholder — Ollama doesn't validate keys
-  model: qwen2.5-coder:7b
+  api_key: ollama
+  model: gemma4:31b-cloud
   base_url: http://localhost:11434/v1  # default Ollama OpenAI-compatible endpoint
   max_tokens: 2000
   temperature: 0
@@ -39,9 +44,10 @@ llm:
 
 ### Recommended models for SQL generation
 
-| Model | Pull command | RAM required | Notes |
+| Model | Pull command | Usage / RAM | Notes |
 |-------|-------------|-------------|-------|
-| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | ~5 GB | **Default** — top SQL quality at 7B |
+| `gemma4:31b-cloud` | `ollama pull gemma4:31b-cloud` | Low cloud usage | **Default** — strong coding, 256K context |
+| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | ~5 GB local | Lightweight private/local option |
 | `qwen2.5-coder:14b` | `ollama pull qwen2.5-coder:14b` | ~10 GB | More accurate on complex schemas |
 | `qwen2.5-coder:32b` | `ollama pull qwen2.5-coder:32b` | ~20 GB | Best local SQL quality |
 | `codellama` | `ollama pull codellama` | ~4 GB | Code specialist, strong SQL |
@@ -57,7 +63,7 @@ If Ollama is running on a different host (e.g., a remote GPU server):
 llm:
   provider: ollama
   api_key: ollama
-  model: qwen2.5-coder:7b
+  model: gemma4:31b-cloud
   base_url: http://192.168.1.50:11434/v1
 ```
 
@@ -65,7 +71,8 @@ llm:
 
 - Temperature `0` is strongly recommended for SQL generation (deterministic output)
 - `max_tokens: 2000` gives enough room for complex multi-join queries
-- For faster responses on small schemas, `qwen2.5-coder:7b` is near-instant on modern hardware
+- If a cloud session limit is reached, TableTalk surfaces the Ollama error and
+  does not switch to a local heuristic or another provider
 
 ---
 
@@ -149,7 +156,7 @@ llm:
 
 | Scenario | Recommendation |
 |----------|---------------|
-| Getting started / demo | Ollama + `qwen2.5-coder:7b` |
+| Getting started / demo | Ollama Free + `gemma4:31b-cloud` |
 | Privacy-sensitive data | Ollama (data stays local) |
 | Production accuracy | `gpt-4o` or `claude-sonnet-4-6` |
 | High-volume production | `gpt-4o-mini` (cost/quality balance) |

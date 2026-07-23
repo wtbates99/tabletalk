@@ -25,17 +25,22 @@ Requires Python 3.10+.
 
 ## 2. Choose an LLM
 
-tabletalk works with Ollama (local, no API key), OpenAI, or Anthropic.
+tabletalk works with Ollama Cloud Free, local Ollama models, OpenAI, or
+Anthropic. New projects default to Ollama Cloud Free.
 
-### Option A — Ollama (recommended for getting started)
+### Option A — Ollama Cloud Free (default)
 
-No API key, runs on your machine. Install [Ollama](https://ollama.com), then pull a model:
+No paid API key or local GPU is required. Install
+[Ollama](https://ollama.com), sign in, and pull the low-usage model:
 
 ```bash
-ollama pull qwen2.5-coder:7b    # excellent SQL generation, 7B params (~4 GB)
+ollama signin
+ollama pull gemma4:31b-cloud
 ```
 
-Ollama runs at `http://localhost:11434` by default — no other configuration needed.
+Ollama's local daemon runs at `http://localhost:11434` and routes the cloud
+model request under your Free allowance. A session-limit error is surfaced;
+TableTalk does not switch to a paid provider or local parser.
 
 ### Option B — OpenAI
 

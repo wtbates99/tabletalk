@@ -16,12 +16,12 @@ It demonstrates the core concept: **tabletalk is dbt for agents**.
 
 ---
 
-## Quick start (no API key needed — uses Ollama locally)
+## Quick start (uses Ollama Cloud's free tier)
 
 ```bash
-# 1. Install Ollama  →  https://ollama.com
-#    Pull the default model (excellent SQL generation, 7B params):
-ollama pull qwen2.5-coder:7b
+# 1. Install Ollama → https://ollama.com, sign in, and add the default model:
+ollama signin
+ollama pull gemma4:31b-cloud
 
 # 2. Install tabletalk with DuckDB support
 pip install "tabletalk[duckdb]"
@@ -39,9 +39,9 @@ tabletalk query
 tabletalk serve
 ```
 
-> **Switch to a cloud LLM later:** edit `tabletalk.yaml` and uncomment the
-> `openai` or `anthropic` block — then `export OPENAI_API_KEY=sk-...` and
-> you're done. No other changes needed.
+The example is pinned to `gemma4:31b-cloud` on Ollama's free tier. If Ollama
+rejects a request or the free session is exhausted, TableTalk surfaces that
+error; it does not switch to a paid provider or synthesize SQL locally.
 
 ---
 
@@ -51,6 +51,7 @@ tabletalk serve
 ecommerce/
 ├── tabletalk.yaml          # Project config (database + LLM)
 ├── seed.py                 # Creates and seeds ecommerce.duckdb
+├── dbt_project/            # Optional dbt project and semantic metadata
 │
 ├── contexts/               # Agent context definitions
 │   ├── customers.yaml      # "Customers" agent — customer profiles & value
@@ -64,6 +65,17 @@ ecommerce/
     ├── inventory.txt
     └── marketing.txt
 ```
+
+To enrich the agents from dbt after `dbt compile` or `dbt build`, add this to
+`tabletalk.yaml`:
+
+```yaml
+dbt:
+  manifest: dbt_project/target/manifest.json
+```
+
+`tabletalk apply` then injects matching dbt model and column descriptions,
+tests, and lineage into the compact context sent to Ollama.
 
 ---
 
@@ -162,7 +174,8 @@ Grants access to: `campaigns`, `campaign_conversions`, `customers`.
 
 | Model | Pull command | Notes |
 |-------|-------------|-------|
-| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | **Default** — top-tier SQL, 7B params |
+| `gemma4:31b-cloud` | `ollama pull gemma4:31b-cloud` | **Default** — low cloud usage, strong coding, 256K context |
+| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | Best lightweight local option |
 | `qwen2.5-coder:14b` | `ollama pull qwen2.5-coder:14b` | Larger, more accurate, needs 10 GB+ RAM |
 | `codellama` | `ollama pull codellama` | Code-specialist, strong SQL |
 | `llama3.2` | `ollama pull llama3.2` | Fast general-purpose model |
@@ -173,7 +186,7 @@ Change the model in `tabletalk.yaml`:
 ```yaml
 llm:
   provider: ollama
-  model: qwen2.5-coder:14b   # ← swap here for more accuracy
+  model: qwen2.5-coder:14b   # local alternative
 ```
 
 ---

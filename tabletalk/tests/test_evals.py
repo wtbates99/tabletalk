@@ -232,6 +232,41 @@ class TestEvalRunner:
             "performance",
         }
 
+    def test_emits_case_progress_callbacks(self, project_with_manifest, tmp_path):
+        suite_path = _write_suite(
+            tmp_path / "callbacks.yaml",
+            """\
+            version: 1
+            suite:
+              name: callbacks
+              manifest: customers.txt
+            cases:
+              - name: customer-count
+                input: {message: Count customers}
+                expected:
+                  result:
+                    type: scalar
+                    reference_sql: SELECT COUNT(*) FROM customers
+            """,
+        )
+        started = []
+        completed = []
+        llm = MockLLMProvider(default_response="SELECT COUNT(*) FROM customers")
+        with patch("tabletalk.factories.get_llm_provider", return_value=llm):
+            result = EvalRunner(
+                load_eval_suite(suite_path),
+                project_folder=project_with_manifest,
+            ).run(
+                on_case_start=lambda case, index, total: started.append((case.name, index, total)),
+                on_case_complete=lambda case, index, total: completed.append(
+                    (case.case_name, index, total)
+                ),
+            )
+
+        assert result.passed
+        assert started == [("customer-count", 1, 1)]
+        assert completed == [("customer-count", 1, 1)]
+
     def test_execution_error_is_captured_as_a_failed_gate(self, project_with_manifest, tmp_path):
         suite_path = _write_suite(
             tmp_path / "failure.yaml",

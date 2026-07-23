@@ -21,11 +21,16 @@ provider:
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 llm:
-  provider: openai            # openai | anthropic | ollama
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o
-  max_tokens: 1000
+  provider: ollama
+  api_key: ollama
+  model: gemma4:31b-cloud
+  base_url: http://localhost:11434/v1
+  max_tokens: 2000
   temperature: 0
+
+# ── Optional dbt semantic context ─────────────────────────────────────────────
+dbt:
+  manifest: ../analytics/target/manifest.json
 
 # ── Project ───────────────────────────────────────────────────────────────────
 description: "Production analytics database"
@@ -117,10 +122,25 @@ llm:
 ```yaml
 llm:
   provider: ollama
-  api_key: ollama                      # placeholder — not validated by Ollama
-  model: qwen2.5-coder:7b
+  api_key: ollama
+  model: gemma4:31b-cloud
   base_url: http://localhost:11434/v1
 ```
+
+---
+
+### `dbt`
+
+```yaml
+dbt:
+  manifest: ../analytics/target/manifest.json
+```
+
+Optional path to a compiled dbt `manifest.json`, relative to the TableTalk
+project. Matching model/source descriptions, column descriptions, lineage, and
+tests are included in the LLM context. Run `dbt compile` or `dbt build` before
+`tabletalk apply`. A configured but missing or invalid artifact is a compilation
+error; TableTalk does not silently omit dbt context.
 
 ---
 
@@ -260,8 +280,6 @@ export TABLETALK_RATE_LIMIT=10   # tighter limit for shared deployments
 export TABLETALK_RATE_WINDOW=60
 tabletalk serve
 ```
-
----
 
 ---
 

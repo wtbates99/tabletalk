@@ -51,7 +51,7 @@ _DEFAULT_WEIGHTS = {
 
 
 class EvalRunner:
-    """Run deterministic TableTalk eval cases and capture full traces."""
+    """Run LLM-backed TableTalk eval cases and capture full execution traces."""
 
     def __init__(
         self,
@@ -72,7 +72,7 @@ class EvalRunner:
         return (self.suite.source_path.parent / expanded).resolve()
 
     def _configure_eval_provider(self) -> None:
-        """Override the project database with a deterministic fixture when requested."""
+        """Override the project database with a fixed fixture when requested."""
         environment = self.suite.environment
         provider_config = environment.get("provider")
         fixture = environment.get("fixture")
@@ -254,26 +254,34 @@ class EvalRunner:
             / total_weight
         )
 
-    def run(self) -> SuiteResult:
+    def run(
+        self,
+        on_case_start: Callable[[EvalCase, int, int], None] | None = None,
+        on_case_complete: Callable[[CaseResult, int, int], None] | None = None,
+    ) -> SuiteResult:
         """Execute every case in suite order and return an aggregate result."""
         started_at = datetime.now(timezone.utc)
         case_results: list[CaseResult] = []
-        for case in self.suite.cases:
+        total_cases = len(self.suite.cases)
+        for index, case in enumerate(self.suite.cases, start=1):
+            if on_case_start is not None:
+                on_case_start(case, index, total_cases)
             trace = self._execute_case(case)
             reference, reference_error = self._reference_result(case)
             metrics = self._metric_results(case, trace, reference, reference_error)
             score = self._case_score(metrics)
-            case_results.append(
-                CaseResult(
-                    case_name=case.name,
-                    description=case.description,
-                    tags=case.tags,
-                    passed=all(metric.passed for metric in metrics),
-                    score=score,
-                    trace=trace,
-                    metrics=metrics,
-                )
+            case_result = CaseResult(
+                case_name=case.name,
+                description=case.description,
+                tags=case.tags,
+                passed=all(metric.passed for metric in metrics),
+                score=score,
+                trace=trace,
+                metrics=metrics,
             )
+            case_results.append(case_result)
+            if on_case_complete is not None:
+                on_case_complete(case_result, index, total_cases)
 
         score = (
             sum(case.score for case in case_results) / len(case_results) if case_results else 0.0

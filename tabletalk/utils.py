@@ -36,19 +36,24 @@ provider:
   user: myuser
   password: ${DB_PASSWORD}
 
-# LLM configuration
+# LLM configuration — Ollama Free cloud, no paid API key
 llm:
-  provider: openai        # openai | anthropic | ollama
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o
-  max_tokens: 1000
+  provider: ollama
+  api_key: ollama
+  model: gemma4:31b-cloud
+  base_url: http://localhost:11434/v1
+  max_tokens: 2000
   temperature: 0
+
+# Optional: enrich prompts from dbt after `dbt compile` or `dbt build`
+# dbt:
+#   manifest: ../my_dbt_project/target/manifest.json
 
 contexts: contexts
 output: manifest
+safe_mode: true
 
 # ── Optional tuning ────────────────────────────────────────────────────────────
-# safe_mode: true          # block non-SELECT queries
 # max_rows: 500            # cap result set size (item 17)
 # query_timeout: 30        # kill queries after N seconds (item 16)
 # max_conv_messages: 20    # conversation history window (item 11)
@@ -83,8 +88,9 @@ datasets:
         "Next steps:\n"
         "  1. Run 'tabletalk connect' to configure your database connection\n"
         "  2. Edit contexts/default_context.yaml to describe your tables\n"
-        "  3. Run 'tabletalk apply' to generate manifests\n"
-        "  4. Run 'tabletalk query' or 'tabletalk serve' to start querying"
+        "  3. Run 'ollama signin && ollama pull gemma4:31b-cloud'\n"
+        "  4. Run 'tabletalk apply' to generate manifests\n"
+        "  5. Run 'tabletalk query' or 'tabletalk serve' to start querying"
     )
 
 

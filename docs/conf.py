@@ -6,7 +6,7 @@
 project = "tabletalk"
 copyright = "2025, william bates"
 author = "william bates"
-release = "0.2.1"
+release = "0.4.0"
 
 # -- General configuration -----------------------------------------------------
 
@@ -37,7 +37,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # -- Options for HTML output ---------------------------------------------------
 
 html_theme = "alabaster"
-html_static_path = ["_static"]
+html_static_path = []
 
 html_theme_options = {
     "description": "dbt for agents — declarative natural-language SQL agents",

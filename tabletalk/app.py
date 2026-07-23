@@ -17,9 +17,11 @@ import io
 import json
 import logging
 import os
+import queue
 import threading
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.request import Request as UrlRequest, urlopen
 
@@ -200,13 +202,43 @@ def serve_index() -> Union[Response, Tuple[Response, int]]:
 # ── Manifests ──────────────────────────────────────────────────────────────────
 
 
+def _resolve_project_manifest(filename: str) -> Path:
+    """Resolve a manifest name without allowing access outside ``manifest/``."""
+    root = (Path(project_folder) / "manifest").resolve()
+    candidate = (root / filename).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Manifest must be inside the project's manifest directory.") from exc
+    if candidate.suffix.lower() != ".txt" or not candidate.is_file():
+        raise FileNotFoundError(f"Manifest not found: {filename}")
+    return candidate
+
+
 @app.route("/manifests")
 def list_manifests() -> Union[Tuple[Response, int], Response]:
     manifest_folder = os.path.join(project_folder, "manifest")
     if not os.path.exists(manifest_folder):
         return jsonify({"error": "Manifest folder not found. Run 'tabletalk apply'."}), 404
     files = sorted(f for f in os.listdir(manifest_folder) if f.endswith(".txt"))
-    return jsonify({"manifests": files})
+    metadata: Dict[str, Dict[str, Any]] = {}
+    for filename in files:
+        path = os.path.join(manifest_folder, filename)
+        try:
+            with open(path) as manifest_file:
+                content = manifest_file.read()
+            metadata[filename] = {
+                "context_source": (
+                    "dbt_manifest" if "DBT_NODE:" in content else "tabletalk_context"
+                ),
+                "dbt_enriched": "DBT_NODE:" in content,
+            }
+        except OSError:
+            metadata[filename] = {
+                "context_source": "unknown",
+                "dbt_enriched": False,
+            }
+    return jsonify({"manifests": files, "metadata": metadata})
 
 
 @app.route("/select_manifest", methods=["POST"])
@@ -215,14 +247,25 @@ def select_manifest() -> Union[Tuple[Response, int], Response]:
     manifest = data.get("manifest")
     if not manifest:
         return jsonify({"error": "Manifest not provided"}), 400
-    path = os.path.join(project_folder, "manifest", manifest)
-    if not os.path.exists(path):
+    try:
+        path = _resolve_project_manifest(str(manifest))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except FileNotFoundError:
         return jsonify({"error": "Manifest not found"}), 404
     with open(path) as f:
         content = f.read()
     session["manifest"] = manifest
     session["conversation"] = []  # reset conversation on manifest switch
-    return jsonify({"message": f"Manifest '{manifest}' selected", "details": content})
+    return jsonify(
+        {
+            "message": f"Manifest '{manifest}' selected",
+            "details": content,
+            "context_source": (
+                "dbt_manifest" if "DBT_NODE:" in content else "tabletalk_context"
+            ),
+        }
+    )
 
 
 # ── Main chat endpoint (streaming) ─────────────────────────────────────────────
@@ -403,8 +446,8 @@ def chat_stream() -> Union[Tuple[Response, int], Response]:
                 for chunk in qs.explain_results_stream(question, sql, results):
                     yield _evt({"type": "explain_chunk", "content": chunk})
                 yield _evt({"type": "explain_done"})
-            except Exception:
-                pass
+            except Exception as exc:
+                yield _evt({"type": "explain_error", "error": str(exc)})
 
         # 4 ── Suggestions
         if do_suggest:
@@ -412,8 +455,8 @@ def chat_stream() -> Union[Tuple[Response, int], Response]:
                 suggestions = qs.suggest_questions(manifest_data, conv[-6:])
                 if suggestions:
                     yield _evt({"type": "suggestions", "questions": suggestions})
-            except Exception:
-                pass
+            except Exception as exc:
+                yield _evt({"type": "suggestion_error", "error": str(exc)})
 
         yield _evt({"type": "done"})
 
@@ -609,7 +652,7 @@ def suggest() -> Union[Tuple[Response, int], Response]:
     data = request.json or {}
     manifest_file = data.get("manifest") or session.get("manifest")
     if not manifest_file:
-        return jsonify({"questions": []})
+        return jsonify({"error": "No manifest selected"}), 400
     try:
         qs = _get_session()
         manifest_data = qs.load_manifest(manifest_file)
@@ -618,7 +661,7 @@ def suggest() -> Union[Tuple[Response, int], Response]:
         return jsonify({"questions": questions})
     except Exception as e:
         logger.error(f"Suggest error: {e}")
-        return jsonify({"questions": []})
+        return jsonify({"error": str(e)}), 502
 
 
 # ── Conversation ───────────────────────────────────────────────────────────────
@@ -718,6 +761,133 @@ def get_config() -> Union[Tuple[Response, int], Response]:
         )
     except Exception:
         return jsonify({"provider": "unknown", "model": "unknown"})
+
+
+# ── Eval studio ────────────────────────────────────────────────────────────────
+
+
+def _eval_root() -> Path:
+    return (Path(project_folder) / "evals").resolve()
+
+
+def _resolve_eval_suite(relative_path: str) -> Path:
+    root = _eval_root()
+    candidate = (Path(project_folder) / relative_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Eval suite must be inside the project's evals directory.") from exc
+    if not candidate.is_file() or candidate.suffix.lower() not in {".yaml", ".yml"}:
+        raise FileNotFoundError(f"Eval suite not found: {relative_path}")
+    return candidate
+
+
+@app.route("/api/evals")
+def list_eval_suites() -> Response:
+    """List versioned eval suites available to the current project."""
+    from tabletalk.evals import EvalConfigError, load_eval_suite
+
+    root = _eval_root()
+    if not root.is_dir():
+        return jsonify({"suites": []})
+
+    suites: List[Dict[str, Any]] = []
+    paths = sorted([*root.rglob("*.yaml"), *root.rglob("*.yml")])
+    for path in paths:
+        relative_path = str(path.relative_to(Path(project_folder).resolve()))
+        try:
+            suite = load_eval_suite(path)
+            all_tags = sorted({tag for case in suite.cases for tag in case.tags})
+            suites.append(
+                {
+                    "name": suite.name,
+                    "description": suite.description,
+                    "path": relative_path,
+                    "case_count": len(suite.cases),
+                    "tags": all_tags,
+                    "status": "ready",
+                }
+            )
+        except (EvalConfigError, OSError, ValueError) as exc:
+            suites.append(
+                {
+                    "name": path.stem,
+                    "description": str(exc),
+                    "path": relative_path,
+                    "case_count": 0,
+                    "tags": [],
+                    "status": "invalid",
+                }
+            )
+    return jsonify({"suites": suites})
+
+
+@app.route("/api/evals/run/stream", methods=["POST"])
+def run_eval_suite_stream() -> Union[Tuple[Response, int], Response]:
+    """Stream real case-by-case eval progress to the web Eval Studio."""
+    relative_path = str((request.json or {}).get("suite", "")).strip()
+    if not relative_path:
+        return jsonify({"error": "Eval suite path is required."}), 400
+    try:
+        suite_path = _resolve_eval_suite(relative_path)
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    def generate():
+        from tabletalk.evals import EvalRunner, load_eval_suite
+
+        event_queue: queue.Queue = queue.Queue()
+
+        def emit(payload: Dict[str, Any]) -> None:
+            event_queue.put(payload)
+
+        def work() -> None:
+            try:
+                suite = load_eval_suite(suite_path)
+                emit(
+                    {
+                        "type": "suite_start",
+                        "suite": suite.name,
+                        "case_count": len(suite.cases),
+                    }
+                )
+                runner = EvalRunner(suite, project_folder=project_folder)
+                result = runner.run(
+                    on_case_start=lambda case, index, total: emit(
+                        {
+                            "type": "case_start",
+                            "case": case.name,
+                            "index": index,
+                            "total": total,
+                            "tags": case.tags,
+                        }
+                    ),
+                    on_case_complete=lambda case, index, total: emit(
+                        {
+                            "type": "case_complete",
+                            "case": case.to_dict(),
+                            "index": index,
+                            "total": total,
+                        }
+                    ),
+                )
+                emit({"type": "suite_complete", "result": result.to_dict()})
+            except Exception as exc:
+                logger.exception("Eval suite failed")
+                emit({"type": "error", "error": str(exc)})
+
+        threading.Thread(target=work, daemon=True).start()
+        while True:
+            event = event_queue.get()
+            yield f"data: {json.dumps(event, default=str)}\n\n"
+            if event["type"] in {"suite_complete", "error"}:
+                break
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Legacy non-streaming query (kept for backward compat) ─────────────────────

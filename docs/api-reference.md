@@ -100,7 +100,11 @@ List all compiled manifests in the project's `manifest/` directory.
 **Response:**
 ```json
 {
-  "manifests": ["customers.txt", "inventory.txt", "marketing.txt", "sales.txt"]
+  "manifests": ["customers.txt", "sales.txt"],
+  "metadata": {
+    "customers.txt": {"context_source": "tabletalk_context", "dbt_enriched": false},
+    "sales.txt": {"context_source": "dbt_manifest", "dbt_enriched": true}
+  }
 }
 ```
 
@@ -119,7 +123,8 @@ Load a manifest and reset the conversation context.
 ```json
 {
   "message": "Manifest 'sales.txt' selected",
-  "details": "DATA_SOURCE: duckdb - ...\nCONTEXT: sales ...\n..."
+  "details": "DATA_SOURCE: duckdb - ...\nCONTEXT: sales ...\n...",
+  "context_source": "dbt_manifest"
 }
 ```
 
@@ -166,7 +171,9 @@ Each line is a Server-Sent Event in the format `data: {...}\n\n`.
 | `execute_error` | `{"type":"execute_error","error":"...","sql":"..."}` | SQL execution error |
 | `explain_chunk` | `{"type":"explain_chunk","content":"Revenue grew..."}` | Incremental explanation token |
 | `explain_done` | `{"type":"explain_done"}` | Explanation complete |
+| `explain_error` | `{"type":"explain_error","error":"..."}` | Ollama explanation failed; no fallback was used |
 | `suggestions` | `{"type":"suggestions","questions":["...", "...", "..."]}` | Follow-up suggestions |
+| `suggestion_error` | `{"type":"suggestion_error","error":"..."}` | Ollama suggestions failed; no fallback was used |
 | `error` | `{"type":"error","error":"..."}` | Fatal error |
 | `done` | `{"type":"done"}` | Stream complete |
 
@@ -323,6 +330,8 @@ curl -s -X POST http://localhost:5000/api/query \
 ### `POST /suggest`
 
 Generate 3 follow-up question suggestions for the current schema and conversation context.
+If the LLM request fails, this endpoint returns `502` with the original error
+instead of an empty or locally generated suggestion list.
 
 **Request:**
 ```json

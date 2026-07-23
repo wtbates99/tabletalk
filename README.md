@@ -77,24 +77,22 @@ pip install "tabletalk[all]"        # Everything
 
 ## Quick start
 
-**Option A — no API key (Ollama, runs locally):**
+**Default — Ollama Cloud Free tier (no paid API key):**
 ```bash
-# 1. Install Ollama → https://ollama.com, then:
-ollama pull qwen2.5-coder:7b
+# 1. Install Ollama → https://ollama.com, then sign in and pull:
+ollama signin
+ollama pull gemma4:31b-cloud
 
 # 2. In tabletalk.yaml, set:
 #   llm:
 #     provider: ollama
 #     api_key: ollama
-#     model: qwen2.5-coder:7b
+#     model: gemma4:31b-cloud
 #     base_url: http://localhost:11434/v1
 ```
 
-**Option B — cloud LLM:**
-```bash
-export OPENAI_API_KEY=sk-...      # or ANTHROPIC_API_KEY
-# set provider: openai / anthropic in tabletalk.yaml
-```
+Model and Free-tier session-limit errors are returned to the caller. TableTalk
+does not replace failed Ollama requests with local parsing or a paid provider.
 
 **Then:**
 ```bash
@@ -156,11 +154,16 @@ provider:
 # profile: my_prod_snowflake  (run `tabletalk connect` to create profiles)
 
 llm:
-  provider: openai            # openai | anthropic | ollama
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o
-  max_tokens: 1000
+  provider: ollama
+  api_key: ollama
+  model: gemma4:31b-cloud
+  base_url: http://localhost:11434/v1
+  max_tokens: 2000
   temperature: 0
+
+# Optional semantic enrichment from a compiled dbt artifact
+# dbt:
+#   manifest: ../analytics/target/manifest.json
 
 contexts: contexts            # directory with agent context definitions
 output: manifest              # directory where compiled manifests are written
@@ -246,8 +249,9 @@ Under the hood, `tabletalk apply`:
 
 ## Evals as code
 
-Eval suites run real agent conversations against deterministic fixtures and
-compare the resulting data with expected values or reference SQL:
+Eval suites run real LLM agent conversations against fixed fixtures and compare
+the AI's resulting data with expected values or reference SQL. Fixtures verify
+the model; they never replace it:
 
 ```bash
 python examples/ecommerce/evals/seed_fixture.py
@@ -323,7 +327,7 @@ The web UI provides:
 
 | Provider | Config | Models |
 |----------|--------|--------|
-| Ollama _(no key)_ | `provider: ollama` | `qwen2.5-coder:7b` _(default)_, `llama3.2`, `mistral`, `codellama`, `phi3` |
+| Ollama _(Free cloud or local)_ | `provider: ollama` | `gemma4:31b-cloud` _(default)_, `qwen2.5-coder:7b`, `llama3.2`, `mistral` |
 | OpenAI | `provider: openai` | `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo` |
 | Anthropic | `provider: anthropic` | `claude-opus-4-6`, `claude-sonnet-4-6` |
 
@@ -331,8 +335,8 @@ The web UI provides:
 ```yaml
 llm:
   provider: ollama
-  api_key: ollama                      # placeholder — not validated
-  model: qwen2.5-coder:7b              # any model you've pulled
+  api_key: ollama
+  model: gemma4:31b-cloud              # Ollama Free, low cloud usage
   base_url: http://localhost:11434/v1  # default
 ```
 
@@ -408,8 +412,8 @@ ecommerce example with 4 agents, seed data, and pre-generated manifests.
 ```bash
 cd examples/ecommerce
 pip install "tabletalk[duckdb]"
-# Uses Ollama by default — no API key needed.
-# Install Ollama → https://ollama.com, then: ollama pull qwen2.5-coder:7b
+# Uses Ollama Cloud Free by default — no paid API key needed.
+# Install Ollama, then: ollama signin && ollama pull gemma4:31b-cloud
 python seed.py          # create the database
 tabletalk apply         # compile manifests
 tabletalk query         # start querying (or: tabletalk serve)

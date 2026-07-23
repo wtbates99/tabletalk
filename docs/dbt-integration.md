@@ -62,8 +62,11 @@ profile: analytics_dev
 llm:
   provider: ollama
   api_key: ollama
-  model: qwen2.5-coder:7b
+  model: gemma4:31b-cloud
   base_url: http://localhost:11434/v1
+
+dbt:
+  manifest: ../my_dbt_project/target/manifest.json
 
 description: "Analytics database — dbt project my_dbt_project"
 contexts: contexts
@@ -72,7 +75,9 @@ output: manifest
 
 ### 4. Define contexts for your dbt models
 
-Create `contexts/` files that reference your dbt models (they're just tables/views in the database):
+Create `contexts/` files that define the hard table boundary for each agent.
+The dbt artifact supplies semantics; the TableTalk context decides which
+relations that agent may see:
 
 ```yaml
 # contexts/marts.yaml
@@ -84,10 +89,7 @@ datasets:
   - name: analytics              # your dbt output schema
     tables:
       - name: fct_orders
-        description: >-
-          Fact table for orders. One row per order.
-          Joins orders + customers + order_items.
-          Use for revenue, funnel, and customer analysis.
+        # Description is inherited from dbt when omitted.
 
       - name: fct_sessions
         description: >-
@@ -100,7 +102,9 @@ datasets:
           Enriched with lifetime_value and cohort_month from dbt.
 ```
 
-**Tip:** reference your dbt `schema.yml` descriptions — they're already good descriptions to copy into tabletalk contexts.
+Run `dbt compile` or `dbt build` before `tabletalk apply`. TableTalk reads the
+compiled `manifest.json` and matches its nodes to the live relations returned
+by database introspection.
 
 ### 5. Compile and query
 
@@ -140,15 +144,17 @@ cd examples/ecommerce
 # 2. Copy to ~/.dbt/
 cp dbt_project/profiles.yml ~/.dbt/profiles.yml
 
-# 3. (Optional) Run dbt to create staging + mart models
+# 3. Build models, tests, and the manifest artifact
 pip install dbt-duckdb
-cd dbt_project && dbt run && cd ..
+cd dbt_project && dbt build && cd ..
 
 # 4. Import the connection
 tabletalk connect --from-dbt ecommerce
 
 # 5. Update tabletalk.yaml to use the profile
 #    profile: ecommerce_dev
+#    dbt:
+#      manifest: dbt_project/target/manifest.json
 
 # 6. Compile and query
 tabletalk apply
@@ -159,7 +165,10 @@ tabletalk serve
 
 ## Referencing dbt models in contexts
 
-When you run `dbt run`, your models are materialized as views or tables in the database. tabletalk queries them the same way it queries raw tables.
+When you run `dbt build`, your models are materialized as views or tables in
+the database and their semantic metadata is compiled to `manifest.json`.
+TableTalk queries the live relations and sends the matching dbt context to
+Ollama.
 
 **Good context strategy for dbt projects:**
 
@@ -187,11 +196,12 @@ datasets:
 
 ## Keeping contexts in sync with dbt models
 
-When you add new dbt models, update `contexts/*.yaml` to include them, then run `tabletalk apply` to recompile. The workflow is intentionally similar to `dbt run`:
+When you add new dbt models, update `contexts/*.yaml` to include them, then run
+`tabletalk apply` to recompile:
 
 ```bash
 # dbt workflow
-dbt run                        # update models in the database
+dbt build                      # update models, tests, and manifest.json
 
 # tabletalk workflow
 vim contexts/marts.yaml        # add new model
@@ -200,27 +210,17 @@ tabletalk apply                # recompile agents
 
 ---
 
-## dbt descriptions → tabletalk descriptions
+## What reaches Ollama
 
-Your dbt `schema.yml` already has model descriptions. Copy them into tabletalk context files:
+For every relation included by a TableTalk context, the compiled prompt can
+contain:
 
-**dbt schema.yml:**
-```yaml
-models:
-  - name: fct_orders
-    description: "One row per order, enriched with customer and product info"
-    columns:
-      - name: order_id
-        description: "Surrogate key from orders source"
-```
+- `DBT_DESCRIPTION` for model or source meaning;
+- `DBT_COLUMN` for business definitions;
+- `DBT_LINEAGE` for upstream provenance;
+- `DBT_TESTS` for constraints such as uniqueness and non-null expectations.
 
-**tabletalk context:**
-```yaml
-- name: fct_orders
-  description: >-
-    One row per order, enriched with customer and product info.
-    order_id is the surrogate key. Use created_at for time-series.
-    status: completed | cancelled | returned.
-```
-
-The two sources of truth are intentional — dbt descriptions are for data engineers, tabletalk descriptions are optimised for LLM SQL generation.
+TableTalk context descriptions still take precedence when supplied, so a team
+can add agent-specific guidance without duplicating normal dbt documentation.
+If `dbt.manifest` is configured but absent or invalid, `tabletalk apply` stops.
+It never quietly compiles a less-informed agent.
