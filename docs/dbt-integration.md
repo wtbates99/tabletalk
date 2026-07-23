@@ -122,7 +122,7 @@ The `examples/ecommerce/` directory includes a minimal dbt project at `examples/
 ```
 dbt_project/
 ├── dbt_project.yml          # profile: ecommerce
-├── profiles.yml             # copy to ~/.dbt/profiles.yml
+├── profiles.yml             # portable local demo profile
 └── models/
     ├── sources.yml          # declares 8 raw tables as dbt sources
     ├── staging/
@@ -138,28 +138,25 @@ To run the demo:
 ```bash
 cd examples/ecommerce
 
-# 1. Update the path in dbt_project/profiles.yml:
-#    path: /Users/yourname/tabletalk/examples/ecommerce/ecommerce.duckdb
+# 1. Seed the database
+uv run python seed.py
 
-# 2. Copy to ~/.dbt/
-cp dbt_project/profiles.yml ~/.dbt/profiles.yml
+# 2. Build models, tests, and manifest.json with the bundled profile
+cd dbt_project
+uv run --with dbt-duckdb dbt build --profiles-dir .
+cd ..
 
-# 3. Build models, tests, and the manifest artifact
-pip install dbt-duckdb
-cd dbt_project && dbt build && cd ..
-
-# 4. Import the connection
-tabletalk connect --from-dbt ecommerce
-
-# 5. Update tabletalk.yaml to use the profile
-#    profile: ecommerce_dev
+# 3. Enable native dbt context in tabletalk.yaml
 #    dbt:
 #      manifest: dbt_project/target/manifest.json
 
-# 6. Compile and query
-tabletalk apply
-tabletalk serve
+# 4. Compile and query
+uv run tabletalk apply .
+uv run tabletalk serve
 ```
+
+The bundled profile defaults to `../ecommerce.duckdb`. To point it elsewhere,
+set `TABLETALK_ECOMMERCE_DB` to an absolute path.
 
 ---
 

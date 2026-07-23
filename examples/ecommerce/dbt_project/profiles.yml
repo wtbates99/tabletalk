@@ -1,13 +1,13 @@
-# Copy this file to ~/.dbt/profiles.yml
-# Then run: tabletalk connect --from-dbt ecommerce
+# Run from dbt_project/ with: dbt build --profiles-dir .
 #
-# Update the `path` to the absolute path of your ecommerce.duckdb file.
-# Example: /Users/yourname/tabletalk/examples/ecommerce/ecommerce.duckdb
+# The portable default points to the demo database one directory above this
+# project. Override it when needed:
+#   export TABLETALK_ECOMMERCE_DB=/absolute/path/to/ecommerce.duckdb
 
 ecommerce:
   target: dev
   outputs:
     dev:
       type: duckdb
-      path: /Users/willbates/code/tabletalk/examples/ecommerce/ecommerce.duckdb
+      path: "{{ env_var('TABLETALK_ECOMMERCE_DB', '../ecommerce.duckdb') }}"
       threads: 4
