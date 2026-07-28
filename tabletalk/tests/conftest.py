@@ -2,7 +2,7 @@
 Shared pytest fixtures for tabletalk tests.
 
 Provides:
-  - mock_llm          — a MockLLMProvider that returns canned SQL
+  - mock_llm          — a deterministic fake model with scripted SQL
   - ecommerce_sqlite  — SQLite database seeded with a full ecommerce schema
   - ecommerce_duckdb  — DuckDB database seeded with the same schema
   - project_dir       — a fully-initialised temp project directory
@@ -10,19 +10,15 @@ Provides:
 """
 from __future__ import annotations
 
-import json
-import os
 import sqlite3
 import textwrap
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
-from unittest.mock import patch
 
 import pytest
 import yaml
 
 from tabletalk.interfaces import LLMProvider
-
 
 # ── Mock LLM provider ─────────────────────────────────────────────────────────
 
@@ -42,11 +38,11 @@ class MockLLMProvider(LLMProvider):
     def __init__(
         self,
         default_response: str = "SELECT 1",
-        responses: Optional[Dict[str, str]] = None,
+        responses: dict[str, str] | None = None,
     ):
         self.default_response = default_response
         self.responses = responses or {}
-        self.calls: List[str] = []
+        self.calls: list[str] = []
 
     def _match(self, text: str) -> str:
         for key, value in self.responses.items():
@@ -64,7 +60,7 @@ class MockLLMProvider(LLMProvider):
             yield word + " "
 
     def generate_chat_stream(
-        self, messages: List[Dict[str, str]]
+        self, messages: list[dict[str, str]]
     ) -> Generator[str, None, None]:
         text = " ".join(m["content"] for m in messages)
         response = self._match(text)

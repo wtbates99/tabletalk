@@ -3,23 +3,25 @@ Tests for tabletalk/factories.py
 
 Covers:
   - resolve_env_vars
-  - _resolve_profile
-  - get_llm_provider  (openai, anthropic, ollama)
+  - get_llm_provider  (openai-compatible, openai, ollama)
   - get_db_provider   (sqlite, duckdb — no external services needed)
-  - Error paths: unsupported types, missing env vars, unknown profiles
+  - Error paths: unsupported types and missing environment variables
 """
+
 from __future__ import annotations
 
-import os
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from tabletalk.factories import _resolve_profile, get_db_provider, get_llm_provider, resolve_env_vars
-
+from tabletalk.factories import (
+    get_db_provider,
+    get_llm_provider,
+    resolve_env_vars,
+)
 
 # ── resolve_env_vars ──────────────────────────────────────────────────────────
+
 
 class TestResolveEnvVars:
     def test_no_placeholders(self):
@@ -46,8 +48,8 @@ class TestResolveEnvVars:
 
     def test_partial_replacement(self, monkeypatch):
         monkeypatch.setenv("DB", "mydb")
-        result = resolve_env_vars("postgres://${DB}/schema")
-        assert result == "postgres://mydb/schema"
+        result = resolve_env_vars("snowflake://${DB}/schema")
+        assert result == "snowflake://mydb/schema"
 
     def test_value_without_braces_not_replaced(self):
         """$VAR without braces is left as-is."""
@@ -55,32 +57,8 @@ class TestResolveEnvVars:
         assert result == "$NO_BRACES"
 
 
-# ── _resolve_profile ──────────────────────────────────────────────────────────
-
-class TestResolveProfile:
-    def test_no_profile_key_returns_config_unchanged(self):
-        config = {"type": "sqlite", "database_path": ":memory:"}
-        result = _resolve_profile(config)
-        assert result == config
-
-    def test_resolves_existing_profile(self):
-        fake_profile = {"type": "postgres", "host": "db.example.com"}
-        with patch("tabletalk.profiles.get_profile", return_value=fake_profile):
-            result = _resolve_profile({"profile": "my_profile"})
-        assert result == fake_profile
-
-    def test_missing_profile_raises(self):
-        with patch("tabletalk.profiles.get_profile", return_value=None):
-            with pytest.raises(ValueError, match="Profile 'ghost' not found"):
-                _resolve_profile({"profile": "ghost"})
-
-    def test_empty_profile_key_returns_config(self):
-        config = {"profile": "", "type": "sqlite"}
-        result = _resolve_profile(config)
-        assert result == config
-
-
 # ── get_llm_provider ──────────────────────────────────────────────────────────
+
 
 class TestGetLLMProvider:
     def test_openai_provider(self, monkeypatch):
@@ -96,22 +74,8 @@ class TestGetLLMProvider:
                 }
             )
         from tabletalk.providers.openai_provider import OpenAIProvider
-        assert isinstance(provider, OpenAIProvider)
 
-    def test_anthropic_provider(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_KEY", "sk-ant-test")
-        with patch("tabletalk.providers.anthropic_provider.Anthropic"):
-            provider = get_llm_provider(
-                {
-                    "provider": "anthropic",
-                    "api_key": "${ANTHROPIC_KEY}",
-                    "model": "claude-sonnet-4-6",
-                    "max_tokens": 1000,
-                    "temperature": 0,
-                }
-            )
-        from tabletalk.providers.anthropic_provider import AnthropicProvider
-        assert isinstance(provider, AnthropicProvider)
+        assert isinstance(provider, OpenAIProvider)
 
     def test_ollama_provider(self):
         with patch("tabletalk.providers.openai_provider.OpenAI"):
@@ -123,6 +87,7 @@ class TestGetLLMProvider:
                 }
             )
         from tabletalk.providers.openai_provider import OpenAIProvider
+
         assert isinstance(provider, OpenAIProvider)
 
     def test_ollama_defaults_to_free_cloud_model(self):
@@ -130,6 +95,34 @@ class TestGetLLMProvider:
             provider = get_llm_provider({"provider": "ollama"})
 
         assert provider.model == "gemma4:31b-cloud"
+        assert provider.base_url == "http://localhost:11434/v1"
+        assert provider.provider_name == "ollama"
+        assert provider.reasoning_effort == "none"
+
+    def test_openai_compatible_requires_explicit_runtime_identity(self):
+        with pytest.raises(ValueError, match="base_url, api_key, model"):
+            get_llm_provider({"provider": "openai-compatible"})
+
+    def test_openai_compatible_uses_exact_configured_endpoint(self):
+        with patch("tabletalk.providers.openai_provider.OpenAI") as client:
+            provider = get_llm_provider(
+                {
+                    "provider": "openai-compatible",
+                    "base_url": "https://models.example.test/v1",
+                    "api_key": "test-key",
+                    "model": "production-model",
+                    "request_timeout_seconds": 17,
+                }
+            )
+
+        assert provider.provider_name == "openai-compatible"
+        assert provider.model == "production-model"
+        assert provider.base_url == "https://models.example.test/v1"
+        client.assert_called_once_with(
+            api_key="test-key",
+            base_url="https://models.example.test/v1",
+            timeout=17.0,
+        )
 
     def test_unsupported_provider_raises(self):
         with pytest.raises(ValueError, match="Unsupported LLM provider"):
@@ -141,6 +134,7 @@ class TestGetLLMProvider:
         with patch("tabletalk.providers.openai_provider.OpenAI"):
             provider = get_llm_provider({"provider": "openai", "api_key": "${KEY}"})
         from tabletalk.providers.openai_provider import OpenAIProvider
+
         assert isinstance(provider, OpenAIProvider)
         assert provider.max_tokens == 1000
         assert provider.temperature == 0.0
@@ -156,21 +150,28 @@ class TestGetLLMProvider:
 
 # ── get_db_provider ───────────────────────────────────────────────────────────
 
+
 class TestGetDBProviderSQLite:
     def test_sqlite_provider(self, tmp_path):
         db_path = str(tmp_path / "test.db")
-        provider = get_db_provider({"type": "sqlite", "database_path": db_path})
+        provider = get_db_provider(
+            {"type": "sqlite", "database_path": db_path, "read_only": False}
+        )
         from tabletalk.providers.sqlite_provider import SQLiteProvider
+
         assert isinstance(provider, SQLiteProvider)
 
     def test_sqlite_memory(self):
         provider = get_db_provider({"type": "sqlite", "database_path": ":memory:"})
         from tabletalk.providers.sqlite_provider import SQLiteProvider
+
         assert isinstance(provider, SQLiteProvider)
 
     def test_sqlite_can_execute(self, tmp_path):
         db_path = str(tmp_path / "test.db")
-        provider = get_db_provider({"type": "sqlite", "database_path": db_path})
+        provider = get_db_provider(
+            {"type": "sqlite", "database_path": db_path, "read_only": False}
+        )
         results = provider.execute_query("SELECT 42 AS answer")
         assert results[0]["answer"] == 42
 
@@ -180,6 +181,7 @@ class TestGetDBProviderDuckDB:
         pytest.importorskip("duckdb")
         provider = get_db_provider({"type": "duckdb", "database_path": ":memory:"})
         from tabletalk.providers.duckdb_provider import DuckDBProvider
+
         assert isinstance(provider, DuckDBProvider)
 
     def test_duckdb_default_path(self):
@@ -187,6 +189,7 @@ class TestGetDBProviderDuckDB:
         # No database_path key — should default to :memory:
         provider = get_db_provider({"type": "duckdb"})
         from tabletalk.providers.duckdb_provider import DuckDBProvider
+
         assert isinstance(provider, DuckDBProvider)
 
     def test_duckdb_can_execute(self):
@@ -201,16 +204,16 @@ class TestGetDBProviderErrors:
         with pytest.raises(ValueError, match="Unsupported database provider"):
             get_db_provider({"type": "oracle"})
 
-    def test_profile_resolution_on_db_provider(self):
-        fake_profile = {"type": "sqlite", "database_path": ":memory:"}
-        with patch("tabletalk.profiles.get_profile", return_value=fake_profile):
-            provider = get_db_provider({"profile": "my_profile"})
-        from tabletalk.providers.sqlite_provider import SQLiteProvider
-        assert isinstance(provider, SQLiteProvider)
-
     def test_env_var_resolved_in_db_config(self, monkeypatch, tmp_path):
         db_path = str(tmp_path / "test.db")
         monkeypatch.setenv("DB_PATH", db_path)
-        provider = get_db_provider({"type": "sqlite", "database_path": "${DB_PATH}"})
+        provider = get_db_provider(
+            {
+                "type": "sqlite",
+                "database_path": "${DB_PATH}",
+                "read_only": False,
+            }
+        )
         from tabletalk.providers.sqlite_provider import SQLiteProvider
+
         assert isinstance(provider, SQLiteProvider)

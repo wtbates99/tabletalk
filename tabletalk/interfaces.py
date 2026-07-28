@@ -1,859 +1,491 @@
+"""Narrow database, model, and trusted invocation contracts."""
+
+from __future__ import annotations
+
 import json
 import logging
 import os
 import re
-import time
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any
+from uuid import uuid4
 
 import yaml
+
+from tabletalk.domain import (
+    ErrorCode,
+    QueryAnswer,
+    RuntimeStage,
+    TableTalkError,
+    canonical_digest,
+    model_request_error,
+)
 
 logger = logging.getLogger("tabletalk")
 
 
-# ── Abstract interfaces ────────────────────────────────────────────────────────
+def _artifact_policy(agent: dict[str, Any], name: str, default: Any) -> Any:
+    policies = agent.get("policies", {})
+    if isinstance(policies, dict):
+        return policies.get(name, default)
+    if isinstance(policies, list):
+        for item in policies:
+            if isinstance(item, list) and len(item) == 2 and item[0] == name:
+                return item[1]
+    return default
 
 
 class DatabaseProvider(ABC):
-    """Base class for all database providers."""
+    """Database behavior required by compilation and trusted execution."""
 
     @abstractmethod
-    def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        """Execute SQL and return results as a list of row dicts."""
-        pass
+    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
+        """Execute one query and return row mappings."""
 
     @abstractmethod
     def get_client(self) -> Any:
-        """Return the underlying database client/connection."""
-        pass
+        """Return the native connection for health and identity inspection."""
 
     @abstractmethod
-    def get_database_type_map(self) -> Dict[str, str]:
-        """Return a mapping of native type names to compact codes."""
-        pass
+    def get_database_type_map(self) -> dict[str, str]:
+        """Map native database types into stable compact type identifiers."""
 
     @abstractmethod
     def get_compact_tables(
-        self, schema_name: str, table_names: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Fetch table schemas in compact format.
-
-        Returns:
-            List of dicts, each with:
-              't': full table name (e.g. 'schema.table')
-              'd': table description
-              'f': list of field dicts:
-                    'n': column name
-                    't': compact type code
-                    'pk': True if primary key (optional)
-                    'fk': 'other_table.col' if foreign key (optional)
-        """
-        pass
-
-    def get_cached_compact_tables(
         self,
         schema_name: str,
-        table_names: Optional[List[str]] = None,
-        ttl: int = 300,
-    ) -> List[Dict[str, Any]]:
-        """
-        Return get_compact_tables result using an in-process TTL cache (item 4).
-        Avoids repeated introspection queries on the same schema within `ttl` seconds.
-        """
-        if not hasattr(self, "_schema_cache"):
-            self._schema_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
-
-        key = f"{schema_name}:{','.join(sorted(table_names or []))}"
-        now = time.monotonic()
-        if key in self._schema_cache:
-            ts, data = self._schema_cache[key]
-            if now - ts < ttl:
-                logger.debug(f"Schema cache hit for '{key}'")
-                return data
-
-        data = self.get_compact_tables(schema_name, table_names)
-        self._schema_cache[key] = (now, data)
-        return data
-
-    def invalidate_schema_cache(self) -> None:
-        """Clear the introspection cache — call after DDL changes."""
-        if hasattr(self, "_schema_cache"):
-            self._schema_cache.clear()
+        table_names: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return relation and column metadata for deterministic compilation."""
 
 
 class LLMProvider(ABC):
-    """Base class for all LLM providers."""
-
-    # Token usage from the most recent call — populated by concrete providers (item 25).
-    last_usage: Dict[str, int]
+    """One explicitly configured model endpoint."""
 
     def __init__(self) -> None:
-        self.last_usage: Dict[str, int] = {}
+        self.last_usage: dict[str, int] = {}
 
     @abstractmethod
     def generate_response(self, prompt: str) -> str:
-        """Single-turn: generate a complete response for a prompt."""
-        pass
+        """Generate a complete text response for compatibility smoke checks."""
 
     def generate_response_stream(self, prompt: str) -> Generator[str, None, None]:
-        """Single-turn streaming. Default yields the full response as one chunk."""
         yield self.generate_response(prompt)
 
     def generate_chat_stream(
-        self, messages: List[Dict[str, str]]
+        self,
+        messages: list[dict[str, str]],
     ) -> Generator[str, None, None]:
-        """
-        Multi-turn streaming with a full messages list
-        (OpenAI format: [{'role': 'system'|'user'|'assistant', 'content': '...'}]).
-        Default falls back to single-turn with the last user message.
-        """
-        last_user = next(
-            (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
+        user_message = next(
+            (
+                message["content"]
+                for message in reversed(messages)
+                if message["role"] == "user"
+            ),
+            "",
         )
-        yield from self.generate_response_stream(last_user)
+        yield from self.generate_response_stream(user_message)
 
+    def generate_structured(
+        self,
+        messages: list[dict[str, str]],
+        json_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        text = "".join(self.generate_chat_stream(messages))
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError as error:
+            raise TableTalkError(
+                ErrorCode.MODEL_OUTPUT_MALFORMED,
+                RuntimeStage.GENERATION,
+                "Configured model returned malformed structured output.",
+            ) from error
+        from tabletalk.structured_output import validate_structured_output
 
-# ── Metrics (item 26) ──────────────────────────────────────────────────────────
-
-
-@dataclass
-class QueryMetrics:
-    """Captures per-query latency and token usage for observability."""
-
-    generation_ms: float = 0.0
-    execution_ms: float = 0.0
-    row_count: int = 0
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "generation_ms": round(self.generation_ms, 1),
-            "execution_ms": round(self.execution_ms, 1),
-            "row_count": self.row_count,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-        }
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def _encode_field(f: Dict[str, Any]) -> str:
-    """Encode a field dict to compact notation like 'id:I[PK]' or 'user_id:I[FK:users.id]'."""
-    col = f"{f['n']}:{f['t']}"
-    annotations = []
-    if f.get("pk"):
-        annotations.append("PK")
-    if f.get("fk"):
-        annotations.append(f"FK:{f['fk']}")
-    if annotations:
-        col += f"[{','.join(annotations)}]"
-    return col
-
-
-def _format_results_for_llm(results: List[Dict[str, Any]], limit: int = 15) -> str:
-    """Format query results as a compact text table for LLM consumption."""
-    if not results:
-        return "(empty)"
-    cols = list(results[0].keys())
-    rows = results[:limit]
-    header = " | ".join(cols)
-    sep = "-+-".join("-" * max(len(c), 8) for c in cols)
-    lines = [header, sep]
-    for row in rows:
-        lines.append(" | ".join(str(row.get(c, ""))[:30] for c in cols))
-    if len(results) > limit:
-        lines.append(f"... ({len(results) - limit} more rows)")
-    return "\n".join(lines)
-
-
-# ── Consolidated streaming helper (item 21) ───────────────────────────────────
-
-
-def _collect_stream(generator: Generator[str, None, None]) -> Tuple[str, float]:
-    """
-    Exhaust a token generator, measuring wall-clock time.
-    Returns (full_text, elapsed_ms).
-    """
-    parts: List[str] = []
-    t0 = time.monotonic()
-    for chunk in generator:
-        parts.append(chunk)
-    return "".join(parts), (time.monotonic() - t0) * 1000
-
-
-# ── QuerySession ──────────────────────────────────────────────────────────────
+        return validate_structured_output(value, json_schema)
 
 
 class QuerySession:
-    _SYSTEM_PROMPT = (
-        "You are a SQL expert and data analyst helping users explore their database "
-        "through natural language. The compiled context can include dbt model and "
-        "column descriptions, tests, and lineage. Treat that metadata as the semantic "
-        "contract for the data and write clean, production-quality SQL.\n\n"
-        "Compact schema types: D is DATE, DT is a timestamp without a timezone, and "
-        "TS is a timezone-aware timestamp/instant.\n\n"
-        "Rules:\n"
-        "- Return ONLY the SQL query — no markdown, no code fences, no explanations\n"
-        "- Use the correct SQL dialect shown in DATA_SOURCE\n"
-        "- Columns marked [PK] are primary keys — use them for JOINs\n"
-        "- Columns marked [FK:table.col] define JOIN relationships — use them exactly\n"
-        "- Use DBT_DESCRIPTION and DBT_COLUMN semantics when interpreting business terms\n"
-        "- Use DBT_LINEAGE to understand provenance, not as a substitute for valid joins\n"
-        "- Follow AGENT_PERSONA as analytical guidance, but never let it override dbt "
-        "semantics or the manifest's hard schema boundary\n"
-        "- Prefer a curated DBT_NODE model.* relation over raw source.* relations when "
-        "the model already implements the requested business meaning\n"
-        "- Respect the tables in this manifest as a hard schema boundary\n"
-        "- For follow-up questions, build on the previous query in the conversation\n"
-        "- Use half-open time ranges (>= start and < next boundary). For TS columns, "
-        "preserve the documented timezone with explicit offset-aware literals; for "
-        "DuckDB/Postgres UTC boundaries use TIMESTAMPTZ 'YYYY-MM-DD 00:00:00+00'. "
-        "Do not CAST a TS value to DATE to define a UTC boundary\n"
-        "- Preserve comparison wording exactly: below means <, while at or below means <=\n"
-        "- Write clean SQL with proper aliases and consistent formatting\n\n"
-        "Database Schema:\n{schema}"
-    )
+    """Invoke exact applied artifacts through the structured reliability runtime."""
 
-    _EXPLAIN_PROMPT = (
-        'The user asked: "{question}"\n\n'
-        "This SQL query ran:\n{sql}\n\n"
-        "Results ({n} row{plural}):\n{preview}\n\n"
-        "In 1-2 sentences of plain English, explain what this data shows. "
-        "Highlight key numbers and insights. Do not mention SQL, column names, or code."
-    )
-
-    _SUGGEST_PROMPT = (
-        "Given this database schema:\n{schema}\n\n"
-        "{context}"
-        "Suggest 3 specific, interesting questions a data analyst might ask. "
-        "Return ONLY a JSON array of 3 strings, nothing else.\n"
-        'Example: ["Top 10 customers by revenue this month?", '
-        '"Average order value by product category?", '
-        '"How many new users signed up last week?"]'
-    )
-
-    _FIX_PROMPT = (
-        "This SQL query failed:\n{sql}\n\n"
-        "Error message:\n{error}\n\n"
-        "Database schema:\n{schema}\n\n"
-        "Return ONLY the corrected SQL. No explanation, no code fences."
-    )
-
-    def __init__(self, project_folder: str):
-        self.project_folder = project_folder
+    def __init__(self, project_folder: str = ".") -> None:
+        self.project_folder = str(Path(project_folder).resolve())
         self.config = self._load_config()
         self.llm_provider = self._get_llm_provider()
-        self._db_provider: Optional[DatabaseProvider] = None
-        self._db_loaded = False
-        self._manifest_cache: Dict[str, str] = {}
+        self._active_connection_name: str | None = None
+        self._db_provider: DatabaseProvider | None = None
+        self._db_connection_name: str | None = None
 
-        # Config-driven limits (items 11, 16, 17)
-        self.max_conv_messages: int = int(self.config.get("max_conv_messages", 20))
-        self.max_rows: int = int(self.config.get("max_rows", 500))
-        self.query_timeout: Optional[float] = (
-            float(self.config["query_timeout"]) if self.config.get("query_timeout") else None
-        )
-        # Slow query threshold — queries exceeding this are logged as warnings (item 19)
-        self.slow_query_threshold_ms: float = float(
-            self.config.get("slow_query_threshold_ms", 5000)
-        )
-
-    # ── Config & provider init ─────────────────────────────────────────────────
-
-    def _load_config(self) -> Dict[str, Any]:
-        config_path = os.path.join(self.project_folder, "tabletalk.yaml")
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-        if not isinstance(config, dict):
-            raise ValueError(f"Invalid config format in {config_path}")
-        return config
+    def _load_config(self) -> dict[str, Any]:
+        path = Path(self.project_folder) / "tabletalk.yaml"
+        if not path.is_file():
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"TableTalk project configuration was not found at '{path}'.",
+            )
+        try:
+            value = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError) as error:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "tabletalk.yaml could not be loaded.",
+            ) from error
+        if not isinstance(value, dict):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "tabletalk.yaml must be a mapping.",
+            )
+        return value
 
     def _get_llm_provider(self) -> LLMProvider:
         from tabletalk.factories import get_llm_provider
 
-        llm_config = self.config.get("llm", {})
-        if not llm_config or "provider" not in llm_config or "api_key" not in llm_config:
-            raise ValueError(
-                "LLM configuration missing or incomplete in tabletalk.yaml. "
-                "Ensure llm.provider and llm.api_key (or ${ENV_VAR}) are set."
+        config = self.config.get("llm")
+        if not isinstance(config, dict):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "tabletalk.yaml requires an llm mapping.",
             )
         try:
-            return get_llm_provider(llm_config)
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize LLM provider: {e}") from e
+            return get_llm_provider(config)
+        except Exception as error:
+            raise model_request_error(
+                error,
+                provider=str(config.get("provider") or "unknown"),
+                model=str(config.get("model") or "unknown"),
+                stage=RuntimeStage.CONFIGURATION,
+            ) from error
 
-    def get_db_provider(self) -> Optional[DatabaseProvider]:
-        """Lazily initialize the database provider for query execution."""
-        if self._db_loaded:
-            return self._db_provider
-        self._db_loaded = True
+    def _database_config(self) -> dict[str, Any]:
+        if not self._active_connection_name:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "The compiled Agent does not identify a database connection.",
+            )
+        connections = self.config.get("connections")
+        value = (
+            connections.get(self._active_connection_name)
+            if isinstance(connections, dict)
+            else None
+        )
+        if not isinstance(value, dict):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Connection '{self._active_connection_name}' was not found.",
+                details={"connection": self._active_connection_name},
+            )
+        resolved = dict(value)
+        if "path" in resolved and "database_path" not in resolved:
+            resolved["database_path"] = resolved.pop("path")
+        database_path = resolved.get("database_path")
+        if (
+            isinstance(database_path, str)
+            and database_path != ":memory:"
+            and not Path(database_path).is_absolute()
+        ):
+            resolved["database_path"] = str(
+                (Path(self.project_folder) / database_path).resolve()
+            )
+        return resolved
+
+    def _database(self) -> DatabaseProvider:
         from tabletalk.factories import get_db_provider
 
-        if "profile" in self.config:
-            provider_config: Dict[str, Any] = {"profile": self.config["profile"]}
-        else:
-            provider_config = self.config.get("provider", {})
-
-        if not provider_config:
-            return None
-        try:
-            self._db_provider = get_db_provider(provider_config)
+        if (
+            self._db_provider is not None
+            and self._db_connection_name == self._active_connection_name
+        ):
             return self._db_provider
-        except Exception as e:
-            logger.warning(f"Could not initialize DB provider for execution: {e}")
-            return None
-
-    # ── Manifest (item 1 — structured caching) ────────────────────────────────
-
-    def load_manifest(self, manifest_file: str) -> str:
-        """Load manifest text, caching in memory to avoid repeated disk reads."""
-        if manifest_file in self._manifest_cache:
-            return self._manifest_cache[manifest_file]
-        root = Path(self.project_folder, "manifest").resolve()
-        path = (root / manifest_file).resolve()
         try:
-            path.relative_to(root)
-        except ValueError as exc:
-            raise ValueError(
-                "Manifest must be inside the project's manifest directory."
-            ) from exc
-        if path.suffix.lower() != ".txt" or not path.is_file():
-            raise FileNotFoundError(f"Manifest not found: {path}")
-        with open(path) as f:
-            content = f.read()
-        self._manifest_cache[manifest_file] = content
-        return content
+            provider = get_db_provider(self._database_config())
+        except TableTalkError:
+            raise
+        except Exception as error:
+            raise TableTalkError(
+                ErrorCode.DATABASE_UNAVAILABLE,
+                RuntimeStage.EXECUTION,
+                f"Connection '{self._active_connection_name}' is unavailable.",
+                retryable=True,
+                details={"connection": self._active_connection_name},
+            ) from error
+        self._db_provider = provider
+        self._db_connection_name = self._active_connection_name
+        return provider
 
-    def invalidate_manifest_cache(self) -> None:
-        """Clear the in-memory manifest cache (call after 'tabletalk apply')."""
-        self._manifest_cache.clear()
+    def get_db_provider(self) -> DatabaseProvider:
+        """Return the active database provider for eval fixture injection."""
+        return self._database()
 
-    # ── SQL generation ─────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _clean_sql(sql: str) -> str:
-        """Strip markdown code fences from LLM output."""
-        sql = re.sub(r"```(?:sql)?\n?", "", sql, flags=re.IGNORECASE)
-        sql = re.sub(r"```", "", sql)
-        return sql.strip()
-
-    def _build_messages(
-        self,
-        schema: str,
-        question: str,
-        history: Optional[List[Dict[str, str]]] = None,
-    ) -> List[Dict[str, str]]:
-        """Build the full messages list for a chat-style LLM call."""
-        messages: List[Dict[str, str]] = [
-            {"role": "system", "content": self._SYSTEM_PROMPT.format(schema=schema)}
-        ]
-        if history:
-            # Honour the configurable conversation window (item 11)
-            messages.extend(history[-self.max_conv_messages :])
-        messages.append({"role": "user", "content": question})
-        return messages
-
-    def generate_sql(self, manifest_data: str, question: str) -> str:
-        """Single-turn SQL generation (non-streaming)."""
-        messages = self._build_messages(manifest_data, question)
-        try:
-            text, _ = _collect_stream(self.llm_provider.generate_chat_stream(messages))
-            return self._clean_sql(text)
-        except Exception as e:
-            raise RuntimeError(f"Error generating SQL: {e}") from e
-
-    def generate_sql_stream(
-        self, manifest_data: str, question: str
-    ) -> Generator[str, None, None]:
-        """Single-turn SQL streaming (no conversation context)."""
-        yield from self.generate_sql_conversational(manifest_data, question, [])
-
-    def generate_sql_conversational(
-        self,
-        manifest_data: str,
-        question: str,
-        history: List[Dict[str, str]],
-    ) -> Generator[str, None, None]:
-        """Multi-turn SQL streaming with full conversation context."""
-        messages = self._build_messages(manifest_data, question, history)
-        try:
-            for chunk in self.llm_provider.generate_chat_stream(messages):
-                yield chunk
-        except Exception as e:
-            raise RuntimeError(f"Error generating SQL: {e}") from e
-
-    # ── Execution (items 16, 17) ───────────────────────────────────────────────
-
-    _READ_ONLY_PREFIXES = ("SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC")
-
-    @staticmethod
-    def _is_read_only_sql(sql: str) -> bool:
-        """Return True if SQL appears to be a read-only (SELECT-style) statement."""
-        first_word = sql.strip().lstrip(";").split()[0].upper() if sql.strip() else ""
-        return first_word in QuerySession._READ_ONLY_PREFIXES
-
-    def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
-        """
-        Execute SQL with optional timeout (item 16) and row-count cap (item 17).
-        Writes to audit log if enabled (item 18).
-        """
-        db = self.get_db_provider()
-        if db is None:
-            raise RuntimeError("No database provider configured for execution.")
-
-        if self.config.get("safe_mode", False) and not self._is_read_only_sql(sql):
-            raise ValueError(
-                "Only SELECT queries are allowed when safe_mode is enabled. "
-                "Set 'safe_mode: false' in tabletalk.yaml to allow writes."
+    def _dialect(self) -> str:
+        database_type = str(self._database_config().get("type") or "")
+        dialect = {
+            "sqlite": "sqlite",
+            "duckdb": "duckdb",
+            "snowflake": "snowflake",
+        }.get(database_type)
+        if dialect is None:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Connection type '{database_type}' is unsupported.",
             )
+        return dialect
 
-        # Query timeout via thread future (item 16) — database-agnostic
-        _exec_start = time.monotonic()
-        if self.query_timeout is not None:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(db.execute_query, sql)
-                try:
-                    results = future.result(timeout=self.query_timeout)
-                except FuturesTimeoutError:
-                    raise RuntimeError(
-                        f"Query timed out after {self.query_timeout}s. "
-                        "Increase 'query_timeout' in tabletalk.yaml or optimise the query."
-                    )
+    def _database_identity(self) -> tuple[str, str]:
+        config = self._database_config()
+        database_type = str(config.get("type") or "unknown")
+        if database_type in {"sqlite", "duckdb"}:
+            identity = str(config.get("database_path") or ":memory:")
         else:
-            results = db.execute_query(sql)
-
-        # Row cap (item 17)
-        if len(results) > self.max_rows:
-            logger.info(
-                f"Result set truncated from {len(results)} to {self.max_rows} rows (max_rows limit)."
+            identity = "/".join(
+                str(config.get(field) or "")
+                for field in ("account", "database", "schema")
             )
-            results = results[: self.max_rows]
+        return database_type, identity
 
-        # Slow query log (item 19)
-        exec_ms = (time.monotonic() - _exec_start) * 1000
-        if exec_ms >= self.slow_query_threshold_ms:
-            logger.warning(
-                f"SLOW QUERY ({exec_ms:.0f}ms >= {self.slow_query_threshold_ms:.0f}ms threshold): "
-                f"{sql[:200]}"
+    def execute_sql(
+        self,
+        sql: str,
+        *,
+        artifact: dict[str, Any],
+        max_rows: int = 500,
+        timeout_seconds: float = 30,
+    ) -> list[dict[str, Any]]:
+        """Validate, bound, and execute one scoped read-only statement."""
+        from tabletalk.runtime import SQLScope, validate_sql
+
+        validated = validate_sql(
+            sql,
+            dialect=self._dialect(),
+            scope=SQLScope.from_artifact(artifact),
+            max_rows=max_rows,
+        )
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(self._database().execute_query, validated.sql)
+        try:
+            rows = future.result(timeout=timeout_seconds)
+        except FuturesTimeoutError as error:
+            future.cancel()
+            raise TableTalkError(
+                ErrorCode.DATABASE_QUERY_FAILED,
+                RuntimeStage.EXECUTION,
+                f"Query timed out after {timeout_seconds:g} seconds.",
+                details={"timeout_seconds": timeout_seconds},
+            ) from error
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+        return rows[:max_rows]
+
+    def _load_applied_artifact(
+        self,
+        agent_name: str,
+    ) -> tuple[dict[str, Any], list[str]]:
+        state_path = Path(self.project_folder) / ".tabletalk" / "state.json"
+        if not state_path.is_file():
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "No applied Agent state exists. Run 'tabletalk apply' first.",
             )
-            self._write_audit_log("slow_query", sql=sql, execution_ms=round(exec_ms, 1))
-
-        # Audit log (item 18)
-        self._write_audit_log("execute", sql=sql, row_count=len(results))
-
-        return results
-
-    # ── Audit logging (item 18) ────────────────────────────────────────────────
-
-    def _audit_log_path(self) -> str:
-        return os.path.join(self.project_folder, ".tabletalk_audit.jsonl")
-
-    def _write_audit_log(self, action: str, **kwargs: Any) -> None:
-        """Append a structured entry to the audit log when audit_log: true in config."""
-        if not self.config.get("audit_log", False):
-            return
-        entry: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": action,
-            **kwargs,
-        }
         try:
-            with open(self._audit_log_path(), "a") as f:
-                f.write(json.dumps(entry) + "\n")
-        except Exception as e:
-            logger.debug(f"Audit log write failed: {e}")
+            state = json.loads(state_path.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "Applied Agent state is unreadable.",
+            ) from error
+        agents = state.get("agents") if isinstance(state, dict) else None
+        entry = agents.get(agent_name) if isinstance(agents, dict) else None
+        if not isinstance(entry, dict):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Applied Agent '{agent_name}' was not found.",
+                details={"agent": agent_name},
+            )
+        digest = entry.get("artifact_digest")
+        if not isinstance(digest, str) or not digest:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Applied Agent '{agent_name}' state is malformed.",
+            )
+        artifact_root = (
+            Path(self.project_folder) / ".tabletalk" / "artifacts"
+        ).resolve()
+        artifact_path = (
+            artifact_root / agent_name / f"{digest}.json"
+        ).resolve()
+        try:
+            artifact_path.relative_to(artifact_root)
+            artifact = json.loads(artifact_path.read_text())
+        except (ValueError, OSError, json.JSONDecodeError) as error:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Applied Agent '{agent_name}' artifact is unreadable.",
+            ) from error
+        agent = artifact.get("agent") if isinstance(artifact, dict) else None
+        if (
+            not isinstance(agent, dict)
+            or artifact.get("digest") != digest
+            or canonical_digest(agent) != digest
+        ):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Applied Agent '{agent_name}' failed its integrity check.",
+            )
+        receipt_digests = entry.get("eval_receipts") or []
+        if not isinstance(receipt_digests, list) or not all(
+            isinstance(value, str) for value in receipt_digests
+        ):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                f"Applied Agent '{agent_name}' eval receipt state is malformed.",
+            )
+        return artifact, receipt_digests
 
-    # ── Explanation ───────────────────────────────────────────────────────────
-
-    def explain_results_stream(
+    def ask_artifact(
         self,
+        artifact: dict[str, Any],
         question: str,
-        sql: str,
-        results: List[Dict[str, Any]],
-    ) -> Generator[str, None, None]:
-        """Stream a plain-English explanation of query results."""
-        n = len(results)
-        prompt = self._EXPLAIN_PROMPT.format(
-            question=question,
-            sql=sql,
-            n=n,
-            plural="s" if n != 1 else "",
-            preview=_format_results_for_llm(results),
+        *,
+        eval_receipt_digest: str | None = None,
+        database_type_override: str | None = None,
+        database_identity_override: str | None = None,
+        dialect_override: str | None = None,
+    ) -> QueryAnswer:
+        """Invoke one exact candidate or applied artifact."""
+        from tabletalk.domain import RuntimeIdentity
+        from tabletalk.runtime import StructuredQueryRuntime
+
+        agent = artifact.get("agent")
+        if not isinstance(agent, dict):
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "Compiled Agent artifact is malformed.",
+            )
+        connection = agent.get("connection")
+        if not isinstance(connection, str) or not connection:
+            raise TableTalkError(
+                ErrorCode.CONFIG_INVALID,
+                RuntimeStage.CONFIGURATION,
+                "Compiled Agent artifact has no connection.",
+            )
+        self._active_connection_name = connection
+        llm_config = self.config.get("llm", {})
+        database_type, database_identity = self._database_identity()
+        max_rows = int(_artifact_policy(agent, "max_rows", 500))
+        timeout_seconds = float(
+            _artifact_policy(agent, "timeout_seconds", 30)
         )
-        yield from self.llm_provider.generate_response_stream(prompt)
-
-    # ── Fix ────────────────────────────────────────────────────────────────────
-
-    def fix_sql_stream(
-        self, sql: str, error: str, manifest_data: str
-    ) -> Generator[str, None, None]:
-        """Stream a corrected SQL query given an error message."""
-        prompt = self._FIX_PROMPT.format(sql=sql, error=error, schema=manifest_data)
-        yield from self.llm_provider.generate_response_stream(prompt)
-
-    # ── Suggestions ───────────────────────────────────────────────────────────
-
-    def suggest_questions(
-        self,
-        manifest_data: str,
-        history: Optional[List[Dict[str, str]]] = None,
-    ) -> List[str]:
-        """Return up to 3 LLM-generated questions for the current schema + context.
-
-        Suggestion failures are deliberately propagated. A model or quota error
-        must never be disguised as an empty result that a caller could replace
-        with local heuristics.
-        """
-        context = ""
-        if history:
-            recent = history[-4:]
-            lines = [f"{m['role']}: {m['content'][:120]}" for m in recent]
-            context = "Recent conversation:\n" + "\n".join(lines) + "\n\n"
-        prompt = self._SUGGEST_PROMPT.format(schema=manifest_data, context=context)
-        try:
-            response = self.llm_provider.generate_response(prompt)
-            match = re.search(r"\[.*\]", response, re.DOTALL)
-            if not match:
-                raise ValueError("Ollama returned suggestions in an invalid format.")
-            parsed = json.loads(match.group())
-            if not isinstance(parsed, list):
-                raise ValueError("Ollama suggestion response must be a JSON array.")
-            return [str(q) for q in parsed[:3]]
-        except Exception as e:
-            raise RuntimeError(f"Error generating suggestions with the LLM: {e}") from e
-
-    # ── History (items 25, 26) ─────────────────────────────────────────────────
-
-    def save_history(
-        self,
-        manifest: str,
-        question: str,
-        sql: str,
-        metrics: Optional[QueryMetrics] = None,
-    ) -> None:
-        """Append a query record to history, including metrics when available."""
-        path = os.path.join(self.project_folder, ".tabletalk_history.jsonl")
-        entry: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "manifest": manifest,
-            "question": question,
-            "sql": sql,
-        }
-        if metrics:
-            entry["metrics"] = metrics.to_dict()
-        try:
-            with open(path, "a") as f:
-                f.write(json.dumps(entry) + "\n")
-        except Exception as e:
-            logger.warning(f"Could not save history: {e}")
-
-    def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        path = os.path.join(self.project_folder, ".tabletalk_history.jsonl")
-        if not os.path.exists(path):
-            return []
-        entries = []
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-        return entries[-limit:]
-
-    # ── Query cost estimation (item 16) ───────────────────────────────────────
-
-    _COST_PER_1K_INPUT: Dict[str, float] = {
-        "gpt-4o": 0.005,
-        "gpt-4o-mini": 0.00015,
-        "gpt-4-turbo": 0.01,
-        "claude-opus-4-6": 0.015,
-        "claude-sonnet-4-6": 0.003,
-        "claude-haiku-4-5": 0.00025,
-    }
-    _COST_PER_1K_OUTPUT: Dict[str, float] = {
-        "gpt-4o": 0.015,
-        "gpt-4o-mini": 0.0006,
-        "gpt-4-turbo": 0.03,
-        "claude-opus-4-6": 0.075,
-        "claude-sonnet-4-6": 0.015,
-        "claude-haiku-4-5": 0.00125,
-    }
-
-    def estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
-        """
-        Estimate USD cost for a query given token counts.
-        Returns None if the model is not in the known pricing table.
-        """
-        model = self.config.get("llm", {}).get("model", "")
-        in_rate = self._COST_PER_1K_INPUT.get(model)
-        out_rate = self._COST_PER_1K_OUTPUT.get(model)
-        if in_rate is None or out_rate is None:
-            return None
-        return (prompt_tokens / 1000 * in_rate) + (completion_tokens / 1000 * out_rate)
-
-    # ── Usage stats (item 25) ──────────────────────────────────────────────────
-
-    def get_usage_stats(self, limit: int = 100) -> Dict[str, Any]:
-        """
-        Aggregate token usage and latency stats from recent history.
-        Returns totals and averages across queries that recorded metrics.
-        """
-        entries = self.get_history(limit=limit)
-        total_prompt = 0
-        total_completion = 0
-        total_gen_ms = 0.0
-        total_exec_ms = 0.0
-        count_with_metrics = 0
-
-        for e in entries:
-            m = e.get("metrics")
-            if m:
-                total_prompt += m.get("prompt_tokens", 0)
-                total_completion += m.get("completion_tokens", 0)
-                total_gen_ms += m.get("generation_ms", 0.0)
-                total_exec_ms += m.get("execution_ms", 0.0)
-                count_with_metrics += 1
-
-        return {
-            "query_count": len(entries),
-            "queries_with_metrics": count_with_metrics,
-            "total_prompt_tokens": total_prompt,
-            "total_completion_tokens": total_completion,
-            "avg_generation_ms": (
-                round(total_gen_ms / count_with_metrics, 1) if count_with_metrics else None
+        runtime = StructuredQueryRuntime(
+            model=self.llm_provider,
+            execute=lambda sql: self.execute_sql(
+                sql,
+                artifact=artifact,
+                max_rows=max_rows,
+                timeout_seconds=timeout_seconds,
             ),
-            "avg_execution_ms": (
-                round(total_exec_ms / count_with_metrics, 1) if count_with_metrics else None
+            artifact=artifact,
+            runtime_identity=RuntimeIdentity(
+                provider=str(llm_config.get("provider") or "unknown"),
+                model=str(getattr(self.llm_provider, "model", "unknown")),
+                base_url=getattr(self.llm_provider, "base_url", None),
             ),
-        }
-
-    # ── Favorites ─────────────────────────────────────────────────────────────
-
-    def _favorites_path(self) -> str:
-        return os.path.join(self.project_folder, ".tabletalk_favorites.json")
-
-    def get_favorites(self) -> List[Dict[str, Any]]:
-        path = self._favorites_path()
-        if not os.path.exists(path):
-            return []
-        with open(path) as f:
-            return json.load(f)
-
-    def save_favorite(
-        self, name: str, manifest: str, question: str, sql: str
-    ) -> None:
-        favorites = [f for f in self.get_favorites() if f.get("name") != name]
-        favorites.append(
-            {
-                "name": name,
-                "manifest": manifest,
-                "question": question,
-                "sql": sql,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
+            database_type=database_type_override or database_type,
+            database_identity=database_identity_override or database_identity,
+            dialect=dialect_override or self._dialect(),
+            eval_receipt_digest=eval_receipt_digest,
         )
-        with open(self._favorites_path(), "w") as f:
-            json.dump(favorites, f, indent=2)
-
-    def delete_favorite(self, name: str) -> bool:
-        favorites = self.get_favorites()
-        new = [f for f in favorites if f.get("name") != name]
-        if len(new) == len(favorites):
-            return False
-        with open(self._favorites_path(), "w") as f:
-            json.dump(new, f, indent=2)
-        return True
-
-
-# ── Parser ─────────────────────────────────────────────────────────────────────
-
-
-class Parser:
-    def __init__(self, project_folder: str, db_provider: DatabaseProvider):
-        self.project_folder = project_folder
-        self.db_provider = db_provider
+        return runtime.invoke(question)
 
     @staticmethod
-    def _compact_manifest_text(value: Any) -> str:
-        """Render user-authored YAML text safely on one manifest line."""
-        return re.sub(r"\s+", " ", str(value or "")).strip()
+    def _redact_text(value: str) -> str:
+        return re.sub(
+            r"(?i)(api[_-]?key|authorization|credential|password|secret|token)"
+            r"(\s*[:=]\s*)[^\s,;]+",
+            r"\1\2[REDACTED]",
+            value,
+        )
 
-    def _agents_by_context(self, agents_folder: str) -> Dict[str, Dict[str, Any]]:
-        """Load optional agent definitions and index one agent per context."""
-        folder = Path(self.project_folder, agents_folder)
-        if not folder.is_dir():
-            return {}
+    def _write_invocation(
+        self,
+        agent_name: str,
+        question: str,
+        answer: QueryAnswer,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        folder = (
+            Path(self.project_folder)
+            / ".tabletalk"
+            / "history"
+            / now.date().isoformat()
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        invocation_id = str(uuid4())
+        record = {
+            "schema_version": 1,
+            "invocation_id": invocation_id,
+            "timestamp": now.isoformat(),
+            "agent": agent_name,
+            "question": self._redact_text(question),
+            "status": answer.status.value,
+            "artifact_digest": (
+                answer.receipt.artifact_digest if answer.receipt else None
+            ),
+            "model": (
+                answer.receipt.runtime.model if answer.receipt else None
+            ),
+            "database_type": (
+                answer.receipt.database_type if answer.receipt else None
+            ),
+            "sql": answer.sql,
+            "sources": [
+                {"relation": source.relation, "columns": list(source.columns)}
+                for source in answer.sources
+            ],
+            "row_count": len(answer.data),
+            "repair_attempts": len(answer.repairs),
+            "verification": [
+                {
+                    "claim": claim.claim,
+                    "supported": claim.supported,
+                    "evidence_ids": list(claim.evidence_ids),
+                }
+                for claim in answer.claims
+            ],
+        }
+        temporary = folder / f".{invocation_id}.tmp"
+        destination = folder / f"{invocation_id}.json"
+        temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary, destination)
 
-        agents: Dict[str, Dict[str, Any]] = {}
-        for path in sorted([*folder.glob("*.yaml"), *folder.glob("*.yml")]):
-            try:
-                payload = yaml.safe_load(path.read_text())
-            except (OSError, yaml.YAMLError) as exc:
-                logger.warning(f"Could not read agent definition '{path.name}': {exc}")
-                continue
-            if not isinstance(payload, dict):
-                logger.warning(f"Invalid agent definition '{path.name}', skipping.")
-                continue
-            context = str(payload.get("context") or "").strip()
-            if not context:
-                logger.warning(f"Agent definition '{path.name}' has no context, skipping.")
-                continue
-            if context in agents:
-                logger.warning(
-                    f"Multiple agents target context '{context}'; using the first definition."
-                )
-                continue
-            agents[context] = payload
-        return agents
-
-    def _agent_manifest_lines(self, agent: Dict[str, Any]) -> List[str]:
-        """Compile an agent definition into prompt- and UI-readable metadata."""
-        name = self._compact_manifest_text(agent.get("name") or "unnamed_agent")
-        description = self._compact_manifest_text(agent.get("description"))
-        version = self._compact_manifest_text(agent.get("version") or "1.0")
-        lines = [f"AGENT: {name} - {description} (v{version})"]
-
-        owner = self._compact_manifest_text(agent.get("owner"))
-        if owner:
-            lines.append(f"AGENT_OWNER: {owner}")
-        persona = self._compact_manifest_text(agent.get("persona"))
-        if persona:
-            lines.append(f"AGENT_PERSONA: {persona}")
-        questions = agent.get("sample_questions", [])
-        if isinstance(questions, list):
-            lines.extend(
-                f"AGENT_SAMPLE_QUESTION: {question}"
-                for value in questions
-                if (question := self._compact_manifest_text(value))
-            )
-        return lines
-
-    def apply_schema(self) -> None:
-        config_path = os.path.join(self.project_folder, "tabletalk.yaml")
+    def ask(self, agent_name: str, question: str) -> QueryAnswer:
+        """Ask one applied Agent and persist a secret-safe invocation record."""
+        artifact, receipt_digests = self._load_applied_artifact(agent_name)
+        answer = self.ask_artifact(
+            artifact,
+            question,
+            eval_receipt_digest=receipt_digests[0] if receipt_digests else None,
+        )
         try:
-            with open(config_path) as f:
-                defaults = yaml.safe_load(f)
-            if not isinstance(defaults, dict):
-                raise ValueError("Invalid tabletalk.yaml format.")
-            for key in ("provider", "contexts", "output"):
-                if key not in defaults:
-                    raise ValueError(f"Missing key '{key}' in tabletalk.yaml")
-            data_source_desc = defaults.get("description", "")
-            provider_type = defaults["provider"].get("type", "unknown")
-            data_source_line = f"DATA_SOURCE: {provider_type} - {data_source_desc}"
-        except Exception as e:
-            logger.error(f"Error loading configuration: {e}")
-            return
-
-        dbt_manifest = None
-        if defaults.get("dbt"):
-            try:
-                from tabletalk.dbt_manifest import DbtManifest
-
-                dbt_manifest = DbtManifest.load(self.project_folder, defaults["dbt"])
-                data_source_line += f" | DBT_MANIFEST: {dbt_manifest.path}"
-            except Exception as e:
-                raise RuntimeError(f"Could not load configured dbt context: {e}") from e
-
-        contexts_folder = os.path.join(self.project_folder, defaults["contexts"])
-        output_folder = os.path.join(self.project_folder, defaults["output"])
-        agents = self._agents_by_context(str(defaults.get("agents") or "agents"))
-        os.makedirs(output_folder, exist_ok=True)
-
-        for context_file in sorted(os.listdir(contexts_folder)):
-            if not context_file.endswith(".yaml"):
-                continue
-            context_path = os.path.join(contexts_folder, context_file)
-            try:
-                with open(context_path) as f:
-                    context_config = yaml.safe_load(f)
-                if not isinstance(context_config, dict):
-                    logger.warning(f"Invalid format in '{context_file}', skipping.")
-                    continue
-            except Exception as e:
-                logger.error(f"Error reading '{context_file}': {e}")
-                continue
-
-            context_name = context_config.get("name", "unnamed_context")
-            context_desc = context_config.get("description", "")
-            version = context_config.get("version", "1.0")
-            context_line = f"CONTEXT: {context_name} - {context_desc} (v{version})"
-            output_lines = [data_source_line, context_line]
-            agent = agents.get(str(context_name))
-            if agent is not None:
-                output_lines.extend(self._agent_manifest_lines(agent))
-
-            schema_list = context_config.get("datasets") or context_config.get("schemas", [])
-            for schema_item in schema_list:
-                schema_name = schema_item.get("name")
-                schema_desc = schema_item.get("description", "")
-                if not schema_name:
-                    logger.warning(f"Missing schema name in '{context_file}', skipping item.")
-                    continue
-                output_lines.append(f"DATASET: {schema_name} - {schema_desc}")
-                output_lines.append("TABLES:")
-
-                tables = schema_item.get("tables", [])
-                yaml_table_desc: Dict[str, Optional[str]] = {}
-                table_names: List[str] = []
-                for table in tables:
-                    if isinstance(table, str):
-                        yaml_table_desc[f"{schema_name}.{table}"] = None
-                        table_names.append(table)
-                    elif isinstance(table, dict):
-                        full = f"{schema_name}.{table['name']}"
-                        yaml_table_desc[full] = table.get("description", "")
-                        table_names.append(table["name"])
-                    else:
-                        logger.warning(f"Invalid table entry in '{schema_name}'.")
-
-                try:
-                    # Use cached introspection (item 4)
-                    compact_tables = self.db_provider.get_cached_compact_tables(
-                        schema_name, table_names
-                    )
-                    for ct in compact_tables:
-                        tname = ct["t"]
-                        yaml_desc = yaml_table_desc.get(tname)
-                        short_name = tname.rsplit(".", 1)[-1]
-                        dbt_context = (
-                            dbt_manifest.relation(schema_name, short_name)
-                            if dbt_manifest is not None
-                            else None
-                        )
-                        desc = (
-                            yaml_desc
-                            if yaml_desc
-                            else (
-                                dbt_context.description
-                                if dbt_context is not None and dbt_context.description
-                                else ct.get("d", "")
-                            )
-                        )
-                        fields_str = "|".join(_encode_field(f) for f in ct["f"])
-                        output_lines.append(f"{tname}|{desc}|{fields_str}")
-                        if dbt_context is not None:
-                            output_lines.extend(dbt_context.prompt_lines(tname))
-                except Exception as e:
-                    logger.error(f"Error fetching tables for '{schema_name}': {e}")
-                    continue
-
-            output_file = os.path.join(output_folder, context_file.replace(".yaml", ".txt"))
-            try:
-                with open(output_file, "w") as f:
-                    f.write("\n".join(output_lines))
-                logger.info(f"Generated manifest for '{context_file}'")
-            except Exception as e:
-                logger.error(f"Error writing '{output_file}': {e}")
+            self._write_invocation(agent_name, question, answer)
+        except OSError as error:
+            logger.warning("Could not write invocation history: %s", type(error).__name__)
+        return answer

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from tabletalk.interfaces import DatabaseProvider
 
@@ -21,7 +21,7 @@ class DuckDBProvider(DatabaseProvider):
         self.read_only = read_only
         self.connection = duckdb.connect(database_path, read_only=read_only)
 
-    def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
         result = self.connection.execute(sql_query)
         columns = [desc[0] for desc in result.description] if result.description else []
         return [dict(zip(columns, row)) for row in result.fetchall()]
@@ -29,7 +29,7 @@ class DuckDBProvider(DatabaseProvider):
     def get_client(self) -> Any:
         return self.connection
 
-    def get_database_type_map(self) -> Dict[str, str]:
+    def get_database_type_map(self) -> dict[str, str]:
         return {
             "VARCHAR": "S",
             "TEXT": "S",
@@ -77,8 +77,8 @@ class DuckDBProvider(DatabaseProvider):
         }
 
     def get_compact_tables(
-        self, schema_name: str, table_names: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, schema_name: str, table_names: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         type_map = self.get_database_type_map()
 
         if table_names is None:
@@ -112,7 +112,7 @@ class DuckDBProvider(DatabaseProvider):
             pk_set = {col[1] for col in columns if col[5] > 0}  # pk column is index 5
 
             # Foreign keys via PRAGMA foreign_key_list
-            fk_map: Dict[str, str] = {}
+            fk_map: dict[str, str] = {}
             try:
                 fk_result = self.connection.execute(
                     f"PRAGMA foreign_key_list('{table_name}')"
@@ -129,7 +129,7 @@ class DuckDBProvider(DatabaseProvider):
                 col_name = col[1]
                 col_type = (col[2] or "VARCHAR").upper().split("(")[0].strip()
                 mapped = type_map.get(col_type, "S")
-                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                field: dict[str, Any] = {"n": col_name, "t": mapped}
                 if col_name in pk_set:
                     field["pk"] = True
                 if col_name in fk_map:

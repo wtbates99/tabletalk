@@ -1,477 +1,242 @@
-# tabletalk — dbt for agents
+# TableTalk
 
-> Define your data sources once. Deploy an AI agent for every dataset.
-> Redeploy anytime your schema changes — like Terraform for analytics agents.
-> Test every change with execution-based evals as code.
+TableTalk defines trusted data agents as code. An Agent declares the relations,
+semantics, policies, and regression suites it may use. TableTalk compiles that
+source into a content-addressed artifact, shows a semantic plan, runs
+execution-based evals, and only applies the exact artifact that passed.
 
-tabletalk lets you declaratively define **which data an AI agent can see**,
-then deploy that agent as a natural-language SQL interface.
-The workflow mirrors tools you already know:
+At runtime, an applied Agent produces a structured interpretation and query
+plan, validates generated SQL against its compiled scope, executes a read-only
+query, and returns claims tied to evidence and reproducible calculations.
+Missing models, database failures, empty evidence, and unsupported claims are
+reported explicitly. They are never replaced by heuristic or locally generated
+answers.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  dbt analogy                    terraform analogy            │
-│                                                              │
-│  contexts/*.yaml  ≈ sources.yml  ≈  resource "agent" {}     │
-│  manifest/*.txt   ≈ manifest.json ≈  .tfstate                │
-│  tabletalk apply  ≈ dbt compile   ≈  terraform apply         │
-│  tabletalk query  ≈ dbt run       ≈  agent is "live"         │
-└─────────────────────────────────────────────────────────────┘
-```
+## Free local development
 
----
-
-## The core idea
-
-In dbt, you define **models** that transform raw tables into analytics-ready
-datasets. In tabletalk, you define **contexts** that scope what data an agent
-can see — then the agent uses an LLM to answer questions about that data.
-
-```yaml
-# contexts/sales.yaml  — defines a "Sales Analyst" agent
-name: sales
-description: "Order processing, revenue, and product analysis"
-datasets:
-  - name: public
-    tables:
-      - name: orders
-        description: "Customer orders with status and totals"
-      - name: order_items
-        description: "Line items — FK to orders and products"
-      - name: products
-        description: "Product catalogue with pricing"
-```
-
-Run `tabletalk apply` and the agent is deployed. Ask it anything:
-
-```
-> What is total revenue this month?
-→ SELECT SUM(total_amount) FROM orders WHERE ...
-
-> Which products drive the most revenue?
-→ SELECT p.name, SUM(oi.unit_price * oi.quantity) AS revenue ...
-
-> Break that down by category
-→ (follows up on the previous query using conversation context)
-```
-
----
-
-## Installation
+Local development defaults to Ollama's free cloud model
+`gemma4:31b-cloud`. Ollama runs the OpenAI-compatible endpoint locally; the
+model itself is the cloud model.
 
 ```bash
-# Core (includes SQLite — no extra driver needed)
-pip install tabletalk
-
-# With your database driver
-pip install "tabletalk[duckdb]"     # DuckDB
-pip install "tabletalk[postgres]"   # PostgreSQL
-pip install "tabletalk[snowflake]"  # Snowflake
-pip install "tabletalk[mysql]"      # MySQL
-pip install "tabletalk[bigquery]"   # BigQuery
-pip install "tabletalk[azuresql]"   # Azure SQL / SQL Server
-pip install "tabletalk[all]"        # Everything
-```
-
----
-
-## Quick start
-
-**Default — Ollama Cloud Free tier (no paid API key):**
-```bash
-# 1. Install Ollama → https://ollama.com, then sign in and pull:
 ollama signin
 ollama pull gemma4:31b-cloud
 
-# 2. In tabletalk.yaml, set:
-#   llm:
-#     provider: ollama
-#     api_key: ollama
-#     model: gemma4:31b-cloud
-#     base_url: http://localhost:11434/v1
+uv sync --extra duckdb
+uv run tabletalk init
+uv run tabletalk compile
+uv run tabletalk plan
+uv run tabletalk eval
+uv run tabletalk apply
+uv run tabletalk ask starter "How many customers are there?"
 ```
 
-Model and Free-tier session-limit errors are returned to the caller. TableTalk
-does not replace failed Ollama requests with local parsing or a paid provider.
+The generated `tabletalk.yaml` contains:
 
-**Then:**
+```yaml
+llm:
+  provider: ollama
+  model: gemma4:31b-cloud
+  base_url: http://localhost:11434/v1
+  api_key: ollama
+  temperature: 0
+```
+
+Production is not tied to Gemma or Ollama. Configure any compatible model
+endpoint explicitly. TableTalk does not silently switch models or providers.
+
+## Install
+
 ```bash
-# 1. Initialize a new project
-tabletalk init
+pip install tabletalk
+pip install "tabletalk[duckdb]"     # optional DuckDB driver
+pip install "tabletalk[snowflake]"  # optional Snowflake driver
+```
 
-# 2. Configure your database connection
-tabletalk connect                      # interactive wizard
-# or: tabletalk connect --from-dbt my_dbt_project   (import from dbt)
+SQLite is included with Python. The supported database surface is deliberately
+limited to SQLite, DuckDB, and Snowflake.
 
-# 3. Edit contexts/default_context.yaml to match your schema
+## Project layout
 
-# 4. Deploy your agents (compile + introspect)
+```text
+.
+├── tabletalk.yaml
+├── agents/
+│   └── starter.yaml
+├── evals/
+│   └── starter.yaml
+└── .tabletalk/              # generated, content-addressed local state
+    ├── artifacts/
+    ├── evals/
+    ├── history/
+    └── state.json
+```
+
+An Agent is a versioned resource:
+
+```yaml
+kind: Agent
+version: "1"
+name: starter
+description: Answers customer questions from the approved dataset.
+connection: default
+relations:
+  include:
+    - main.customers
+semantics:
+  metrics:
+    customer_count:
+      expression: count(id)
+      relation: main.customers
+policies:
+  read_only: true
+  require_evidence: true
+  max_rows: 500
+  timeout_seconds: 30
+evals:
+  - starter_regression
+```
+
+An EvalSuite binds executable expectations to that Agent:
+
+```yaml
+kind: EvalSuite
+version: 1
+name: starter_regression
+agent: starter
+environment:
+  connection: default
+cases:
+  - name: customer_count
+    messages:
+      - role: user
+        content: How many customers are there?
+    expected:
+      result:
+        type: scalar
+        value: 3
+```
+
+## Lifecycle
+
+```bash
+tabletalk connect
+tabletalk discover
+tabletalk compile
+tabletalk plan
+tabletalk eval
 tabletalk apply
-
-# 5. Query with an agent (interactive CLI)
-tabletalk query
-
-# 6. Launch the web UI
+tabletalk ask AGENT "QUESTION"
 tabletalk serve
 ```
 
----
+- `connect` creates or tests a project connection without writing secrets into
+  generated artifacts.
+- `discover` shows visible database metadata and can write a scoped Agent.
+- `compile` is deterministic and does not invoke a model.
+- `plan` compares canonical candidate and applied artifacts.
+- `eval` runs the exact candidate through the real structured runtime.
+- `apply` requires passing receipts for every required suite and updates all
+  selected Agents atomically.
+- `ask` and `serve` use applied artifacts only and expose evidence, SQL,
+  verification, and technical receipts.
 
-## Project structure
+Supporting inspection commands are available under `agents` and `connections`.
+Run `tabletalk COMMAND --help` for exact options. Exit codes distinguish usage
+errors, configuration failures, eval failures, and runtime failures.
 
-```
-my_project/
-├── tabletalk.yaml          # Database + LLM config
-│
-├── contexts/               # Agent definitions — one file = one agent
-│   ├── sales.yaml          # "Sales Analyst" — sees orders + products
-│   ├── customers.yaml      # "Customer Analyst" — sees customer profiles
-│   ├── inventory.yaml      # "Inventory Manager" — sees stock levels
-│   └── marketing.yaml      # "Marketing Analyst" — sees campaigns
-│
-└── manifest/               # Compiled manifests (auto-generated by apply)
-    ├── sales.txt
-    ├── customers.txt
-    ├── inventory.txt
-    └── marketing.txt
-```
+## Database configuration
 
----
-
-## tabletalk.yaml
+SQLite:
 
 ```yaml
-# Option A — inline connection
-provider:
-  type: postgres              # postgres | snowflake | duckdb | azuresql
-  host: localhost             #           bigquery  | mysql  | sqlite
-  port: 5432
-  database: analytics
-  user: analyst
-  password: ${DB_PASSWORD}   # read from environment variable
-
-# Option B — reference a saved profile (recommended)
-# profile: my_prod_snowflake  (run `tabletalk connect` to create profiles)
-
-llm:
-  provider: ollama
-  api_key: ollama
-  model: gemma4:31b-cloud
-  base_url: http://localhost:11434/v1
-  max_tokens: 2000
-  temperature: 0
-
-# Optional semantic enrichment from a compiled dbt artifact
-# dbt:
-#   manifest: ../analytics/target/manifest.json
-
-contexts: contexts            # directory with agent context definitions
-output: manifest              # directory where compiled manifests are written
-description: "Production analytics database"
+connections:
+  default:
+    type: sqlite
+    database_path: ./data.db
+    read_only: true
 ```
 
----
-
-## Context definitions
-
-Each `.yaml` file in `contexts/` defines one **agent** — what data it can see
-and a human-readable description that becomes part of its system prompt.
+DuckDB:
 
 ```yaml
-# contexts/customers.yaml
-name: customers
-description: "Customer profiles, acquisition, and lifetime value"
-version: "1.0"
-
-datasets:
-  - name: public                       # database schema name
-    description: "Main schema"
-    tables:
-      - name: customers
-        description: >-
-          One row per registered customer.
-          lifetime_value tracks cumulative spend.
-          Use city/country for geographic segmentation.
-
-      - name: subscriptions
-        description: >-
-          Active and cancelled subscriptions.
-          FK: customer_id → customers.id
-          status: active | trialing | cancelled | past_due
+connections:
+  default:
+    type: duckdb
+    database_path: ./analytics.duckdb
+    read_only: true
 ```
 
-**The description is the most important field.** It tells the LLM what each
-table is *for* — not just what it contains. Good descriptions make agents
-dramatically more accurate.
-
----
-
-## The deploy lifecycle
-
-```bash
-# Initial deploy
-tabletalk apply
-
-# Schema changed? Redeploy:
-vim contexts/sales.yaml        # update table or description
-tabletalk apply                # recompiles manifest (like terraform apply)
-tabletalk query                # agent now uses updated schema
-
-# Check if redeploy is needed:
-tabletalk apply                # tabletalk warns if contexts are stale
-```
-
-Under the hood, `tabletalk apply`:
-1. Reads every `.yaml` in `contexts/`
-2. Introspects the live database (PK/FK detection, column types)
-3. Merges your human descriptions with the introspected schema
-4. Writes `manifest/*.txt` — compact schema text injected into the LLM prompt
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `tabletalk init` | Scaffold a new project |
-| `tabletalk apply [dir]` | Introspect DB + compile manifests |
-| `tabletalk eval run SUITE` | Run execution, result, structure, safety, and performance evals |
-| `tabletalk query [dir]` | Interactive agent CLI session |
-| `tabletalk serve` | Web UI at http://localhost:5000 |
-| `tabletalk connect` | Save a database connection profile |
-| `tabletalk connect --from-dbt PROJECT` | Import from `~/.dbt/profiles.yml` |
-| `tabletalk history [dir]` | View recent queries |
-| `tabletalk profiles list` | List saved profiles |
-| `tabletalk profiles delete NAME` | Remove a profile |
-| `tabletalk profiles test NAME` | Test a saved connection |
-
----
-
-## Evals as code
-
-Eval suites run real LLM agent conversations against fixed fixtures and compare
-the AI's resulting data with expected values or reference SQL. Fixtures verify
-the model; they never replace it:
-
-```bash
-python examples/ecommerce/evals/seed_fixture.py
-
-tabletalk eval run examples/ecommerce/evals/sales_regression.yaml \
-  --project-folder examples/ecommerce
-```
-
-SQL execution and result correctness are hard gates. Suites can also inspect
-tables and columns through a parsed SQL AST, prevent sensitive access, enforce
-latency/tool/cost budgets, emit JSON or JUnit, and return nonzero in CI. See
-the [eval guide](docs/evals.md) and the
-[12,000-order ecommerce example](examples/ecommerce/evals/README.md).
-
----
-
-## Query session commands
-
-Inside `tabletalk query`:
-
-| Input | Action |
-|-------|--------|
-| Any question | Generate SQL (streaming) |
-| `change` | Switch to a different manifest/agent |
-| `history` | Show recent queries for this session |
-| `clear` | Clear conversation context |
-| `exit` | Quit |
-
-**Options:**
-```bash
-tabletalk query --execute          # execute generated SQL and show results
-tabletalk query --execute --explain  # also stream a plain-English explanation
-tabletalk query --output data.csv  # save results to CSV
-tabletalk query --no-context       # disable multi-turn conversation
-```
-
----
-
-## Web UI
-
-```bash
-tabletalk serve            # http://localhost:5000
-tabletalk serve --port 8080
-tabletalk serve --debug
-```
-
-The web UI provides:
-- Manifest/agent selector
-- Streaming SQL generation (token-by-token)
-- Automatic execution with tabular results
-- Plain-English explanation of results
-- Suggested follow-up questions
-- Favorites management
-- Query history
-
----
-
-## Supported databases
-
-| Database | Extra | Connection |
-|----------|-------|------------|
-| SQLite | _(none)_ | `type: sqlite` |
-| DuckDB | `tabletalk[duckdb]` | `type: duckdb` |
-| PostgreSQL | `tabletalk[postgres]` | `type: postgres` |
-| MySQL | `tabletalk[mysql]` | `type: mysql` |
-| Snowflake | `tabletalk[snowflake]` | `type: snowflake` |
-| BigQuery | `tabletalk[bigquery]` | `type: bigquery` |
-| Azure SQL | `tabletalk[azuresql]` | `type: azuresql` |
-
----
-
-## Supported LLMs
-
-| Provider | Config | Models |
-|----------|--------|--------|
-| Ollama _(Free cloud or local)_ | `provider: ollama` | `gemma4:31b-cloud` _(default)_, `qwen2.5-coder:7b`, `llama3.2`, `mistral` |
-| OpenAI | `provider: openai` | `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo` |
-| Anthropic | `provider: anthropic` | `claude-opus-4-6`, `claude-sonnet-4-6` |
-
-**Ollama config:**
-```yaml
-llm:
-  provider: ollama
-  api_key: ollama
-  model: gemma4:31b-cloud              # Ollama Free, low cloud usage
-  base_url: http://localhost:11434/v1  # default
-```
-
----
-
-## Safe mode (read-only enforcement)
-
-Set `safe_mode: true` in `tabletalk.yaml` to restrict execution to `SELECT`
-queries only. Any attempt to run `DELETE`, `UPDATE`, `DROP`, `INSERT`, etc.
-raises an error before it reaches the database.
+Snowflake secrets should come from environment variables, not source files:
 
 ```yaml
-safe_mode: true   # blocks all non-SELECT queries at the session level
+connections:
+  default:
+    type: snowflake
+    account: ${SNOWFLAKE_ACCOUNT}
+    user: ${SNOWFLAKE_USER}
+    password: ${SNOWFLAKE_PASSWORD}
+    database: ANALYTICS
+    warehouse: COMPUTE_WH
+    schema: PUBLIC
+    role: TABLETALK_READER
 ```
 
-This is the recommended setting when the agent is connected to a production
-database.
+Use a database identity that is independently restricted to read-only access.
+SQL AST validation is an additional boundary, not a replacement for database
+permissions.
 
----
+## dbt metadata
 
-## Environment variables
+Point TableTalk at a dbt project or manifest:
 
-| Variable | Used by | Purpose |
-|----------|---------|---------|
-| `OPENAI_API_KEY` | `tabletalk.yaml` `${OPENAI_API_KEY}` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | `tabletalk.yaml` `${ANTHROPIC_API_KEY}` | Anthropic API key |
-| `DB_PASSWORD` | `tabletalk.yaml` `${DB_PASSWORD}` | Database password (any provider) |
-| `TABLETALK_SECRET_KEY` | Flask web UI | Session signing key — set in production |
-
-Any `${VAR}` placeholder in `tabletalk.yaml` is resolved from the environment
-at startup. An unset variable raises an error with the variable name.
-
----
-
-## Health check endpoint
-
-The web UI exposes a `/health` endpoint suitable for Docker `HEALTHCHECK` and
-Kubernetes probes:
-
-```
-GET /health
+```yaml
+dbt:
+  project_dir: ../analytics
+  target_dir: target
 ```
 
-Returns `200 {"status": "ok"}` when manifests are compiled and ready, or
-`503 {"status": "degraded", "issues": [...]}` with a description of what's
-missing.
+Compilation incorporates available descriptions, lineage, tests,
+materializations, tags, groups, and ownership into the canonical artifact.
+A changed dbt manifest changes the candidate digest and must pass evals again.
 
----
+## Examples and verification
 
-## Profile management
+- [`examples/sqlite-starter`](examples/sqlite-starter) — smallest local path
+- [`examples/duckdb-analytics`](examples/duckdb-analytics) — analytics joins and
+  a join-multiplication regression
+- [`examples/snowflake-production`](examples/snowflake-production) — env-only
+  Snowflake credentials with a local DuckDB eval fixture
 
-Profiles store connection credentials in `~/.tabletalk/profiles.yml` — the
-same pattern as `~/.dbt/profiles.yml`.
+Run the deterministic suite:
 
 ```bash
-# Create a profile interactively
-tabletalk connect
-
-# Import from an existing dbt project
-tabletalk connect --from-dbt my_dbt_project --target prod
-
-# Reference in tabletalk.yaml
-profile: my_snowflake_prod
+uv run pytest -q
+uv run ruff check tabletalk
+uv run mypy tabletalk
 ```
 
----
-
-## Example project
-
-See [`examples/ecommerce/`](examples/ecommerce/) for a complete DuckDB-backed
-ecommerce example with 4 agents, seed data, and pre-generated manifests.
+The live Gemma smoke test is opt-in because it needs an authenticated Ollama
+daemon:
 
 ```bash
-cd examples/ecommerce
-pip install "tabletalk[duckdb]"
-# Uses Ollama Cloud Free by default — no paid API key needed.
-# Install Ollama, then: ollama signin && ollama pull gemma4:31b-cloud
-python seed.py          # create the database
-tabletalk apply         # compile manifests
-tabletalk query         # start querying (or: tabletalk serve)
+TABLETALK_RUN_LIVE_OLLAMA=1 \
+uv run pytest -q -m live_ollama tabletalk/tests/test_live_ollama.py
 ```
 
----
+## Security and data handling
 
-## Compact schema format
-
-tabletalk uses a compact notation to fit full schema context into the LLM
-prompt efficiently:
-
-```
-public.orders|Customer orders|id:I[PK]|customer_id:I[FK:customers.id]|status:S|total:N
-```
-
-- `I` = Integer, `S` = String, `F` = Float, `N` = Numeric, `D` = Date, `TS` = Timestamp, `B` = Boolean
-- `[PK]` = primary key
-- `[FK:table.column]` = foreign key — the LLM uses this to construct JOINs
-
----
-
-## Running tests
-
-```bash
-uv run pytest                          # all tests — SQLite + DuckDB, no external services
-uv run pytest -k test_sqlite           # SQLite provider tests only
-uv run pytest -k test_duckdb           # DuckDB provider tests (requires duckdb)
-uv run pytest tabletalk/tests/test_cli.py       # CLI tests
-uv run pytest tabletalk/tests/test_app.py       # Flask API tests
-uv run pytest tabletalk/tests/test_interfaces.py  # Core session + parser tests
-```
-
-Tests for Postgres, MySQL, Snowflake, BigQuery, and Azure SQL are **auto-skipped**
-when the corresponding driver is not installed. Install the driver and set
-the relevant environment variables to activate those tests:
-
-```bash
-# PostgreSQL
-uv add "tabletalk[postgres]"
-# PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
-
-# Snowflake
-uv add "tabletalk[snowflake]"
-# SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_DATABASE, SNOWFLAKE_WAREHOUSE
-
-# BigQuery
-uv add "tabletalk[bigquery]"
-# BIGQUERY_PROJECT_ID, BIGQUERY_DATASET (+ GOOGLE_APPLICATION_CREDENTIALS or ADC)
-
-# Azure SQL
-uv add "tabletalk[azuresql]"
-# AZURESQL_SERVER, AZURESQL_DATABASE, AZURESQL_USER, AZURESQL_PASSWORD
-```
-
----
+- Query execution is read-only and limited to one parsed query.
+- Agent relation, column, join, row, and timeout policies are enforced before
+  execution.
+- Applied state references immutable artifact and eval-receipt digests.
+- Local invocation history stores metadata and receipts, not raw result rows.
+- Credential-shaped values are redacted from history and HTTP responses.
+- A model or database outage produces a typed failure; no cached prose,
+  alternate provider, or heuristic response is substituted.
 
 ## License
 
-**CC BY-NC 4.0** — free for non-commercial use.
-For commercial licensing: `wtbates99@gmail.com`
+The current package metadata retains CC BY-NC 4.0 while the repository's
+ownership and third-party asset audit remains unresolved. See
+[`docs/refactor/licensing-audit.md`](docs/refactor/licensing-audit.md).

@@ -1,16 +1,29 @@
 import sqlite3
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any
 
 from tabletalk.interfaces import DatabaseProvider
 
 
 class SQLiteProvider(DatabaseProvider):
-    def __init__(self, database_path: str):
+    def __init__(self, database_path: str, read_only: bool = True):
         self.database_path = database_path
-        self.connection = sqlite3.connect(database_path)
+        self.read_only = read_only
+        if read_only and database_path != ":memory:":
+            resolved = Path(database_path).resolve()
+            self.connection = sqlite3.connect(
+                f"file:{resolved.as_posix()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+            )
+        else:
+            self.connection = sqlite3.connect(
+                database_path,
+                check_same_thread=False,
+            )
         self.connection.row_factory = sqlite3.Row
 
-    def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
         cursor = self.connection.cursor()
         cursor.execute(sql_query)
         results = cursor.fetchall()
@@ -19,7 +32,7 @@ class SQLiteProvider(DatabaseProvider):
     def get_client(self) -> sqlite3.Connection:
         return self.connection
 
-    def get_database_type_map(self) -> Dict[str, str]:
+    def get_database_type_map(self) -> dict[str, str]:
         return {
             "TEXT": "S",
             "INTEGER": "I",
@@ -39,13 +52,14 @@ class SQLiteProvider(DatabaseProvider):
         }
 
     def get_compact_tables(
-        self, schema_name: str, table_names: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, schema_name: str, table_names: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         cursor = self.connection.cursor()
 
         if table_names is None:
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+                "SELECT name FROM sqlite_master "
+                "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
             )
             table_names = [row[0] for row in cursor.fetchall()]
 
@@ -61,7 +75,7 @@ class SQLiteProvider(DatabaseProvider):
             pk_set = {col[1] for col in columns if col[5] > 0}
 
             # Foreign keys via PRAGMA foreign_key_list
-            fk_map: Dict[str, str] = {}
+            fk_map: dict[str, str] = {}
             cursor.execute(f"PRAGMA foreign_key_list('{table_name}')")
             for fk_row in cursor.fetchall():
                 # id, seq, table, from, to, on_update, on_delete, match
@@ -72,7 +86,7 @@ class SQLiteProvider(DatabaseProvider):
                 col_name = col[1]
                 col_type = (col[2] or "TEXT").upper().split("(")[0].strip()
                 mapped = type_map.get(col_type, "S")
-                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                field: dict[str, Any] = {"n": col_name, "t": mapped}
                 if col_name in pk_set:
                     field["pk"] = True
                 if col_name in fk_map:

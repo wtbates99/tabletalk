@@ -1,0 +1,37 @@
+kind: Agent
+name: sales
+description: Answers governed questions about recognized order revenue.
+connection: local
+relations:
+  include:
+    - main.orders
+semantics:
+  metrics:
+    recognized_revenue:
+      label: Recognized revenue
+      description: Revenue from completed orders; cancelled orders are excluded.
+      expression: main.orders.recognized_revenue
+      aggregation: sum
+      time_dimension: main.orders.order_date
+      unit: USD
+      synonyms: [revenue, sales]
+      required_filters:
+        - main.orders.status != 'cancelled'
+  time:
+    timezone: UTC
+    week_start: monday
+    default_dimension: main.orders.order_date
+  rules:
+    - Exclude cancelled orders unless explicitly requested.
+    - State exact date boundaries for every relative period.
+policies:
+  read_only: true
+  require_evidence: true
+  allow_ambiguous_execution: false
+  max_rows: 100
+  timeout_seconds: 30
+  max_repair_attempts: 1
+evals:
+  - sales-regression
+sample_questions:
+  - What was recognized revenue in January 2026?

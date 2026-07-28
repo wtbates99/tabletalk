@@ -1,9 +1,4 @@
-"""Read semantic context from a compiled dbt ``manifest.json``.
-
-TableTalk keeps its own compact manifest because it is efficient to place in an
-LLM system prompt. This module enriches that prompt from dbt's source of truth
-without asking users to duplicate model and column documentation.
-"""
+"""Narrow normalization of dbt metadata into compiled Agent semantics."""
 
 from __future__ import annotations
 
@@ -34,6 +29,11 @@ class DbtRelationContext:
     columns: dict[str, str] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
     tests: list[str] = field(default_factory=list)
+    resource_type: str = ""
+    materialized: str = ""
+    tags: list[str] = field(default_factory=list)
+    group: str = ""
+    owner: str = ""
 
     def prompt_lines(self, relation_name: str) -> list[str]:
         """Render compact, explicit metadata lines for a TableTalk manifest."""
@@ -74,6 +74,14 @@ class DbtManifest:
             configured_path = config
         elif isinstance(config, dict):
             configured_path = config.get("manifest") or config.get("manifest_path")
+            if not configured_path:
+                project_dir = Path(str(config.get("project_dir") or "."))
+                target_dir = Path(str(config.get("target_dir") or "target"))
+                configured_path = (
+                    target_dir / "manifest.json"
+                    if target_dir.is_absolute()
+                    else project_dir / target_dir / "manifest.json"
+                )
         else:
             configured_path = None
         if not configured_path:
@@ -146,6 +154,19 @@ class DbtManifest:
                 description=_compact_text(raw_node.get("description")),
                 columns=columns,
                 depends_on=[str(value) for value in upstream],
+                resource_type=str(resource_type),
+                materialized=str(
+                    (raw_node.get("config") or {}).get("materialized") or ""
+                ),
+                tags=sorted(str(value) for value in raw_node.get("tags") or []),
+                group=str(raw_node.get("group") or ""),
+                owner=str(
+                    ((raw_node.get("meta") or {}).get("owner"))
+                    or ((raw_node.get("config") or {}).get("meta") or {}).get(
+                        "owner"
+                    )
+                    or ""
+                ),
             )
             self._by_unique_id[str(unique_id)] = context
             for candidate in self._node_candidates(raw_node):

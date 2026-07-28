@@ -92,5 +92,18 @@ def test_missing_configured_manifest_stops_context_compilation(tmp_path):
 
 
 def test_invalid_dbt_configuration_is_rejected(tmp_path):
-    with pytest.raises(ValueError, match="requires 'manifest'"):
+    with pytest.raises(FileNotFoundError, match="dbt compile"):
         DbtManifest.load(tmp_path, {})
+
+
+def test_project_and_target_directory_configuration(tmp_path, dbt_payload):
+    target = tmp_path / "analytics" / "target"
+    target.mkdir(parents=True)
+    (target / "manifest.json").write_text(json.dumps(dbt_payload))
+
+    manifest = DbtManifest.load(
+        tmp_path,
+        {"project_dir": "analytics", "target_dir": "target"},
+    )
+
+    assert manifest.relation("main", "fct_orders") is not None

@@ -9,6 +9,11 @@ from tabletalk.evals.models import (
     MetricResult,
     SuiteResult,
 )
+from tabletalk.evals.receipts import (
+    create_eval_receipt,
+    matching_eval_receipt,
+    write_eval_receipt,
+)
 from tabletalk.evals.runner import EvalRunner
 
 __all__ = [
@@ -16,6 +21,9 @@ __all__ = [
     "EvalCase",
     "EvalConfigError",
     "EvalRunner",
+    "create_eval_receipt",
+    "matching_eval_receipt",
+    "write_eval_receipt",
     "EvalSuite",
     "ExecutionTrace",
     "MetricResult",

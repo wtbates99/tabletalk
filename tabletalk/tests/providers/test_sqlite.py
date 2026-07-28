@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from tabletalk.providers.sqlite_provider import SQLiteProvider
-
 
 # ── Minimal fixture (legacy — kept for backward compat with original tests) ───
 
@@ -337,6 +335,13 @@ class TestCompactTablesEcommerceFullSchema:
     def test_empty_table_name_list(self, ecommerce_provider):
         tables = ecommerce_provider.get_compact_tables(schema_name="main", table_names=[])
         assert tables == []
+
+
+def test_file_database_is_read_only_by_default(sqlite_db_path: str) -> None:
+    provider = SQLiteProvider(sqlite_db_path)
+
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        provider.execute_query("INSERT INTO users (name) VALUES ('Mallory')")
 
 
 # ── in-memory SQLite ──────────────────────────────────────────────────────────

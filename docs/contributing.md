@@ -30,7 +30,8 @@ uv run pytest
 uv run pytest tabletalk/tests/test_providers.py -v
 ```
 
-Tests live in `tabletalk/tests/`. PostgreSQL and MySQL tests require a running local instance — configure credentials in the test config if you need them.
+Tests live in `tabletalk/tests/`. The default suite uses SQLite, DuckDB, and
+deterministic fake models. Snowflake and live Ollama tests are explicitly opt-in.
 
 ---
 

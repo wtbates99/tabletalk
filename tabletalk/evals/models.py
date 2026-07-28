@@ -34,6 +34,7 @@ class EvalCase:
     manifest: str | None = None
     description: str = ""
     tags: list[str] = field(default_factory=list)
+    expected_interpretation: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -46,6 +47,7 @@ class EvalSuite:
     version: int = 1
     description: str = ""
     environment: dict[str, Any] = field(default_factory=dict)
+    agent: str | None = None
 
 
 @dataclass
@@ -74,6 +76,7 @@ class ExecutionTrace:
     completion_tokens: int = 0
     cost_usd: float = 0.0
     error: str | None = None
+    answer: dict[str, Any] | None = None
 
     @property
     def last_result(self) -> list[dict[str, Any]]:

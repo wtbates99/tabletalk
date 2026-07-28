@@ -1,0 +1,53 @@
+kind: EvalSuite
+name: sales-regression
+agent: sales
+fixture:
+  type: sqlite
+  setup:
+    - fixtures/schema.sql
+    - fixtures/data.sql
+cases:
+  - name: january-recognized-revenue
+    question: What was recognized revenue in January 2026?
+    expected_interpretation:
+      metric: recognized_revenue
+      start_date: "2026-01-01"
+      end_date: "2026-02-01"
+      timezone: UTC
+    expect:
+      relations:
+        required: [main.orders]
+      columns:
+        required: [recognized_revenue, order_date, status]
+      reference_sql: |
+        SELECT SUM(recognized_revenue) AS revenue
+        FROM main.orders
+        WHERE order_date >= '2026-01-01'
+          AND order_date < '2026-02-01'
+          AND status != 'cancelled'
+      result:
+        comparison: scalar
+        absolute_tolerance: 0.01
+      answer:
+        require_supported_claims: true
+        require_evidence: true
+        required_disclosures:
+          - exact_date_range
+          - metric_definition
+          - source_relation
+  - name: cancelled-revenue-explicit
+    question: What cancelled-order revenue was recorded in January 2026?
+    expect:
+      relations:
+        required: [main.orders]
+      reference_sql: |
+        SELECT SUM(recognized_revenue) AS revenue
+        FROM main.orders
+        WHERE order_date >= '2026-01-01'
+          AND order_date < '2026-02-01'
+          AND status = 'cancelled'
+      result:
+        comparison: scalar
+      answer:
+        require_supported_claims: true
+        require_evidence: true

@@ -72,6 +72,27 @@ def compare_results(
     comparison = expected_config.get("comparison", {})
     tolerance = float(expected_config.get("tolerance", comparison.get("numeric_tolerance", 0.0)))
 
+    if expected_type == "shape":
+        expected_columns = expected_config.get("columns")
+        expected_row_count = expected_config.get("row_count")
+        actual_columns = list(actual[0].keys()) if actual else []
+        missing_columns = (
+            sorted(set(expected_columns) - set(actual_columns))
+            if isinstance(expected_columns, list)
+            else []
+        )
+        row_count_matches = (
+            expected_row_count is None or len(actual) == expected_row_count
+        )
+        passed = not missing_columns and row_count_matches
+        return passed, {
+            "actual_columns": actual_columns,
+            "actual_row_count": len(actual),
+            "expected_columns": expected_columns,
+            "expected_row_count": expected_row_count,
+            "missing_columns": missing_columns,
+        }
+
     if expected_type == "scalar":
         if reference is not None:
             if not reference or not reference[0]:
@@ -106,23 +127,18 @@ def compare_results(
     if actual and expected_rows and reference is not None:
         actual_columns = list(actual[0].keys())
         reference_columns = list(expected_rows[0].keys())
-        can_align_by_position = (
-            len(actual_columns) == len(reference_columns)
-            and all(column in reference_columns for column in columns)
+        can_align_by_position = len(actual_columns) == len(reference_columns) and all(
+            column in reference_columns for column in columns
         )
         if can_align_by_position:
             alias_mapping = {
-                column: actual_columns[reference_columns.index(column)]
-                for column in columns
+                column: actual_columns[reference_columns.index(column)] for column in columns
             }
 
     missing_columns = sorted(
         column
         for column in columns
-        if any(
-            (alias_mapping.get(column, column)) not in row
-            for row in actual
-        )
+        if any((alias_mapping.get(column, column)) not in row for row in actual)
     )
     if missing_columns:
         return False, {
@@ -131,20 +147,55 @@ def compare_results(
         }
 
     actual_rows = [
-        {
-            column: row.get(alias_mapping.get(column, column))
-            for column in columns
-        }
-        for row in actual
+        {column: row.get(alias_mapping.get(column, column)) for column in columns} for row in actual
     ]
     normalized_expected = [_project_row(row, columns) for row in expected_rows]
     ignore_order = comparison.get("row_order", "ignore") == "ignore"
+    key_columns = comparison.get("key_columns")
 
     if len(actual_rows) != len(normalized_expected):
         return False, {
             "reason": "row count differs",
             "actual_row_count": len(actual_rows),
             "expected_row_count": len(normalized_expected),
+        }
+
+    if key_columns:
+        if not isinstance(key_columns, list):
+            return False, {"reason": "key_columns must be a list"}
+        actual_by_key = {
+            tuple(row.get(column) for column in key_columns): row
+            for row in actual_rows
+        }
+        expected_by_key = {
+            tuple(row.get(column) for column in key_columns): row
+            for row in normalized_expected
+        }
+        if len(actual_by_key) != len(actual_rows):
+            return False, {"reason": "agent result contains duplicate keys"}
+        if set(actual_by_key) != set(expected_by_key):
+            return False, {
+                "reason": "result keys differ",
+                "actual_keys": sorted(map(str, actual_by_key)),
+                "expected_keys": sorted(map(str, expected_by_key)),
+            }
+        for key, expected_row in expected_by_key.items():
+            if not _row_matches(
+                actual_by_key[key],
+                expected_row,
+                columns,
+                tolerance,
+            ):
+                return False, {
+                    "reason": "keyed row differs",
+                    "key": key,
+                    "actual_row": actual_by_key[key],
+                    "expected_row": expected_row,
+                }
+        return True, {
+            "row_count": len(actual_rows),
+            "columns": columns,
+            "key_columns": key_columns,
         }
 
     if ignore_order:
@@ -343,7 +394,51 @@ def answer_quality_metric(case: EvalCase, trace: ExecutionTrace) -> MetricResult
     answer_lower = trace.final_answer.lower()
     missing = [value for value in required if value.lower() not in answer_lower]
     found_forbidden = [value for value in forbidden if value.lower() in answer_lower]
-    passed = bool(trace.final_answer) and not missing and not found_forbidden
+    structured = trace.answer or {}
+    claims = structured.get("claims") if isinstance(structured, dict) else None
+    evidence = structured.get("evidence") if isinstance(structured, dict) else None
+    interpretation = (
+        structured.get("interpretation") if isinstance(structured, dict) else None
+    )
+    sources = structured.get("sources") if isinstance(structured, dict) else None
+    required_disclosures = list(answer.get("required_disclosures", []))
+    disclosure_failures = []
+    if (
+        "exact_date_range" in required_disclosures
+        and (
+            not isinstance(interpretation, dict)
+            or not interpretation.get("start_date")
+            or not interpretation.get("end_date")
+        )
+    ):
+        disclosure_failures.append("exact_date_range")
+    if (
+        "metric_definition" in required_disclosures
+        and (
+            not isinstance(interpretation, dict)
+            or not interpretation.get("metrics")
+        )
+    ):
+        disclosure_failures.append("metric_definition")
+    if "source_relation" in required_disclosures and not sources:
+        disclosure_failures.append("source_relation")
+    unsupported_claims = [
+        claim.get("claim")
+        for claim in claims or []
+        if isinstance(claim, dict) and claim.get("supported") is not True
+    ]
+    missing_evidence = bool(answer.get("require_evidence")) and not evidence
+    unsupported_required = bool(answer.get("require_supported_claims")) and bool(
+        unsupported_claims
+    )
+    passed = (
+        bool(trace.final_answer)
+        and not missing
+        and not found_forbidden
+        and not disclosure_failures
+        and not missing_evidence
+        and not unsupported_required
+    )
     return MetricResult(
         name="answer_quality",
         score=1.0 if passed else 0.0,
@@ -351,7 +446,58 @@ def answer_quality_metric(case: EvalCase, trace: ExecutionTrace) -> MetricResult
         details={
             "missing_required_phrases": missing,
             "forbidden_phrases": found_forbidden,
+            "missing_disclosures": disclosure_failures,
+            "unsupported_claims": unsupported_claims,
+            "missing_evidence": missing_evidence,
         },
+    )
+
+
+def interpretation_metric(
+    case: EvalCase,
+    trace: ExecutionTrace,
+) -> MetricResult | None:
+    expected = case.expected_interpretation
+    if not expected:
+        return None
+    answer = trace.answer or {}
+    actual = answer.get("interpretation") if isinstance(answer, dict) else None
+    if not isinstance(actual, dict):
+        return MetricResult(
+            name="interpretation",
+            score=0.0,
+            passed=False,
+            hard_gate=True,
+            details={"reason": "structured interpretation is missing"},
+        )
+    differences: dict[str, Any] = {}
+    expected_metric = expected.get("metric")
+    if expected_metric is not None and expected_metric not in actual.get("metrics", []):
+        differences["metric"] = {
+            "expected": expected_metric,
+            "actual": actual.get("metrics", []),
+        }
+    field_map = {
+        "start_date": "start_date",
+        "end_date": "end_date",
+        "timezone": "timezone",
+    }
+    for expected_field, actual_field in field_map.items():
+        if (
+            expected_field in expected
+            and expected[expected_field] != actual.get(actual_field)
+        ):
+            differences[expected_field] = {
+                "expected": expected[expected_field],
+                "actual": actual.get(actual_field),
+            }
+    passed = not differences
+    return MetricResult(
+        name="interpretation",
+        score=1.0 if passed else 0.0,
+        passed=passed,
+        hard_gate=True,
+        details={"differences": differences},
     )
 
 
@@ -375,6 +521,21 @@ def performance_metric(case: EvalCase, trace: ExecutionTrace) -> MetricResult | 
             "max_cost_usd",
             trace.cost_usd,
             float(performance.get("max_cost_usd", math.inf)),
+        ),
+        (
+            "max_rows",
+            float(len(trace.last_result)),
+            float(performance.get("max_rows", math.inf)),
+        ),
+        (
+            "max_prompt_tokens",
+            float(trace.prompt_tokens),
+            float(performance.get("max_prompt_tokens", math.inf)),
+        ),
+        (
+            "max_completion_tokens",
+            float(trace.completion_tokens),
+            float(performance.get("max_completion_tokens", math.inf)),
         ),
     ]
     for name, actual, limit in limits:

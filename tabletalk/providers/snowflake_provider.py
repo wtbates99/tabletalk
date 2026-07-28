@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from tabletalk.interfaces import DatabaseProvider
 
@@ -14,7 +14,7 @@ class SnowflakeProvider(DatabaseProvider):
         database: str,
         warehouse: str,
         schema: str = "PUBLIC",
-        role: Optional[str] = None,
+        role: str | None = None,
     ):
         try:
             import snowflake.connector
@@ -23,7 +23,7 @@ class SnowflakeProvider(DatabaseProvider):
                 f"snowflake-connector-python is not installed. {_INSTALL_HINT}"
             )
 
-        connect_kwargs: Dict[str, Any] = {
+        connect_kwargs: dict[str, Any] = {
             "account": account,
             "user": user,
             "password": password,
@@ -38,7 +38,7 @@ class SnowflakeProvider(DatabaseProvider):
         self.schema = schema
         self.connection = snowflake.connector.connect(**connect_kwargs)
 
-    def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
         cursor = self.connection.cursor()
         cursor.execute(sql_query)
         columns = [col[0] for col in cursor.description] if cursor.description else []
@@ -47,7 +47,7 @@ class SnowflakeProvider(DatabaseProvider):
     def get_client(self) -> Any:
         return self.connection
 
-    def get_database_type_map(self) -> Dict[str, str]:
+    def get_database_type_map(self) -> dict[str, str]:
         return {
             "TEXT": "S",
             "VARCHAR": "S",
@@ -86,8 +86,8 @@ class SnowflakeProvider(DatabaseProvider):
         }
 
     def get_compact_tables(
-        self, schema_name: str, table_names: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, schema_name: str, table_names: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         cursor = self.connection.cursor()
         type_map = self.get_database_type_map()
 
@@ -104,7 +104,7 @@ class SnowflakeProvider(DatabaseProvider):
             table_names = [row[0] for row in cursor.fetchall()]
 
         # Fetch primary keys for the whole schema at once
-        pk_cols: Dict[str, set] = {}
+        pk_cols: dict[str, set] = {}
         try:
             cursor.execute(f"SHOW PRIMARY KEYS IN SCHEMA {schema_name}")
             for row in cursor.fetchall():
@@ -117,7 +117,7 @@ class SnowflakeProvider(DatabaseProvider):
             pass  # Non-fatal; some roles may not have SHOW privilege
 
         # Fetch foreign keys for the whole schema at once
-        fk_map: Dict[str, Dict[str, str]] = {}
+        fk_map: dict[str, dict[str, str]] = {}
         try:
             cursor.execute(f"SHOW IMPORTED KEYS IN SCHEMA {schema_name}")
             for row in cursor.fetchall():
@@ -164,7 +164,7 @@ class SnowflakeProvider(DatabaseProvider):
             for col in columns:
                 col_name, col_type, _, col_comment = col[0], col[1], col[2], col[3]
                 mapped = type_map.get(col_type.upper(), "S")
-                field: Dict[str, Any] = {"n": col_name, "t": mapped}
+                field: dict[str, Any] = {"n": col_name, "t": mapped}
                 if col_name.upper() in pks:
                     field["pk"] = True
                 if col_name.upper() in fks:

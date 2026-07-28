@@ -1,0 +1,51 @@
+kind: Agent
+name: revenue
+description: Explains recognized revenue by customer segment and product category.
+connection: analytics
+relations:
+  include:
+    - analytics.orders
+    - analytics.order_items
+    - analytics.products
+  exclude:
+    - analytics.customer_sensitive
+semantics:
+  metrics:
+    recognized_revenue:
+      label: Recognized revenue
+      description: Completed-order item revenue after discounts.
+      expression: analytics.order_items.recognized_revenue
+      aggregation: sum
+      time_dimension: analytics.orders.order_date
+      unit: USD
+      required_filters:
+        - analytics.orders.status = 'complete'
+  relationships:
+    - name: order_items_to_orders
+      source: analytics.order_items.order_id
+      target: analytics.orders.id
+      on: analytics.order_items.order_id = analytics.orders.id
+      cardinality: many_to_one
+      provenance: declared
+    - name: order_items_to_products
+      source: analytics.order_items.product_id
+      target: analytics.products.id
+      on: analytics.order_items.product_id = analytics.products.id
+      cardinality: many_to_one
+      provenance: declared
+  time:
+    timezone: UTC
+    week_start: monday
+    default_dimension: analytics.orders.order_date
+  rules:
+    - Never aggregate order totals after joining to order items.
+    - State exact date boundaries for relative periods.
+policies:
+  read_only: true
+  require_evidence: true
+  allow_ambiguous_execution: false
+  max_rows: 500
+  timeout_seconds: 30
+  max_repair_attempts: 1
+evals:
+  - revenue-regression

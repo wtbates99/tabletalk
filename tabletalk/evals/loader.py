@@ -1,4 +1,4 @@
-"""Strict YAML loading and validation for TableTalk eval suites."""
+"""Strict loading for first-class execution-based EvalSuite resources."""
 
 from __future__ import annotations
 
@@ -11,18 +11,7 @@ from tabletalk.evals.models import EvalCase, EvalSuite
 
 
 class EvalConfigError(ValueError):
-    """Raised when an eval suite does not match the versioned schema."""
-
-
-_EXPECTED_SECTIONS = {"sql", "result", "safety", "answer", "performance"}
-_SQL_FIELDS = {
-    "must_reference",
-    "must_not_reference",
-    "must_reference_columns",
-    "forbidden_columns",
-    "must_include",
-    "must_not_include",
-}
+    """The EvalSuite source does not match the supported schema."""
 
 
 def _mapping(value: Any, location: str) -> dict[str, Any]:
@@ -31,212 +20,304 @@ def _mapping(value: Any, location: str) -> dict[str, Any]:
     return value
 
 
-def _string_list(value: Any, location: str) -> list[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise EvalConfigError(f"{location} must be a list of strings")
+def _strings(value: Any, location: str) -> list[str]:
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item for item in value
+    ):
+        raise EvalConfigError(f"{location} must be a list of non-empty strings")
     return value
 
 
-def _validate_environment(environment: dict[str, Any]) -> None:
-    provider = environment.get("provider")
-    if provider is not None and not isinstance(provider, dict):
-        raise EvalConfigError("environment.provider must be a mapping")
-    fixture = environment.get("fixture")
-    if fixture is not None and (not isinstance(fixture, str) or not fixture.strip()):
-        raise EvalConfigError("environment.fixture must be a non-empty path string")
-    for field in ("pricing", "metric_weights"):
-        value = environment.get(field)
-        if value is not None and not isinstance(value, dict):
-            raise EvalConfigError(f"environment.{field} must be a mapping")
-
-
-def _validate_expected(expected: dict[str, Any], location: str) -> None:
-    unknown_sections = sorted(set(expected) - _EXPECTED_SECTIONS)
-    if unknown_sections:
+def _normalize_result(
+    raw: Any,
+    reference_sql: Any,
+    location: str,
+) -> dict[str, Any] | None:
+    if raw is None and reference_sql is None:
+        return None
+    result = _mapping(raw or {}, location)
+    comparison = result.get("comparison", "table")
+    supported = {
+        "scalar",
+        "table",
+        "ordered_rows",
+        "unordered_rows",
+        "keyed_rows",
+        "approximate_numeric_rows",
+        "empty",
+        "shape",
+    }
+    if comparison not in supported:
         raise EvalConfigError(
-            f"{location} contains unsupported sections: {', '.join(unknown_sections)}"
+            f"{location}.comparison must be one of: "
+            + ", ".join(sorted(supported))
         )
-
-    sql = expected.get("sql")
-    if sql is not None:
-        sql = _mapping(sql, f"{location}.sql")
-        unknown_sql = sorted(set(sql) - _SQL_FIELDS - {"max_joins"})
-        if unknown_sql:
+    normalized: dict[str, Any] = {
+        "type": (
+            "scalar"
+            if comparison == "scalar"
+            else "shape"
+            if comparison == "shape"
+            else "table"
+        )
+    }
+    if reference_sql is not None:
+        if not isinstance(reference_sql, str) or not reference_sql.strip():
+            raise EvalConfigError(f"{location} reference_sql must be non-empty SQL")
+        normalized["reference_sql"] = reference_sql
+    for field in ("rows", "value", "row_count"):
+        if field in result:
+            normalized[field] = result[field]
+    if "column" in result:
+        normalized["columns"] = [result["column"]]
+    elif "columns" in result:
+        normalized["columns"] = _strings(
+            result["columns"],
+            f"{location}.columns",
+        )
+    if "absolute_tolerance" in result:
+        tolerance = result["absolute_tolerance"]
+        if (
+            not isinstance(tolerance, (int, float))
+            or isinstance(tolerance, bool)
+            or tolerance < 0
+        ):
             raise EvalConfigError(
-                f"{location}.sql contains unsupported fields: {', '.join(unknown_sql)}"
+                f"{location}.absolute_tolerance must be non-negative"
             )
-        for field in _SQL_FIELDS:
-            if field in sql:
-                _string_list(sql[field], f"{location}.sql.{field}")
-        max_joins = sql.get("max_joins")
-        if max_joins is not None and (
-            not isinstance(max_joins, int) or isinstance(max_joins, bool) or max_joins < 0
-        ):
-            raise EvalConfigError(f"{location}.sql.max_joins must be a non-negative integer")
+        normalized["tolerance"] = tolerance
+    comparison_config: dict[str, Any] = {}
+    if comparison == "ordered_rows":
+        comparison_config["row_order"] = "strict"
+    elif normalized["type"] == "table":
+        comparison_config["row_order"] = "ignore"
+    if comparison == "keyed_rows":
+        keys = result.get("keys") or result.get("key_columns")
+        comparison_config["key_columns"] = _strings(
+            keys,
+            f"{location}.keys",
+        )
+    if "row_order" in result:
+        if result["row_order"] not in {"ignore", "strict"}:
+            raise EvalConfigError(
+                f"{location}.row_order must be ignore or strict"
+            )
+        comparison_config["row_order"] = result["row_order"]
+    if comparison == "empty":
+        normalized["rows"] = []
+        normalized.pop("reference_sql", None)
+    if comparison_config:
+        normalized["comparison"] = comparison_config
+    if normalized["type"] == "scalar" and not any(
+        field in normalized for field in ("value", "reference_sql")
+    ):
+        raise EvalConfigError(
+            f"{location} scalar requires value or reference_sql"
+        )
+    if normalized["type"] == "table" and not any(
+        field in normalized for field in ("rows", "reference_sql")
+    ):
+        raise EvalConfigError(
+            f"{location} table comparison requires rows or reference_sql"
+        )
+    if normalized["type"] == "shape" and not any(
+        field in normalized for field in ("columns", "row_count")
+    ):
+        raise EvalConfigError(
+            f"{location} shape requires columns or row_count"
+        )
+    return normalized
 
-    result = expected.get("result")
-    if result is not None:
-        result = _mapping(result, f"{location}.result")
-        result_type = result.get("type")
-        if result_type not in {"scalar", "table"}:
-            raise EvalConfigError(f"{location}.result.type must be 'scalar' or 'table'")
-        reference_sql = result.get("reference_sql")
-        if reference_sql is not None and (
-            not isinstance(reference_sql, str) or not reference_sql.strip()
-        ):
-            raise EvalConfigError(f"{location}.result.reference_sql must be non-empty SQL")
-        if result_type == "scalar" and "value" not in result and reference_sql is None:
-            raise EvalConfigError(f"{location}.result requires either 'value' or 'reference_sql'")
-        if result_type == "table" and "rows" not in result and reference_sql is None:
-            raise EvalConfigError(f"{location}.result requires either 'rows' or 'reference_sql'")
-        if "columns" in result:
-            _string_list(result["columns"], f"{location}.result.columns")
-        if "rows" in result and (
-            not isinstance(result["rows"], list)
-            or not all(isinstance(row, dict) for row in result["rows"])
-        ):
-            raise EvalConfigError(f"{location}.result.rows must be a list of mappings")
-        if "comparison" in result:
-            comparison = _mapping(result["comparison"], f"{location}.result.comparison")
-            row_order = comparison.get("row_order", "ignore")
-            if row_order not in {"ignore", "strict"}:
-                raise EvalConfigError(
-                    f"{location}.result.comparison.row_order must be 'ignore' or 'strict'"
-                )
 
-    safety = expected.get("safety")
-    if safety is not None:
-        safety = _mapping(safety, f"{location}.safety")
-        for field in ("forbidden_tables", "forbidden_columns", "forbidden_values"):
-            if field in safety:
-                _string_list(safety[field], f"{location}.safety.{field}")
-
-    answer = expected.get("answer")
-    if answer is not None:
+def _expected(expect: dict[str, Any], location: str) -> dict[str, Any]:
+    allowed = {
+        "executes",
+        "read_only",
+        "relations",
+        "columns",
+        "joins",
+        "reference_sql",
+        "result",
+        "answer",
+        "budgets",
+    }
+    unknown = sorted(set(expect) - allowed)
+    if unknown:
+        raise EvalConfigError(
+            f"{location} contains unsupported fields: {', '.join(unknown)}"
+        )
+    sql: dict[str, Any] = {}
+    relations = _mapping(expect.get("relations", {}), f"{location}.relations")
+    columns = _mapping(expect.get("columns", {}), f"{location}.columns")
+    for source, destination in (
+        ("required", "must_reference"),
+        ("forbidden", "must_not_reference"),
+    ):
+        if source in relations:
+            sql[destination] = _strings(
+                relations[source],
+                f"{location}.relations.{source}",
+            )
+    for source, destination in (
+        ("required", "must_reference_columns"),
+        ("forbidden", "forbidden_columns"),
+    ):
+        if source in columns:
+            sql[destination] = _strings(
+                columns[source],
+                f"{location}.columns.{source}",
+            )
+    joins = _mapping(expect.get("joins", {}), f"{location}.joins")
+    if "max" in joins:
+        if not isinstance(joins["max"], int) or joins["max"] < 0:
+            raise EvalConfigError(f"{location}.joins.max must be non-negative")
+        sql["max_joins"] = joins["max"]
+    expected: dict[str, Any] = {}
+    if sql:
+        expected["sql"] = sql
+    result = _normalize_result(
+        expect.get("result"),
+        expect.get("reference_sql"),
+        f"{location}.result",
+    )
+    if result:
+        expected["result"] = result
+    answer = expect.get("answer")
+    if answer:
         answer = _mapping(answer, f"{location}.answer")
-        if "rubric" in answer:
-            raise EvalConfigError(
-                f"{location}.answer.rubric is not supported yet; "
-                "use must_include and must_not_include for deterministic scoring"
+        for field in ("require_supported_claims", "require_evidence"):
+            if field in answer and not isinstance(answer[field], bool):
+                raise EvalConfigError(f"{location}.answer.{field} must be boolean")
+        if "required_disclosures" in answer:
+            _strings(
+                answer["required_disclosures"],
+                f"{location}.answer.required_disclosures",
             )
-        for field in ("must_include", "must_not_include"):
-            if field in answer:
-                _string_list(answer[field], f"{location}.answer.{field}")
-
-    performance = expected.get("performance")
-    if performance is not None:
-        performance = _mapping(performance, f"{location}.performance")
-        for field in ("max_latency_ms", "max_tool_calls", "max_cost_usd"):
-            value = performance.get(field)
-            if value is not None and (
-                not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0
+        expected["answer"] = answer
+    budgets = expect.get("budgets")
+    if budgets:
+        budgets = _mapping(budgets, f"{location}.budgets")
+        for field, value in budgets.items():
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or value < 0
             ):
                 raise EvalConfigError(
-                    f"{location}.performance.{field} must be a non-negative number"
+                    f"{location}.budgets.{field} must be non-negative"
                 )
-
-
-def _messages(case: dict[str, Any], location: str) -> list[dict[str, str]]:
-    input_config = _mapping(case.get("input", {}), f"{location}.input")
-    raw_messages: Any
-    if "message" in input_config:
-        raw_messages = [{"role": "user", "content": input_config["message"]}]
-    else:
-        raw_messages = input_config.get("messages")
-
-    if not isinstance(raw_messages, list) or not raw_messages:
-        raise EvalConfigError(
-            f"{location}.input must define a non-empty 'message' or 'messages' list"
-        )
-
-    messages: list[dict[str, str]] = []
-    for index, raw_message in enumerate(raw_messages):
-        message_location = f"{location}.input.messages[{index}]"
-        message = _mapping(raw_message, message_location)
-        role = message.get("role")
-        content = message.get("content")
-        if role not in {"user", "assistant"}:
-            raise EvalConfigError(f"{message_location}.role must be 'user' or 'assistant'")
-        if not isinstance(content, str) or not content.strip():
-            raise EvalConfigError(f"{message_location}.content must be a non-empty string")
-        messages.append({"role": role, "content": content.strip()})
-
-    if not any(message["role"] == "user" for message in messages):
-        raise EvalConfigError(f"{location}.input.messages must contain at least one user message")
-    return messages
+        expected["performance"] = budgets
+    return expected
 
 
 def load_eval_suite(path: str | Path) -> EvalSuite:
-    """Load a version 1 eval suite from *path* with actionable validation errors."""
-    source_path = Path(path).expanduser().resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Eval suite not found: {source_path}")
-
+    """Load one strict ``kind: EvalSuite`` resource."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Eval suite not found: {source}")
     try:
-        with source_path.open() as file:
-            raw = yaml.safe_load(file)
-    except yaml.YAMLError as exc:
-        raise EvalConfigError(f"Invalid YAML in {source_path}: {exc}") from exc
-
-    config = _mapping(raw, "eval suite")
-    version = config.get("version")
-    if version != 1:
-        raise EvalConfigError(f"Unsupported eval version {version!r}; expected version: 1")
-
-    suite_config = _mapping(config.get("suite"), "suite")
-    name = suite_config.get("name")
+        config = yaml.safe_load(source.read_text())
+    except yaml.YAMLError as error:
+        raise EvalConfigError(f"Invalid YAML in {source}: {error}") from error
+    config = _mapping(config, "EvalSuite")
+    if config.get("kind") != "EvalSuite":
+        raise EvalConfigError("Eval resources require kind: EvalSuite")
+    allowed = {
+        "kind",
+        "name",
+        "description",
+        "agent",
+        "fixture",
+        "cases",
+        "pricing",
+        "metric_weights",
+    }
+    unknown = sorted(set(config) - allowed)
+    if unknown:
+        raise EvalConfigError(
+            "EvalSuite contains unsupported fields: " + ", ".join(unknown)
+        )
+    name = config.get("name")
+    agent = config.get("agent")
     if not isinstance(name, str) or not name.strip():
-        raise EvalConfigError("suite.name must be a non-empty string")
-
-    environment = config.get("environment", {})
-    environment = _mapping(environment, "environment")
-    _validate_environment(environment)
-    default_manifest = suite_config.get("manifest") or environment.get("manifest")
-
+        raise EvalConfigError("EvalSuite name must be a non-empty string")
+    if not isinstance(agent, str) or not agent.strip():
+        raise EvalConfigError("EvalSuite agent must be a non-empty string")
+    fixture = _mapping(config.get("fixture", {}), "fixture")
+    fixture_type = fixture.get("type")
+    if fixture_type not in {None, "sqlite", "duckdb"}:
+        raise EvalConfigError("fixture.type must be sqlite or duckdb")
+    setup = fixture.get("setup") or []
+    if not isinstance(setup, list) or not all(
+        isinstance(item, str) and item for item in setup
+    ):
+        raise EvalConfigError("fixture.setup must be a list of SQL paths")
+    environment: dict[str, Any] = {
+        "fixture_type": fixture_type,
+        "fixture_setup": setup,
+    }
+    if "database" in fixture:
+        environment["fixture"] = fixture["database"]
+    for field in ("pricing", "metric_weights"):
+        value = config.get(field)
+        if value is not None:
+            environment[field] = _mapping(value, field)
     raw_cases = config.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
         raise EvalConfigError("cases must be a non-empty list")
-
-    cases: list[EvalCase] = []
-    seen_names = set()
-    for index, raw_case in enumerate(raw_cases):
+    cases = []
+    names: set[str] = set()
+    for index, raw in enumerate(raw_cases):
         location = f"cases[{index}]"
-        case = _mapping(raw_case, location)
+        case = _mapping(raw, location)
+        allowed_case = {
+            "name",
+            "description",
+            "question",
+            "tags",
+            "expected_interpretation",
+            "expect",
+        }
+        unknown_case = sorted(set(case) - allowed_case)
+        if unknown_case:
+            raise EvalConfigError(
+                f"{location} contains unsupported fields: "
+                + ", ".join(unknown_case)
+            )
         case_name = case.get("name")
+        question = case.get("question")
         if not isinstance(case_name, str) or not case_name.strip():
             raise EvalConfigError(f"{location}.name must be a non-empty string")
-        if case_name in seen_names:
+        if case_name in names:
             raise EvalConfigError(f"Duplicate eval case name: {case_name}")
-        seen_names.add(case_name)
-
-        expected = _mapping(case.get("expected", {}), f"{location}.expected")
-        _validate_expected(expected, f"{location}.expected")
-        manifest = case.get("manifest") or case.get("conversation") or default_manifest
-        if not isinstance(manifest, str) or not manifest.strip():
+        names.add(case_name)
+        if not isinstance(question, str) or not question.strip():
             raise EvalConfigError(
-                f"{location} must define 'manifest' (the 'conversation' alias is also accepted)"
+                f"{location}.question must be a non-empty string"
             )
-
-        tags = case.get("tags", [])
-        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
-            raise EvalConfigError(f"{location}.tags must be a list of strings")
-
+        tags = case.get("tags") or []
+        _strings(tags, f"{location}.tags")
+        expected_interpretation = _mapping(
+            case.get("expected_interpretation", {}),
+            f"{location}.expected_interpretation",
+        )
+        expect = _mapping(case.get("expect", {}), f"{location}.expect")
         cases.append(
             EvalCase(
                 name=case_name.strip(),
-                description=str(case.get("description", "")).strip(),
-                manifest=manifest.strip(),
-                messages=_messages(case, location),
-                expected=expected,
+                description=str(case.get("description") or "").strip(),
+                messages=[{"role": "user", "content": question.strip()}],
+                expected=_expected(expect, f"{location}.expect"),
                 tags=tags,
+                expected_interpretation=expected_interpretation,
             )
         )
-
     return EvalSuite(
-        version=version,
+        version=2,
         name=name.strip(),
-        description=str(suite_config.get("description", "")).strip(),
+        description=str(config.get("description") or "").strip(),
         environment=environment,
         cases=cases,
-        source_path=source_path,
+        source_path=source,
+        agent=agent.strip(),
     )

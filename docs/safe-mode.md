@@ -1,23 +1,21 @@
-# Safe Mode
+# SQL safety
 
-Safe mode restricts the agent to read-only queries. Enable it for any agent connected to a production database.
+TableTalk execution is always read-only. The legacy `safe_mode` field is accepted
+during migration but cannot disable SQL validation.
 
 ---
 
-## Enabling safe mode
-
-```yaml
-# tabletalk.yaml
-safe_mode: true
-```
-
-When enabled, tabletalk checks the generated SQL before execution. If the query is not a read operation, it raises an error and **the query never reaches the database**.
+Before execution, TableTalk parses exactly one dialect-aware statement with
+sqlglot. It must be a query AST, not merely text beginning with a read keyword.
+When a compiled artifact is active, referenced relations and practical column
+references must be declared by that artifact.
 
 ---
 
 ## What safe mode blocks
 
-Safe mode blocks any SQL that doesn't begin with a read-only keyword:
+Validation blocks DDL, DML, commands, multiple statements, malformed SQL,
+undeclared relations, and qualified undeclared columns:
 
 | Blocked | Examples |
 |---------|---------|
@@ -30,47 +28,37 @@ Safe mode blocks any SQL that doesn't begin with a read-only keyword:
 | `ALTER` | `ALTER TABLE ...` |
 | `REPLACE` | `REPLACE INTO ...` |
 
-## What safe mode allows
+## What validation allows
 
 | Allowed | Examples |
 |---------|---------|
 | `SELECT` | `SELECT * FROM orders` |
 | `WITH` | CTEs: `WITH cte AS (SELECT ...) SELECT ...` |
-| `EXPLAIN` | `EXPLAIN SELECT ...` |
-| `SHOW` | `SHOW TABLES` |
-| `DESCRIBE` / `DESC` | `DESCRIBE orders` |
 
 ---
 
 ## Error behaviour
 
-When safe mode blocks a query, the error is raised before the SQL is sent to the database driver:
+When validation blocks a query, a typed failure is raised before the SQL is sent
+to the database driver:
 
 ```
-Error: Safe mode is enabled — only SELECT queries are allowed.
-Generated SQL: DELETE FROM orders WHERE status = 'cancelled'
+code: sql_not_read_only
+stage: validation
 ```
 
-In the web UI, blocked queries show the error in the execution block with an option to "Fix with AI" — which will regenerate a SELECT equivalent.
+Any model-based repair is disclosed and must pass the complete validation stage
+again before execution.
 
 ---
 
 ## Production deployment checklist
 
-Beyond safe mode, consider these additional measures for production deployments:
+Beyond application validation, use database-level controls:
 
 ### Database-level permissions
 
-Safe mode is a client-side check. For defence in depth, also restrict the database user to `SELECT` only:
-
-**PostgreSQL:**
-```sql
-CREATE USER tabletalk_agent WITH PASSWORD 'secret';
-GRANT CONNECT ON DATABASE analytics TO tabletalk_agent;
-GRANT USAGE ON SCHEMA public TO tabletalk_agent;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO tabletalk_agent;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO tabletalk_agent;
-```
+For defence in depth, also restrict the database user to `SELECT` only:
 
 **Snowflake:**
 ```sql
@@ -81,12 +69,8 @@ GRANT SELECT ON ALL TABLES IN SCHEMA analytics.public TO ROLE tabletalk_reader;
 GRANT ROLE tabletalk_reader TO USER tabletalk_agent;
 ```
 
-**MySQL:**
-```sql
-CREATE USER 'tabletalk_agent'@'%' IDENTIFIED BY 'secret';
-GRANT SELECT ON analytics.* TO 'tabletalk_agent'@'%';
-FLUSH PRIVILEGES;
-```
+For SQLite and DuckDB deployments, open file-backed databases read-only and
+enforce read-only filesystem permissions in addition to TableTalk validation.
 
 ### Session security
 

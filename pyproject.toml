@@ -24,35 +24,19 @@ dependencies = [
     "click>=8.0",
     "flask>=3.0",
     "openai>=1.0.0",
-    "anthropic>=0.20",
     "rich>=13.0",
     "sqlglot>=25.0",
 ]
 
 [project.optional-dependencies]
 # Install only the drivers you need:
-#   uv add "tabletalk[postgres]"
 #   uv add "tabletalk[snowflake,duckdb]"
 #   uv add "tabletalk[all]"
-postgres  = ["psycopg2-binary>=2.9"]
-mysql     = ["mysql-connector-python>=8.0"]
-bigquery  = ["google-cloud-bigquery>=3.0.0"]
 snowflake = ["snowflake-connector-python>=3.0"]
 duckdb    = ["duckdb>=0.9"]
-azuresql  = ["pymssql>=2.2"]
-keyring   = ["keyring>=24.0"]
-s3        = ["boto3>=1.26"]
-gcs       = ["google-cloud-storage>=2.0"]
 all = [
-    "psycopg2-binary>=2.9",
-    "mysql-connector-python>=8.0",
-    "google-cloud-bigquery>=3.0.0",
     "snowflake-connector-python>=3.0",
     "duckdb>=0.9",
-    "pymssql>=2.2",
-    "keyring>=24.0",
-    "boto3>=1.26",
-    "google-cloud-storage>=2.0",
 ]
 
 [project.scripts]
@@ -84,6 +68,9 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+markers = [
+    "live_ollama: opt-in tests requiring a running Ollama daemon and pulled model",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["tabletalk"]
@@ -98,6 +85,10 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+"tabletalk/tests/**" = ["E501"]
+
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
+exclude = ["tabletalk/tests/"]

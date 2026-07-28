@@ -1,27 +1,44 @@
-"""
-tabletalk — dbt for agents.
+"""Define, evaluate, apply, and run trusted data agents as code."""
 
-Define your data sources once. Deploy an AI agent for every dataset.
-Redeploy anytime your schema changes — like Terraform for analytics agents.
+from tabletalk.agents import AgentDefinition
+from tabletalk.compiler import CompiledAgent, CompiledArtifact
+from tabletalk.domain import (
+    EvidenceItem,
+    Interpretation,
+    QueryAnswer,
+    SemanticPlan,
+    VerificationCheck,
+    VerificationStatus,
+)
+from tabletalk.evals import EvalSuite, SuiteResult
+from tabletalk.project import AppliedAgent, Project, ProjectPlan
 
-Quick start::
+__version__ = "0.4.0"
+Agent = AgentDefinition
+Plan = ProjectPlan
+Answer = QueryAnswer
+Evidence = EvidenceItem
+EvalReport = SuiteResult
 
-    from tabletalk.interfaces import QuerySession
-    from tabletalk.utils import apply_schema
-
-    apply_schema("/path/to/project")
-    session = QuerySession("/path/to/project")
-    for chunk in session.generate_sql("sales.txt", "What is total revenue this month?"):
-        print(chunk, end="", flush=True)
-"""
-
-from tabletalk.interfaces import DatabaseProvider, LLMProvider, Parser, QuerySession
-
-__version__ = "0.2.0"
 __all__ = [
-    "QuerySession",
-    "Parser",
-    "DatabaseProvider",
-    "LLMProvider",
+    "Agent",
+    "AgentDefinition",
+    "Answer",
+    "AppliedAgent",
+    "CompiledAgent",
+    "CompiledArtifact",
+    "EvalReport",
+    "EvalSuite",
+    "Evidence",
+    "EvidenceItem",
+    "Interpretation",
+    "Plan",
+    "Project",
+    "ProjectPlan",
+    "QueryAnswer",
+    "SemanticPlan",
+    "SuiteResult",
+    "VerificationCheck",
+    "VerificationStatus",
     "__version__",
 ]

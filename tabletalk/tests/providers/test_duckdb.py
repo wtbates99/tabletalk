@@ -19,6 +19,7 @@ def duckdb_mem():
     """In-memory DuckDB provider seeded with ecommerce tables."""
     pytest.importorskip("duckdb")
     import duckdb
+
     from tabletalk.providers.duckdb_provider import DuckDBProvider
 
     conn = duckdb.connect(":memory:")
@@ -222,7 +223,6 @@ class TestDuckDBExecuteQuery:
 
 class TestDuckDBGetClient:
     def test_returns_connection(self, duckdb_mem):
-        import duckdb
 
         client = duckdb_mem.get_client()
         assert client is duckdb_mem.connection

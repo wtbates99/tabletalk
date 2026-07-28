@@ -1,11 +1,10 @@
 
 # Configuration for the data provider
 provider:
-  type: bigquery  # Type of the provider, e.g., bigquery, snowflake, etc.
-  project_id: your-gcp-project-id  # GCP project ID for BigQuery
-  use_default_credentials: true  # Whether to use default GCP credentials
+  type: sqlite
+  database_path: ./tabletalk.db
 
-# Configuration for the LLM — low-usage Ollama Cloud model
+# Configuration for the LLM — Ollama Cloud free-tier default
 llm:
   provider: ollama
   api_key: ollama
@@ -13,6 +12,8 @@ llm:
   base_url: http://localhost:11434/v1
   max_tokens: 2000
   temperature: 0
+  reasoning_effort: none
+  request_timeout_seconds: 60
 
 contexts: contexts
 output: manifest

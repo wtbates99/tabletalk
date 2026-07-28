@@ -1,407 +1,129 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#151713">
-  <meta
-    name="description"
-    content="TableTalk is an evidence-first workspace for trusted data agents."
-  >
-  <title>TableTalk · Evidence-first data agents</title>
-  <link rel="icon" href="/logo.jpg" type="image/jpeg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-    rel="stylesheet"
-  >
+  <meta name="description" content="Ask applied data agents and inspect their evidence.">
+  <title>TableTalk · Trusted data agents</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="left-rail" aria-label="Primary navigation">
-      <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true">
-          <span></span><span></span><span></span><span></span>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">T/T</span>
+        <div><strong>TableTalk</strong><small>Trusted data agents as code</small></div>
+      </div>
+
+      <section>
+        <p class="eyebrow">APPLIED AGENTS</p>
+        <div id="agents" class="agent-list" aria-live="polite">
+          <p class="muted">Loading applied agents…</p>
         </div>
+      </section>
+
+      <div class="runtime-card">
+        <span id="runtime-dot" class="dot"></span>
         <div>
-          <div class="brand-name">TABLE<span>/</span>TALK</div>
-          <div class="brand-subtitle">Evidence-first data agents</div>
+          <small>CONFIGURED MODEL</small>
+          <strong id="runtime-model">Loading…</strong>
+          <span id="runtime-provider"></span>
         </div>
       </div>
-
-      <nav class="primary-nav" aria-label="Workspace views">
-        <button class="nav-item active" data-view="ask">
-          <span class="nav-icon">↗</span>
-          <span>Ask</span>
-          <kbd>1</kbd>
-        </button>
-        <button class="nav-item" data-view="evals">
-          <span class="nav-icon">✓</span>
-          <span>Eval Studio</span>
-          <kbd>2</kbd>
-        </button>
-        <button class="nav-item" data-view="library">
-          <span class="nav-icon">◇</span>
-          <span>Library</span>
-          <kbd>3</kbd>
-        </button>
-      </nav>
-
-      <div class="rail-section agents-section">
-        <div class="rail-label">
-          <span>Data agents</span>
-          <button id="refresh-manifests" class="bare-icon" title="Refresh agents">↻</button>
-        </div>
-        <div id="manifest-list" class="agent-list">
-          <div class="rail-loading">Loading agents…</div>
-        </div>
-      </div>
-
-      <div class="rail-spacer"></div>
-
-      <div class="system-card">
-        <div class="system-card-top">
-          <span class="status-orb" id="model-orb"></span>
-          <span>Inference</span>
-          <span class="usage-chip">LOW USAGE</span>
-        </div>
-        <div id="model-name" class="system-model">Connecting…</div>
-        <div class="system-meta">
-          <span id="provider-name">OLLAMA CLOUD</span>
-          <span>·</span>
-          <span id="safe-mode-label">READ CHECKS</span>
-        </div>
-      </div>
-
-      <div class="rail-footer">
-        <button id="theme-toggle" class="footer-action" title="Toggle color theme">
-          <span id="theme-icon">◐</span> Appearance
-        </button>
-        <span class="version-pill">v0.4</span>
-      </div>
+      <p class="no-fallback">No model or database fallback is enabled.</p>
     </aside>
 
-    <main class="workspace">
-      <header class="workspace-bar">
-        <div class="workspace-context">
-          <span class="context-kicker" id="view-kicker">ASK</span>
-          <span class="context-divider">/</span>
-          <span id="active-agent-label">Choose a data agent</span>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">ASK · EXECUTE · VERIFY</p>
+          <h1 id="agent-title">Choose an applied agent</h1>
+          <p id="agent-description" class="muted">
+            Answers appear only after SQL validation, database execution, and evidence checks.
+          </p>
         </div>
-        <div class="workspace-actions">
-          <select id="mobile-agent-select" aria-label="Choose a data agent">
-            <option value="">Choose agent</option>
-          </select>
-          <button id="new-thread-btn" class="text-action">
-            <span>↺</span> New thread
-          </button>
-          <button id="evidence-toggle" class="evidence-toggle">
-            <span class="live-dot"></span> Evidence
-          </button>
-        </div>
+        <span id="artifact-chip" class="chip" hidden></span>
       </header>
 
-      <section id="ask-view" class="view active" aria-labelledby="ask-heading">
-        <div id="conversation" class="conversation">
-          <section id="welcome" class="welcome-stage">
-            <div class="welcome-grid" aria-hidden="true"></div>
-            <div class="welcome-copy">
-              <div class="eyebrow">
-                <span class="eyebrow-line"></span>
-                EVIDENCE-FIRST ANALYTICS
-              </div>
-              <h1 id="ask-heading">Ask the data.<br><em>Keep the proof.</em></h1>
-              <p>
-                Go from a business question to an executed answer—with the schema,
-                SQL, result, and reasoning trail still attached.
-              </p>
-            </div>
+      <section class="question-card">
+        <label for="question">Question</label>
+        <textarea id="question" rows="3" maxlength="4000"
+          placeholder="What changed in revenue last month?"></textarea>
+        <div class="question-actions">
+          <span>One applied artifact · one configured model · one database</span>
+          <button id="ask-button" type="button" disabled>Ask the data</button>
+        </div>
+      </section>
 
-            <div class="question-launchpad">
-              <div class="launchpad-label">START WITH A QUESTION</div>
-              <div id="welcome-prompts" class="prompt-grid">
-                <button class="prompt-card" data-question="What changed in revenue this month?">
-                  <span class="prompt-index">01</span>
-                  <span class="prompt-text">What changed in revenue this month?</span>
-                  <span class="prompt-arrow">↗</span>
-                </button>
-                <button class="prompt-card" data-question="Which customers are driving growth?">
-                  <span class="prompt-index">02</span>
-                  <span class="prompt-text">Which customers are driving growth?</span>
-                  <span class="prompt-arrow">↗</span>
-                </button>
-                <button class="prompt-card" data-question="Where should I investigate anomalies?">
-                  <span class="prompt-index">03</span>
-                  <span class="prompt-text">Where should I investigate anomalies?</span>
-                  <span class="prompt-arrow">↗</span>
-                </button>
-              </div>
-            </div>
+      <section id="progress" class="progress" hidden aria-live="polite">
+        <span class="spinner"></span>
+        <div><strong>Building a verifiable answer</strong>
+          <p>Interpreting, validating SQL, executing, and checking evidence…</p>
+        </div>
+      </section>
 
-            <div class="contract-strip">
-              <div>
-                <span class="contract-number">01</span>
-                <span>Scoped schema</span>
-              </div>
-              <div>
-                <span class="contract-number">02</span>
-                <span>Executed SQL</span>
-              </div>
-              <div>
-                <span class="contract-number">03</span>
-                <span>Visible receipt</span>
-              </div>
-              <div>
-                <span class="contract-number">04</span>
-                <span>Regression ready</span>
-              </div>
-            </div>
+      <section id="failure" class="failure" hidden role="alert">
+        <p class="eyebrow">EXPLICIT FAILURE</p>
+        <h2 id="failure-title">The request could not be completed.</h2>
+        <p id="failure-message"></p>
+        <code id="failure-code"></code>
+        <p>No substitute model, local heuristic, cached prose, or model-memory answer was used.</p>
+      </section>
+
+      <article id="answer" hidden>
+        <section class="answer-hero">
+          <div class="answer-heading">
+            <span id="status" class="status"></span>
+            <span id="repair-warning" class="warning" hidden>SQL repaired and revalidated</span>
+          </div>
+          <h2 id="direct-answer"></h2>
+          <p id="no-answer" class="muted" hidden>
+            No fully evidence-backed direct answer is available.
+          </p>
+        </section>
+
+        <div class="answer-grid">
+          <section class="panel" id="interpretation-panel">
+            <p class="eyebrow">INTERPRETATION</p>
+            <dl id="interpretation"></dl>
+          </section>
+
+          <section class="panel" id="verification-panel">
+            <p class="eyebrow">VERIFICATION</p>
+            <ul id="verification"></ul>
           </section>
         </div>
 
-        <div class="composer-zone">
-          <div id="suggestion-row" class="suggestion-row"></div>
-          <div class="composer">
-            <div class="composer-topline">
-              <label for="question-input">QUESTION</label>
-              <span><kbd>↵</kbd> run · <kbd>⇧↵</kbd> new line</span>
-            </div>
-            <div class="composer-row">
-              <textarea
-                id="question-input"
-                rows="1"
-                placeholder="Ask your data…"
-              ></textarea>
-              <button id="send-question" class="run-question" aria-label="Run question">
-                <span>Run</span><span class="run-arrow">↗</span>
-              </button>
-            </div>
-            <div class="composer-controls">
-              <label class="control-toggle">
-                <input type="checkbox" id="toggle-run" checked>
-                <span class="toggle-ui"></span>
-                Execute query
-              </label>
-              <label class="control-toggle">
-                <input type="checkbox" id="toggle-explain" checked>
-                <span class="toggle-ui"></span>
-                Grounded finding
-              </label>
-              <div class="composer-spacer"></div>
-              <span class="privacy-note">Schema stays scoped to this agent</span>
-            </div>
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">EVIDENCE</p><h3>Claim-to-row links</h3></div>
+            <span id="evidence-count" class="chip"></span>
           </div>
-        </div>
-      </section>
+          <div id="claims" class="claims"></div>
+        </section>
 
-      <section id="evals-view" class="view" aria-labelledby="evals-heading">
-        <div class="eval-scroll">
-          <div class="eval-hero">
-            <div>
-              <div class="eyebrow">
-                <span class="eyebrow-line"></span>
-                RELEASE CONFIDENCE
-              </div>
-              <h1 id="evals-heading">Ship evidence,<br><em>not vibes.</em></h1>
-              <p>
-                Run the same questions against a fixed world. Watch every contract
-                pass—or see exactly where the agent changed.
-              </p>
-            </div>
-            <div class="eval-hero-actions">
-              <div id="selected-suite-label" class="selected-suite-label">No suite selected</div>
-              <button id="run-suite-btn" class="primary-cta" disabled>
-                <span>Run selected suite</span><span>↗</span>
-              </button>
-            </div>
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">DATA</p><h3>Exact result used for the answer</h3></div>
+            <span id="row-count" class="chip"></span>
           </div>
+          <div class="table-wrap"><table id="data-table"></table></div>
+        </section>
 
-          <div class="eval-layout">
-            <div class="suite-column">
-              <div class="section-heading">
-                <span>SUITES</span>
-                <button id="refresh-suites" class="inline-action">Refresh ↻</button>
-              </div>
-              <div id="suite-list" class="suite-list">
-                <div class="panel-empty">Open Eval Studio to discover suites.</div>
-              </div>
-            </div>
+        <details class="panel details" open>
+          <summary>SQL and sources</summary>
+          <pre><code id="sql"></code></pre>
+          <div id="sources" class="source-list"></div>
+        </details>
 
-            <div class="run-column">
-              <div id="eval-run-header" class="eval-run-header">
-                <div>
-                  <span class="section-overline">LATEST RUN</span>
-                  <h2>Ready when you are.</h2>
-                </div>
-                <div id="score-orbit" class="score-orbit" style="--score:0">
-                  <div><strong>—</strong><span>SCORE</span></div>
-                </div>
-              </div>
-
-              <div id="eval-progress" class="eval-progress" hidden>
-                <div class="progress-copy">
-                  <span id="progress-label">Preparing fixture…</span>
-                  <span id="progress-count">0 / 0</span>
-                </div>
-                <div class="progress-track"><span id="progress-bar"></span></div>
-              </div>
-
-              <div id="case-board" class="case-board">
-                <div class="eval-empty-state">
-                  <div class="empty-glyph">✓</div>
-                  <h3>Your release gate lives here.</h3>
-                  <p>Select a suite to see its cases, then run it against the active model.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="library-view" class="view" aria-labelledby="library-heading">
-        <div class="library-scroll">
-          <div class="library-hero">
-            <div class="eyebrow">
-              <span class="eyebrow-line"></span>
-              REUSABLE ANALYSIS
-            </div>
-            <h1 id="library-heading">The questions worth<br><em>asking again.</em></h1>
-            <p>Saved queries and recent runs, ready to reopen with their context intact.</p>
-          </div>
-          <div class="library-grid">
-            <section class="library-panel">
-              <div class="section-heading">
-                <span>SAVED QUESTIONS</span>
-                <button id="refresh-favorites" class="inline-action">Refresh ↻</button>
-              </div>
-              <div id="favorites-list" class="library-list"></div>
-            </section>
-            <section class="library-panel">
-              <div class="section-heading">
-                <span>RECENT RUNS</span>
-                <button id="refresh-history" class="inline-action">Refresh ↻</button>
-              </div>
-              <div id="history-list" class="library-list"></div>
-            </section>
-          </div>
-        </div>
-      </section>
+        <details class="panel details">
+          <summary>Technical receipt</summary>
+          <dl id="receipt"></dl>
+          <div id="repairs"></div>
+        </details>
+      </article>
     </main>
-
-    <aside id="evidence-rail" class="evidence-rail" aria-label="Answer evidence">
-      <div class="evidence-head">
-        <div>
-          <span class="panel-kicker">ACTIVE DATA AGENT</span>
-          <h2 id="agent-detail-name">Choose an agent</h2>
-        </div>
-        <button id="close-evidence" class="bare-icon close-evidence">×</button>
-      </div>
-
-      <div class="agent-detail-card">
-        <p id="agent-detail-description">
-          Select an agent to see exactly what it can query and which dbt contract it uses.
-        </p>
-        <div class="agent-detail-meta">
-          <span>OWNER <strong id="agent-detail-owner">—</strong></span>
-          <span>CONTEXT <strong id="agent-detail-source">—</strong></span>
-        </div>
-        <div id="agent-detail-stats" class="agent-detail-stats">
-          <span><strong>0</strong> tables</span>
-          <span><strong>0</strong> models</span>
-        </div>
-        <div class="agent-persona">
-          <span>BEHAVIOR</span>
-          <p id="agent-detail-persona">No agent selected.</p>
-        </div>
-      </div>
-
-      <div class="confidence-card">
-        <div class="confidence-top">
-          <span id="confidence-state">EVIDENCE CONFIDENCE</span>
-          <span id="confidence-percent">—</span>
-        </div>
-        <div class="confidence-line"><span id="confidence-fill"></span></div>
-        <p id="confidence-copy">
-          A receipt will assemble here as the agent scopes, composes, executes,
-          and grounds an answer.
-        </p>
-      </div>
-
-      <div class="evidence-section">
-        <div class="evidence-label">ANSWER CONTRACT</div>
-        <div class="pipeline" id="evidence-pipeline">
-          <div class="pipeline-step" data-stage="scope">
-            <span class="stage-node">01</span>
-            <div><strong>Scope</strong><small id="stage-scope-meta">Choose an agent</small></div>
-            <span class="stage-state">WAITING</span>
-          </div>
-          <div class="pipeline-step" data-stage="compose">
-            <span class="stage-node">02</span>
-            <div><strong>Compose</strong><small id="stage-compose-meta">SQL not generated</small></div>
-            <span class="stage-state">WAITING</span>
-          </div>
-          <div class="pipeline-step" data-stage="execute">
-            <span class="stage-node">03</span>
-            <div><strong>Execute</strong><small id="stage-execute-meta">No database result</small></div>
-            <span class="stage-state">WAITING</span>
-          </div>
-          <div class="pipeline-step" data-stage="ground">
-            <span class="stage-node">04</span>
-            <div><strong>Ground</strong><small id="stage-ground-meta">No finding yet</small></div>
-            <span class="stage-state">WAITING</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="metric-rack">
-        <div><span>GENERATION</span><strong id="metric-generation">—</strong></div>
-        <div><span>EXECUTION</span><strong id="metric-execution">—</strong></div>
-        <div><span>ROWS</span><strong id="metric-rows">—</strong></div>
-        <div><span>TOKENS</span><strong id="metric-tokens">—</strong></div>
-      </div>
-
-      <div class="evidence-section schema-section">
-        <div class="evidence-label-row">
-          <span class="evidence-label">SCHEMA BOUNDARY</span>
-          <span id="schema-count">0 TABLES</span>
-        </div>
-        <input id="schema-search" class="schema-search" placeholder="Filter tables or fields">
-        <div id="schema-tree" class="schema-tree">
-          <div class="panel-empty compact">Choose an agent to inspect its boundary.</div>
-        </div>
-      </div>
-
-      <div class="evidence-footer">
-        <span class="lock-glyph">⌁</span>
-        <span>
-          <strong>Execution proves the query ran.</strong>
-          Regression evals prove whether it should ship.
-        </span>
-      </div>
-    </aside>
   </div>
-
-  <div id="save-overlay" class="modal-overlay" role="dialog" aria-modal="true" hidden>
-    <div class="save-modal">
-      <div class="modal-index">SAVE / 01</div>
-      <h2>Keep this question.</h2>
-      <p>Save the question and generated SQL to your shared analysis library.</p>
-      <label for="save-name">NAME</label>
-      <input id="save-name" maxlength="80" placeholder="Monthly revenue pulse">
-      <div class="modal-actions">
-        <button id="save-cancel" class="secondary-btn">Cancel</button>
-        <button id="save-confirm" class="primary-cta">Save question ↗</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="toast-region" class="toast-region" aria-live="polite"></div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="/app.js"></script>
 </body>
 </html>
