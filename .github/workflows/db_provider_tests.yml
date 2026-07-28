@@ -43,3 +43,42 @@ jobs:
         run: |
           uv run ruff check tabletalk
           uv run mypy tabletalk
+
+  package:
+    name: Verify PyPI distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Validate PyPI metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Verify wheel contents and installation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              names = archive.namelist()
+          assert not any("/tests/" in name for name in names)
+          assert not any(".data/data/tabletalk/static/" in name for name in names)
+          assert "tabletalk/static/index.html" in names
+          PY
+          uv venv .package-test
+          uv pip install --python .package-test/bin/python dist/*.whl
+          .package-test/bin/tabletalk --version
+          .package-test/bin/python -c "from tabletalk import Agent, EvalSuite, Project"
