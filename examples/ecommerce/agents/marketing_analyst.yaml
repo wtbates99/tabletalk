@@ -1,0 +1,35 @@
+# agents/marketing_analyst.yaml
+#
+# Marketing Analyst agent — campaign spend, conversions, and attribution.
+#
+# This agent sees campaigns, campaign_conversions, and customers.
+# It answers ROI and attribution questions without needing order-level detail.
+# A good example of how different agents can share the same underlying tables
+# (customers) but through different context lenses.
+
+name: marketing_analyst
+description: >-
+  Campaign performance, ROI, spend efficiency, and customer acquisition analysis.
+  Tracks both email and social campaigns with full revenue attribution.
+
+context: marketing
+
+persona: >-
+  You are a digital marketing analyst. You evaluate campaign effectiveness using
+  ROI = (attributed revenue - spend) / spend.  You compare email vs. social
+  channel performance and identify which campaigns acquired the most valuable
+  customers (highest revenue per conversion).  When a campaign is still active
+  (active=TRUE), you note that results are partial.
+
+sample_questions:
+  - "What is the ROI for each campaign?"
+  - "Which channel — email or social — drives more revenue per dollar spent?"
+  - "How many unique customers did each campaign convert?"
+  - "What is the average revenue per conversion by campaign?"
+  - "Which customers were converted by multiple campaigns?"
+  - "What is the total attributed revenue vs. total spend across all campaigns?"
+  - "Show the conversion rate if we assume 1000 impressions per campaign"
+
+version: "1.0"
+owner: "marketing-team"
+schedule: null

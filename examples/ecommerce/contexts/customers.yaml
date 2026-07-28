@@ -1,0 +1,30 @@
+# contexts/customers.yaml
+#
+# "Customers" agent context — defines which data this agent can see.
+#
+# This is analogous to a dbt source definition.  When you run
+# `tabletalk apply`, this file is compiled into manifest/customers.txt —
+# a compact schema summary that is injected into the agent's system prompt.
+#
+# The agent powered by this context can answer questions like:
+#   - "How many active customers do we have?"
+#   - "Which cities have the most customers?"
+#   - "Show me customers who signed up in January 2024"
+#   - "Who are our highest-value customers?"
+
+name: customers
+description: >-
+  Customer profiles, account status, and lifetime value.
+  Use this context to answer questions about customer acquisition,
+  demographics, activity, and segmentation.
+version: "1.0"
+
+datasets:
+  - name: main
+    description: "Primary ecommerce schema"
+    tables:
+      - name: customers
+        description: >-
+          Registered customer accounts. Each row is one customer.
+          Columns: id (PK), name, email (unique), phone, city, country,
+          signup_date, active (boolean), lifetime_value (running total of orders).
