@@ -27,8 +27,15 @@ def _matches_type(value: Any, expected: str) -> bool:
 
 def _validate(value: Any, schema: dict[str, Any], path: str) -> None:
     expected = schema.get("type")
-    types = expected if isinstance(expected, list) else [expected]
-    if not types or not all(isinstance(item, str) for item in types):
+    if isinstance(expected, str):
+        types = [expected]
+    elif (
+        isinstance(expected, list)
+        and expected
+        and all(isinstance(item, str) for item in expected)
+    ):
+        types = [str(item) for item in expected]
+    else:
         raise ValueError(f"{path}: schema type is missing or unsupported")
     if not any(_matches_type(value, item) for item in types):
         raise ValueError(f"{path}: expected {' or '.join(types)}")
@@ -41,9 +48,11 @@ def _validate(value: Any, schema: dict[str, Any], path: str) -> None:
         if not isinstance(properties, dict):
             raise ValueError(f"{path}: object properties schema is invalid")
         required = schema.get("required", [])
-        if not isinstance(required, list):
+        if not isinstance(required, list) or not all(
+            isinstance(field, str) for field in required
+        ):
             raise ValueError(f"{path}: required schema is invalid")
-        missing = [field for field in required if field not in value]
+        missing = [str(field) for field in required if field not in value]
         if missing:
             raise ValueError(f"{path}: missing required fields {', '.join(missing)}")
         if schema.get("additionalProperties") is False:

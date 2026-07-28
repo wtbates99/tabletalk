@@ -2,11 +2,76 @@ name: Publish to PyPI
 
 on:
   release:
-    types: [created]
+    types: [published]
+
+permissions:
+  contents: read
 
 jobs:
-  pypi-publish:
-    name: Publish release to PyPI
+  build:
+    name: Build and verify distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify release tag matches package version
+        run: |
+          PACKAGE_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "${GITHUB_REF_NAME#v}" = "$PACKAGE_VERSION"
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Validate PyPI metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Inspect wheel contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              names = archive.namelist()
+          assert not any("/tests/" in name for name in names)
+          assert not any(".data/data/tabletalk/static/" in name for name in names)
+          for required in (
+              "tabletalk/static/index.html",
+              "tabletalk/static/app.js",
+              "tabletalk/static/styles.css",
+          ):
+              assert required in names, f"missing wheel asset: {required}"
+          PY
+
+      - name: Verify wheel installation
+        run: |
+          uv venv .package-test
+          uv pip install --python .package-test/bin/python dist/*.whl
+          .package-test/bin/tabletalk --version
+          .package-test/bin/python -c "from tabletalk import Agent, EvalSuite, Project"
+
+      - name: Upload verified distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified distribution
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -15,17 +80,13 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Download verified distributions
+        uses: actions/download-artifact@v4
         with:
-          version: "latest"
+          name: python-package-distributions
+          path: dist/
 
-      - name: Build package
-        run: uv build
-
-      - name: Publish to PyPI
+      - name: Publish to PyPI using trusted publishing
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/

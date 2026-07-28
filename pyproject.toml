@@ -74,9 +74,7 @@ markers = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["tabletalk"]
-
-[tool.hatch.build.targets.wheel.shared-data]
-"tabletalk/static" = "tabletalk/static"
+exclude = ["/tabletalk/tests"]
 
 [tool.ruff]
 line-length = 100
