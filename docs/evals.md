@@ -1,64 +1,49 @@
-# EvalSuites
+# Execution-based evals
 
-EvalSuites are versioned YAML resources executed against an exact candidate
-Agent artifact.
+Suites may declare `kind: regression|capability`, a human-readable `description`, and `trials: 1..20`.
+Regression suites are expected to remain nearly perfect; capability suites hold harder tasks with room
+to improve. Repeated trials are persisted separately, all must pass for the command to succeed, and the
+terminal reports aggregate trial pass rate.
+
+Create evals interactively with `tabletalk eval create AGENT`. The default is the generated SQL the
+user just reviewed, so changing warehouse data is compared by executing candidate and golden queries
+against the same snapshot. The proposed case runs immediately and automated authoring refuses to save
+an already-failing case. Literal rows remain available for stable fixtures and CI.
 
 ```yaml
-kind: EvalSuite
-name: revenue_regression
+name: revenue-regression
 agent: revenue
-fixture:
-  type: duckdb
-  setup:
-    - fixtures/schema.sql
-    - fixtures/data.sql
 cases:
-  - name: january_revenue
-    question: What was revenue in January 2026?
-    expected_interpretation:
-      metric: revenue
-      start_date: "2026-01-01"
-      end_date: "2026-02-01"
-      timezone: UTC
+  - name: july-revenue
+    question: What was recognized revenue in July 2026?
     expect:
-      relations:
-        required: [main.orders]
-      columns:
-        required: [recognized_revenue, order_date]
-      joins:
-        max: 0
       reference_sql: |
-        SELECT sum(recognized_revenue) AS revenue
-        FROM main.orders
-        WHERE order_date >= '2026-01-01'
-          AND order_date < '2026-02-01'
+        select sum(recognized_revenue) as recognized_revenue
+        from {{ ref('fct_orders') }}
+        where order_date >= '2026-07-01'
+          and order_date < '2026-08-01'
       result:
         comparison: scalar
-        absolute_tolerance: 0.01
-      answer:
-        require_supported_claims: true
-        require_evidence: true
+        tolerance: 0.01
+      models:
+        required: [model.analytics.fct_orders]
+      columns:
+        required: [recognized_revenue, order_date]
 ```
 
-Supported result modes include scalar, table, ordered rows, unordered rows,
-keyed rows, approximate numeric rows, empty results, and shape checks. SQL
-expectations can require or forbid relations and columns and constrain joins.
-Budgets can constrain runtime observations.
+Result modes are `scalar`, `ordered`, `ordered_values`, `unordered`, and `keyed`; keyed comparisons
+require `keys`. `ordered_values` deliberately ignores presentation-only aliases while preserving row
+and value order.
+Expectations may also include literal `value` or `rows`, `row_count`, exact result `columns`, forbidden
+models/columns, `allow_extra_columns: true` for harmless additional evidence fields, and
+`outcome: ambiguity|rejection`. Reference SQL supports only dbt `ref()` templating,
+is parsed with the same read-only scope validator, and executes against the same warehouse snapshot.
 
-```bash
-tabletalk eval
-tabletalk eval revenue
-tabletalk eval --format json
-tabletalk eval --format junit
-```
+Hard gates are execution, SQL safety/scope, expected models/columns, expected rejection, result
+comparison and tolerance, shape/count, and evidence-linked claims. Latency and token usage are recorded
+but informational. Empty literal row sets are enforced rather than treated as a missing expectation.
+Results are written to `.tabletalk/eval-results/AGENT` and failures exit with code 3.
 
-An eval invokes the configured model; fixtures and reference SQL judge its
-behavior and never generate a substitute answer. Passing receipts bind the
-suite source digest, candidate artifact digest, Agent, runtime identity, and
-observed result. A changed suite or artifact invalidates the receipt.
-
-`tabletalk apply` runs required suites and refuses to update state if any suite
-is absent, failing, stale, or tampered with.
-
-See the three projects under `examples/` for complete fixtures, including the
-DuckDB join-multiplication regression.
+Live correctness uses exact normalized question matching, not semantic guesswork. A covered question is
+`VERIFIED` only when every hard gate passes. Uncovered questions still return their inspectable trace,
+but are labeled `UNVERIFIED` and exit with code 4.

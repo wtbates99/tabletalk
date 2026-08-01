@@ -1,0 +1,2 @@
+packages:
+  - local: packages/shared_models

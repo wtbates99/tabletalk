@@ -71,6 +71,7 @@ examples/ecommerce/evals/fixtures/*.duckdb
 __pycache__
 
 # TableTalk generated output and per-user runtime state
+.tabletalk/
 /examples/*/manifest/
 .tabletalk_history.jsonl
 .tabletalk_favorites.json
@@ -81,6 +82,8 @@ __pycache__
 
 # dbt generated and per-user state
 .user.yml
+dbt_packages/
+logs/
 /examples/*/dbt_project/dbt_packages/
 /examples/*/dbt_project/logs/
 
@@ -144,6 +147,12 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+
+# The reference project's manifest is a dbt-generated acceptance fixture.
+!examples/dbt-analytics/target/
+examples/dbt-analytics/target/*
+!examples/dbt-analytics/target/manifest.json
+!examples/dbt-analytics/target/catalog.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

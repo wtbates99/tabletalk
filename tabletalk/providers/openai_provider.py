@@ -1,9 +1,7 @@
 """
 openai_provider.py — OpenAI and Ollama LLM provider.
 
-item 25: Token usage is captured from the streaming response via
-         stream_options={"include_usage": True} (OpenAI SDK >= 1.26)
-         and stored in self.last_usage for QuerySession to persist.
+Token usage is captured from the response and attached to the shared answer trace.
 """
 
 import json
@@ -12,8 +10,38 @@ from typing import Any
 
 from openai import OpenAI
 
-from tabletalk.domain import ErrorCode, RuntimeStage, TableTalkError
-from tabletalk.interfaces import LLMProvider
+from tabletalk.interfaces import LLMProvider, validate_structured_value
+
+
+def _json_object(content: str, model: str) -> dict[str, Any]:
+    candidate = content.strip()
+    if candidate.startswith("```") and candidate.endswith("```"):
+        first_line, _, body = candidate.partition("\n")
+        if first_line.lower() in {"```", "```json"}:
+            candidate = body.rsplit("```", 1)[0].strip()
+    try:
+        value = json.loads(candidate)
+    except json.JSONDecodeError as error:
+        # Some OpenAI-compatible cloud endpoints occasionally wrap an otherwise
+        # valid structured response in a short preamble or Markdown. Recover the
+        # first complete JSON object without attempting to repair invalid JSON.
+        decoder = json.JSONDecoder()
+        value = None
+        for start, character in enumerate(candidate):
+            if character != "{":
+                continue
+            try:
+                decoded, _ = decoder.raw_decode(candidate[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(decoded, dict):
+                value = decoded
+                break
+        if value is None:
+            raise ValueError(f"Configured model '{model}' returned malformed JSON") from error
+    if not isinstance(value, dict):
+        raise ValueError("Model structured output must be an object")
+    return value
 
 
 class OpenAIProvider(LLMProvider):
@@ -56,7 +84,6 @@ class OpenAIProvider(LLMProvider):
         response = self.client.chat.completions.create(
             **request,
         )
-        # Capture token usage (item 25)
         if response.usage:
             self.last_usage = {
                 "prompt_tokens": response.usage.prompt_tokens,
@@ -65,12 +92,7 @@ class OpenAIProvider(LLMProvider):
         content = response.choices[0].message.content
         result = content.strip() if content is not None else ""
         if not result:
-            raise TableTalkError(
-                ErrorCode.MODEL_OUTPUT_MALFORMED,
-                RuntimeStage.GENERATION,
-                f"Configured model '{self.model}' returned an empty response.",
-                details={"provider": self.provider_name, "model": self.model},
-            )
+            raise ValueError(f"Configured model '{self.model}' returned an empty response")
         return result
 
     def generate_response_stream(self, prompt: str) -> Generator[str, None, None]:
@@ -106,36 +128,43 @@ class OpenAIProvider(LLMProvider):
         }
         if self.reasoning_effort:
             request["reasoning_effort"] = self.reasoning_effort
-        response = self.client.chat.completions.create(**request)
-        if response.usage:
-            self.last_usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-            }
-        content = response.choices[0].message.content
-        if not content:
-            raise TableTalkError(
-                ErrorCode.MODEL_OUTPUT_MALFORMED,
-                RuntimeStage.GENERATION,
-                f"Configured model '{self.model}' returned an empty response.",
-                details={"provider": self.provider_name, "model": self.model},
-            )
-        try:
-            value = json.loads(content)
-        except json.JSONDecodeError as error:
-            raise TableTalkError(
-                ErrorCode.MODEL_OUTPUT_MALFORMED,
-                RuntimeStage.GENERATION,
-                f"Configured model '{self.model}' returned malformed JSON.",
-                details={"provider": self.provider_name, "model": self.model},
-            ) from error
-        from tabletalk.structured_output import validate_structured_output
-
-        return validate_structured_output(value, json_schema)
+        last_error: ValueError | None = None
+        for attempt in range(2):
+            response = self.client.chat.completions.create(**request)
+            if response.usage:
+                self.last_usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                }
+            content = response.choices[0].message.content
+            if not content:
+                last_error = ValueError(
+                    f"Configured model '{self.model}' returned an empty response"
+                )
+            else:
+                try:
+                    value = _json_object(content, self.model)
+                    validate_structured_value(value, json_schema)
+                    return value
+                except ValueError as exc:
+                    last_error = exc
+            if attempt == 0:
+                request["messages"] = [
+                    *schema_messages,
+                    {
+                        "role": "system",
+                        "content": (
+                            "Your previous response did not match the required schema. "
+                            "Try once more and return only the complete JSON object."
+                        ),
+                    },
+                ]
+        raise ValueError(
+            f"Configured model '{self.model}' failed structured output after one retry: "
+            f"{last_error}"
+        ) from last_error
 
     def generate_chat_stream(self, messages: list[dict[str, str]]) -> Generator[str, None, None]:
-        # Request usage data in the final streaming chunk (item 25)
-        # stream_options is supported by OpenAI SDK >= 1.26; ignored by Ollama.
         request: dict = {
             "model": self.model,
             "messages": messages,
@@ -151,12 +180,10 @@ class OpenAIProvider(LLMProvider):
                 stream_options={"include_usage": True},
             )
         except TypeError:
-            # Older SDK or Ollama that doesn't accept stream_options
             stream = self.client.chat.completions.create(**request)
 
         emitted = False
         for chunk in stream:
-            # The final chunk from OpenAI contains usage when stream_options is set
             if chunk.usage:
                 self.last_usage = {
                     "prompt_tokens": chunk.usage.prompt_tokens,
@@ -166,9 +193,4 @@ class OpenAIProvider(LLMProvider):
                 emitted = True
                 yield chunk.choices[0].delta.content
         if not emitted:
-            raise TableTalkError(
-                ErrorCode.MODEL_OUTPUT_MALFORMED,
-                RuntimeStage.GENERATION,
-                f"Configured model '{self.model}' returned an empty response.",
-                details={"provider": self.provider_name, "model": self.model},
-            )
+            raise ValueError(f"Configured model '{self.model}' returned an empty response")

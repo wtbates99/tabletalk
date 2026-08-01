@@ -1,0 +1,19 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    description: Warehouse relations loaded before dbt transformations.
+    tables:
+      - name: orders
+        identifier: raw_orders
+        description: Raw orders supplied to the staging layer.
+        columns:
+          - name: order_id
+            description: Source order identifier.
+          - name: order_date
+            description: Source order date.
+          - name: recognized_revenue
+            description: Source recognized revenue.
+          - name: customer_id
+            description: Source customer identifier.

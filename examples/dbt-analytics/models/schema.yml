@@ -1,0 +1,44 @@
+version: 2
+
+groups:
+  - name: finance
+    owner:
+      name: Finance Analytics
+      email: finance@example.com
+
+models:
+  - name: stg_orders
+    description: Cleaned orders used to build finance marts.
+    columns:
+      - name: order_id
+        description: Stable order identifier.
+        data_type: integer
+        tests: [not_null, unique]
+      - name: order_date
+        description: Date on which revenue was recognized.
+        data_type: date
+  - name: fct_orders
+    description: One row per order with recognized revenue.
+    config:
+      group: finance
+      tags: [revenue]
+      contract:
+        enforced: true
+    constraints:
+      - type: primary_key
+        columns: [order_id]
+    columns:
+      - name: order_id
+        description: Stable order identifier.
+        data_type: integer
+        tests: [not_null, unique]
+      - name: order_date
+        description: Date on which revenue was recognized.
+        data_type: date
+        tests: [not_null]
+      - name: recognized_revenue
+        description: Revenue recognized in USD.
+        data_type: decimal(18,2)
+      - name: customer_id
+        description: Customer identifier; access is sensitive.
+        data_type: varchar

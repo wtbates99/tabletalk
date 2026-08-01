@@ -1,0 +1,8 @@
+version: 2
+models:
+  - name: shared_calendar
+    description: Shared one-row calendar fixture from a local dbt package.
+    columns:
+      - name: date_day
+        description: Calendar date.
+        data_type: date

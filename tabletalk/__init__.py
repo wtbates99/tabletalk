@@ -1,44 +1,22 @@
-"""Define, evaluate, apply, and run trusted data agents as code."""
+"""TableTalk: dbt-native evaluation and observability for NL agents."""
 
-from tabletalk.agents import AgentDefinition
-from tabletalk.compiler import CompiledAgent, CompiledArtifact
-from tabletalk.domain import (
-    EvidenceItem,
-    Interpretation,
-    QueryAnswer,
-    SemanticPlan,
-    VerificationCheck,
-    VerificationStatus,
-)
-from tabletalk.evals import EvalSuite, SuiteResult
-from tabletalk.project import AppliedAgent, Project, ProjectPlan
+from tabletalk.agents import Agent, ResolvedAgent
+from tabletalk.evals import EvalCase, EvalSuite, SuiteResult
+from tabletalk.manifest import Manifest, Node
+from tabletalk.project import Project
+from tabletalk.traces import Trace
 
-__version__ = "0.4.0"
-Agent = AgentDefinition
-Plan = ProjectPlan
-Answer = QueryAnswer
-Evidence = EvidenceItem
-EvalReport = SuiteResult
+__version__ = "0.5.0"
 
 __all__ = [
     "Agent",
-    "AgentDefinition",
-    "Answer",
-    "AppliedAgent",
-    "CompiledAgent",
-    "CompiledArtifact",
-    "EvalReport",
+    "EvalCase",
     "EvalSuite",
-    "Evidence",
-    "EvidenceItem",
-    "Interpretation",
-    "Plan",
+    "Manifest",
+    "Node",
     "Project",
-    "ProjectPlan",
-    "QueryAnswer",
-    "SemanticPlan",
+    "ResolvedAgent",
     "SuiteResult",
-    "VerificationCheck",
-    "VerificationStatus",
+    "Trace",
     "__version__",
 ]

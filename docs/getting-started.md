@@ -1,46 +1,38 @@
-# Getting started
+# Get started
 
-Install and authenticate the free local-development model:
+TableTalk starts with a parsed, runnable dbt project. It does not discover arbitrary database tables.
 
-```bash
-uv sync --extra duckdb
-ollama signin
-ollama pull gemma4:31b-cloud
-```
-
-Create and inspect a complete SQLite project:
-
-```bash
-mkdir my-tabletalk-project
-cd my-tabletalk-project
+```console
+cd my-dbt-project
+dbt parse
+dbt docs generate
 tabletalk init
-tabletalk compile
-tabletalk plan
 ```
 
-`init` creates a seeded read-only SQLite database, `agents/sales.yaml`, and
-`evals/starter.yaml`. Compilation is deterministic and offline.
+Initialization finds the dbt project and manifest, reads the project profile, asks for a target, checks
+that its adapter is SQLite, DuckDB, or Snowflake, summarizes dbt version/models/groups/tags, and writes
+`tabletalk.yaml`. Credentials stay in environment variables and `profiles.yml`.
 
-Run the required suite and apply the exact passing artifact:
+Create an agent from dbt selectors:
 
-```bash
-tabletalk eval
-tabletalk apply
+```console
+tabletalk agent create
 ```
 
-These steps invoke the configured model. If Ollama, the model, or the database
-is unavailable, TableTalk exits with an explicit failure and leaves applied
-state unchanged.
+Choose a displayed dbt group, tag, model, path, package, or source, then choose whether to include its
+lineage. The guided preview shows exact resources, catalog types, tests, constraints, and metadata gaps.
+Create the first eval when prompted. TableTalk shows the interpretation and SQL before read-only
+execution, uses that reviewed SQL as the default golden query, verifies it immediately, and saves both
+the case and result record.
 
-Ask through the CLI or web:
-
-```bash
-tabletalk ask sales "What was recognized revenue in January 2026?"
-tabletalk serve
+```console
+tabletalk eval run revenue
+tabletalk ask revenue "What was recognized revenue last month?"
 ```
 
-The response separates interpretation, verification, evidence, data, SQL and
-sources, calculations, and a technical receipt.
-
-For other databases, start with `examples/duckdb-analytics` or
-`examples/snowflake-production` in the repository.
+Both commands use the same runtime. `ask` prints `VERIFIED` only for an exact normalized question match
+against an approved, passing eval; new or changed questions print `UNVERIFIED` and exit nonzero. Run
+`tabletalk doctor` in CI or locally to detect missing/stale
+artifacts, unsupported targets, connectivity failures, broken selectors, metadata gaps, and uncovered
+agents. Metadata gaps are warnings; conditions that prevent safe or verified execution fail the command.
+The complete runnable journey is in `examples/dbt-analytics`.

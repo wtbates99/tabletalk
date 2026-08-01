@@ -1,0 +1,21 @@
+name: revenue-regression
+agent: revenue
+cases:
+  - name: july-recognized-revenue
+    question: What was recognized revenue in July 2026?
+    expect:
+      reference_sql: |
+        select sum(recognized_revenue) as recognized_revenue
+        from {{ ref('fct_orders') }}
+        where order_date >= '2026-07-01'
+          and order_date < '2026-08-01'
+      result:
+        comparison: scalar
+        tolerance: 0.01
+      models:
+        required:
+          - model.analytics.fct_orders
+      columns:
+        required:
+          - recognized_revenue
+          - order_date

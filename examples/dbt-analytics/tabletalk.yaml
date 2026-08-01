@@ -1,0 +1,11 @@
+dbt:
+  project_dir: .
+  manifest: target/manifest.json
+  catalog: target/catalog.json
+  target: dev
+  profiles_dir: .
+
+llm:
+  provider: ollama
+  model: gemma4:31b-cloud
+  base_url: http://localhost:11434/v1

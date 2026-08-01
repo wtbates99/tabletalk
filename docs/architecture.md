@@ -1,41 +1,28 @@
-# Architecture
+# Runtime safety and architecture
 
-TableTalk is a reliability-first lifecycle for trusted data agents as code.
+Every live and eval question follows one pipeline:
 
 ```text
-define → compile → plan → evaluate → apply → ask
-                                      │
-                                      ▼
-interpret → semantic plan → generate → validate → execute → verify → evidence
+manifest → resolved agent scope → interpretation/SQL → AST validation
+         → read-only connector → evidence rows → answer/claims → trace verification
 ```
 
-## Contracts
+`manifest.py` owns artifact normalization, selection, graph navigation, and fingerprints. `agents.py`
+contains only selector resources and resolved in-memory scopes. `validation.py` parses SQL and derives
+actual model/column use. `connections.py` resolves the selected dbt target and exposes only read-only
+query execution. `runtime` constructs the answer and shared trace. `evals` calls that exact runtime and
+adds deterministic comparisons. `traces.py` persists one schema for live and eval records.
 
-- `tabletalk.domain` defines verification states, interpretations, semantic
-  plans, sources, evidence, claims, receipts, and typed stage errors.
-- Database implementations are limited to SQLite, DuckDB, and Snowflake.
-- All model calls use one OpenAI-compatible implementation. `ollama` and
-  `openai` are configuration aliases, not separate fallback engines.
-- Canonical JSON uses stable field and mapping order; SHA-256 digests identify
-  immutable semantic values.
-- Default tests inject deterministic fake models. Live Ollama and Snowflake
-  tests are opt-in.
+Validation rejects multiple statements, writes/commands, forbidden external-read functions,
+out-of-scope or ambiguous relations, unknown columns, unconditioned joins, excessive limits, and
+unapproved sensitive resources. Connector permissions remain the final security boundary.
 
-## No-fallback invariant
+Lineage proves dependency, not semantic join correctness. TableTalk never labels a join verified merely
+because two nodes share a lineage edge. Safe join evidence belongs in dbt constraints, relationship
+tests, explicit `meta`, and passing eval coverage.
 
-A model or database stage returns either its configured result or a typed
-failure. TableTalk never substitutes a different provider/model, local keyword
-parser, handcrafted SQL, cached prose, model-memory answer, or demo response.
-An empty model response is malformed output. A database failure cannot reach
-answer construction.
-
-## Verification
-
-`verified` requires executed SQL, a runtime/artifact receipt, evidence, and no
-unsupported material claims. Other states are `partially_verified`,
-`insufficient_evidence`, `clarification_required`, and `failed`. The web and API
-must present answer, verification, interpretation, evidence, SQL, data, and
-technical details as distinct fields.
-
-The complete target architecture and migration checkpoints are documented in
-`docs/refactor/target-architecture.md` and `docs/refactor/migration-plan.md`.
+Post-execution verification requires successful execution and validates every claim’s row/column
+evidence. Numeric claims must appear in cited result cells. Correctness additionally requires an exact
+approved eval-question match and passing deterministic comparisons. Reported models and columns always
+come from the validated AST. Trace records hold fingerprints and identities, not credentials or
+deployment state.

@@ -1,0 +1,4 @@
+packages:
+  - local: packages/shared_models
+    name: shared_models
+sha1_hash: 9c8b78cb24abfbeefe18d1131edb6e07888cbd2a

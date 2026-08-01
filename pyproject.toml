@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tabletalk"
-version = "0.4.0"
-description = "Natural language to SQL — the dbt companion for AI-powered data workflows"
+version = "0.5.0"
+description = "Evaluation and observability for natural-language agents over dbt projects"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "CC BY-NC 4.0" }
@@ -18,20 +18,15 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-# Core dependencies — always installed
 dependencies = [
     "pyyaml>=6.0",
     "click>=8.0",
-    "flask>=3.0",
     "openai>=1.0.0",
     "rich>=13.0",
     "sqlglot>=25.0",
 ]
 
 [project.optional-dependencies]
-# Install only the drivers you need:
-#   uv add "tabletalk[snowflake,duckdb]"
-#   uv add "tabletalk[all]"
 snowflake = ["snowflake-connector-python>=3.0"]
 duckdb    = ["duckdb>=0.9"]
 all = [
@@ -56,6 +51,7 @@ dev = [
     "duckdb>=0.9",
     "sphinx>=7.0",
     "myst-parser>=3.0",
+    "dbt-duckdb>=1.9,<2",
 ]
 
 [tool.pytest.ini_options]

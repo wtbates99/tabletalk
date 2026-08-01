@@ -1,0 +1,10 @@
+name: revenue
+description: Answers questions about recognized revenue.
+select:
+  - group:finance
+exclude: []
+instructions:
+  - Use recognized revenue unless the user explicitly requests bookings.
+  - State exact boundaries for relative date ranges.
+sample_questions:
+  - What was recognized revenue last month?

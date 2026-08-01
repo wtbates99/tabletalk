@@ -46,13 +46,17 @@ jobs:
           with ZipFile(wheel) as archive:
               names = archive.namelist()
           assert not any("/tests/" in name for name in names)
-          assert not any(".data/data/tabletalk/static/" in name for name in names)
+          assert not any("tabletalk/static/" in name for name in names)
+          assert "tabletalk/app.py" not in names
           for required in (
-              "tabletalk/static/index.html",
-              "tabletalk/static/app.js",
-              "tabletalk/static/styles.css",
+              "tabletalk/agents.py",
+              "tabletalk/evals/__init__.py",
+              "tabletalk/manifest.py",
+              "tabletalk/project.py",
+              "tabletalk/runtime/__init__.py",
+              "tabletalk/validation.py",
           ):
-              assert required in names, f"missing wheel asset: {required}"
+              assert required in names, f"missing wheel module: {required}"
           PY
 
       - name: Verify wheel installation

@@ -6,7 +6,7 @@
 project = "tabletalk"
 copyright = "2025, william bates"
 author = "william bates"
-release = "0.4.0"
+release = "0.5.0"
 
 # -- General configuration -----------------------------------------------------
 
@@ -16,9 +16,9 @@ extensions = [
 
 # MyST parser settings — enable common markdown extensions
 myst_enable_extensions = [
-    "colon_fence",   # ::: fenced directives
-    "deflist",       # definition lists
-    "tasklist",      # - [ ] checkboxes
+    "colon_fence",  # ::: fenced directives
+    "deflist",  # definition lists
+    "tasklist",  # - [ ] checkboxes
 ]
 
 # Auto-generate anchors for headings up to level 3 (enables #anchor-name links)
@@ -40,7 +40,7 @@ html_theme = "alabaster"
 html_static_path = []
 
 html_theme_options = {
-    "description": "dbt for agents — declarative natural-language SQL agents",
+    "description": "dbt-native evaluation and observability for natural-language agents",
     "github_user": "wtbates99",
     "github_repo": "tabletalk",
     "github_button": True,
