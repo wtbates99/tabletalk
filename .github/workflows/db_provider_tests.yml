@@ -75,8 +75,17 @@ jobs:
           with ZipFile(wheel) as archive:
               names = archive.namelist()
           assert not any("/tests/" in name for name in names)
-          assert not any(".data/data/tabletalk/static/" in name for name in names)
-          assert "tabletalk/static/index.html" in names
+          assert not any("tabletalk/static/" in name for name in names)
+          assert "tabletalk/app.py" not in names
+          for required in (
+              "tabletalk/agents.py",
+              "tabletalk/evals/__init__.py",
+              "tabletalk/manifest.py",
+              "tabletalk/project.py",
+              "tabletalk/runtime/__init__.py",
+              "tabletalk/validation.py",
+          ):
+              assert required in names, f"missing wheel module: {required}"
           PY
           uv venv .package-test
           uv pip install --python .package-test/bin/python dist/*.whl
