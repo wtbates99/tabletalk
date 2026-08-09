@@ -8,11 +8,13 @@ version = "0.5.0"
 description = "Evaluation and observability for natural-language agents over dbt projects"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "CC BY-NC 4.0" }
-authors = [{ name = "william bates", email = "wtbates99@gmail.com" }]
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
+authors = [{ name = "William Bates", email = "wbates@palanbates.com" }]
 keywords = ["sql", "llm", "dbt", "database", "natural-language", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -40,6 +42,7 @@ tabletalk = "tabletalk.cli:cli"
 [project.urls]
 Homepage   = "https://github.com/wtbates99/tabletalk"
 Repository = "https://github.com/wtbates99/tabletalk"
+"Commercial License" = "https://github.com/wtbates99/tabletalk/blob/main/COMMERCIAL-LICENSE.md"
 
 [dependency-groups]
 dev = [
