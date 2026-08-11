@@ -1,0 +1,26 @@
+schema_version: tabletalk.semantic/v1
+statements:
+  late_order:
+    status: inferred
+    definition: A late order arrives after its promised date.
+    approval:
+      id: inf_example_late_order
+      action: store_untrusted
+    evidence:
+      - kind: llm_inference
+        reference: example proposal hypothesis
+        digest: sha256:4590d603b01756a4cc928606f71f5e76dc856f877240e18a93c189e8ebcf99c1
+        locator: /late_order
+  recognized_revenue:
+    status: confirmed
+    definition: Recognized revenue excludes cancelled orders and uses the recognition date.
+    expression: sum(recognized_revenue)
+    time_column: order_date
+    filters:
+      - order_status != 'cancelled'
+    approval: apr_example_recognized_revenue
+    evidence:
+      - kind: user_answer
+        reference: example semantic clarification
+        digest: sha256:b81495e1b98d26419a39339b6e1fc566cad557272145edb04b333a07e1566823
+        locator: /recognized_revenue

@@ -1,10 +1,19 @@
+schema_version: tabletalk.agent/v1
 name: revenue
 description: Answers questions about recognized revenue.
 select:
   - group:finance
 exclude: []
 instructions:
-  - Use recognized revenue unless the user explicitly requests bookings.
   - State exact boundaries for relative date ranges.
-sample_questions:
-  - What was recognized revenue last month?
+supported_questions:
+  - Aggregate and compare booked or recognized revenue.
+  - Summarize inventory availability and work in progress by product.
+unsupported_questions:
+  - Customer identity is outside this agent scope.
+  - Revenue without a booked or recognized basis requires clarification.
+  - Late-order analysis requires confirmation of the proposed definition.
+knowledge:
+  - semantics/revenue.yaml
+reject_if_contains:
+  - forecast revenue

@@ -5,14 +5,26 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Any
 
 from tabletalk.agents import ResolvedAgent
 from tabletalk.connections import ReadOnlyConnection
+from tabletalk.inference import (
+    CachePolicy,
+    InferenceArtifact,
+    InferenceFingerprint,
+    InferenceStore,
+    RecordingLLM,
+    ReplayMissError,
+)
 from tabletalk.interfaces import LLMProvider
 from tabletalk.manifest import Manifest
+from tabletalk.schemas import RUNTIME_SCHEMA, content_digest
+from tabletalk.semantic_guard import SemanticGuard, SemanticSupportError
+from tabletalk.semantics import SemanticStatement
 from tabletalk.traces import (
     Answer,
     Claim,
@@ -30,7 +42,7 @@ from tabletalk.validation import SQLValidationError, validate_sql
 _QUERY_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["interpretation", "sql", "rejection"],
+    "required": ["interpretation", "sql", "rejection", "rejection_kind"],
     "properties": {
         "interpretation": {
             "type": "object",
@@ -54,6 +66,10 @@ _QUERY_SCHEMA: dict[str, Any] = {
         },
         "sql": {"type": ["string", "null"]},
         "rejection": {"type": ["string", "null"]},
+        "rejection_kind": {
+            "type": ["string", "null"],
+            "enum": ["ambiguity", "rejection", None],
+        },
     },
 }
 
@@ -93,6 +109,21 @@ _ANSWER_SCHEMA: dict[str, Any] = {
 class RejectionError(ValueError):
     """A deliberate model or policy rejection, not an operational failure."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage: Usage | None = None,
+        inference_fingerprint: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.usage = usage
+        self.inference_fingerprint = inference_fingerprint
+
+
+class AmbiguityError(RejectionError):
+    """A deliberate request for clarification."""
+
 
 class Runtime:
     def __init__(
@@ -104,6 +135,13 @@ class Runtime:
         *,
         model_identity: str,
         run_directory: str | None = None,
+        inference_store: InferenceStore | None = None,
+        cache_policy: CachePolicy = CachePolicy.DISABLED,
+        model_config: dict[str, Any] | None = None,
+        semantic_digest: str | None = None,
+        prompt_version: str = "tabletalk.prompt/v2",
+        persist_prompts: bool = False,
+        semantic_statements: tuple[SemanticStatement, ...] = (),
     ) -> None:
         self.manifest = manifest
         self.agent = agent
@@ -111,16 +149,71 @@ class Runtime:
         self.llm = llm
         self.model_identity = model_identity
         self.run_directory = run_directory
+        self.inference_store = inference_store
+        self.cache_policy = cache_policy
+        self.model_config = model_config or {}
+        self.semantic_digest = semantic_digest
+        self.prompt_version = prompt_version
+        self.persist_prompts = persist_prompts
+        self.semantic_statements = semantic_statements
+
+    def fingerprint(self, question: str, *, trial: int = 1) -> InferenceFingerprint:
+        return InferenceFingerprint(
+            question_digest=content_digest(" ".join(question.split())),
+            agent_digest=self.agent.source.digest,
+            manifest_digest=self.manifest.digest,
+            semantic_digest=self.semantic_digest,
+            model_identity=self.model_identity,
+            model_config=self.model_config,
+            prompt_version=self.prompt_version,
+            runtime_version=RUNTIME_SCHEMA,
+            execution_config={
+                "dialect": self.connection.dialect,
+                "warehouse_identity": self.connection.identity,
+                "max_rows": self.agent.source.max_rows,
+                "timeout_seconds": self.agent.source.timeout_seconds,
+            },
+            trial=trial,
+        )
 
     def answer(
         self,
         question: str,
         *,
         before_execute: Callable[[Interpretation, str, str], None] | None = None,
+        trial: int = 1,
     ) -> Trace:
         started = time.perf_counter()
         if not isinstance(question, str) or not question.strip():
             raise ValueError("Question must be a non-empty string")
+        fingerprint = self.fingerprint(question, trial=trial)
+        if self.cache_policy is not CachePolicy.DISABLED and self.inference_store is None:
+            raise ValueError("The selected cache policy requires an inference store")
+        if self.cache_policy.reads and self.inference_store:
+            cached = self.inference_store.get(fingerprint)
+            if cached:
+                if cached.outcome:
+                    if cached.outcome.kind == "ambiguity":
+                        raise AmbiguityError(
+                            cached.outcome.message,
+                            usage=cached.outcome.usage,
+                            inference_fingerprint=fingerprint.digest,
+                        )
+                    if cached.outcome.kind == "rejection":
+                        raise RejectionError(
+                            cached.outcome.message,
+                            usage=cached.outcome.usage,
+                            inference_fingerprint=fingerprint.digest,
+                        )
+                    raise RuntimeError(cached.outcome.message)
+                if cached.trace is None:
+                    raise ValueError("Cached inference artifact has no trace")
+                return replace(cached.trace, question=question, cache_hit=True)
+            if self.cache_policy is CachePolicy.REPLAY:
+                raise ReplayMissError(
+                    f"Strict replay found no artifact for {fingerprint.digest}"
+                )
+        recorder = RecordingLLM(self.llm, persist_prompts=self.persist_prompts)
         normalized_question = question.casefold()
         blocked_term = next(
             (
@@ -131,15 +224,21 @@ class Runtime:
             None,
         )
         if blocked_term:
-            raise RejectionError(
+            error = RejectionError(
                 f"Question rejected: '{blocked_term}' requires data this agent does not have"
             )
+            self._store_outcome(fingerprint, recorder, error, started)
+            raise error
         query_messages = [
             {"role": "system", "content": self._query_prompt()},
             {"role": "user", "content": question},
         ]
         for attempt in range(2):
-            query = self.llm.generate_structured(query_messages, _QUERY_SCHEMA)
+            try:
+                query = recorder.generate_structured(query_messages, _QUERY_SCHEMA)
+            except Exception:
+                self._store_error_outcome(fingerprint, recorder, started)
+                raise
             raw_interpretation = query["interpretation"]
             interpretation = Interpretation(
                 intent=str(raw_interpretation["intent"]),
@@ -150,7 +249,13 @@ class Runtime:
                 assumptions=tuple(raw_interpretation["assumptions"]),
             )
             if query.get("rejection"):
-                raise RejectionError(f"Question rejected: {query['rejection']}")
+                message = f"Question rejected: {query['rejection']}"
+                if query.get("rejection_kind") == "ambiguity":
+                    error = AmbiguityError(message)
+                else:
+                    error = RejectionError(message)
+                self._store_outcome(fingerprint, recorder, error, started)
+                raise error
             if not query.get("sql"):
                 raise ValueError("Model did not provide SQL or an explicit rejection")
             try:
@@ -162,8 +267,27 @@ class Runtime:
                     max_rows=self.agent.source.max_rows,
                     allow_sensitive=self.agent.source.allow_sensitive,
                 )
+                SemanticGuard(self.agent, self.semantic_statements).validate(
+                    question,
+                    interpretation,
+                    validated.nodes,
+                    validated.columns,
+                )
                 break
+            except SemanticSupportError as exc:
+                error_type = (
+                    AmbiguityError
+                    if "ambiguous" in str(exc).casefold()
+                    else RejectionError
+                )
+                error = error_type(f"Question rejected: {exc}")
+                self._store_outcome(fingerprint, recorder, error, started)
+                raise error from exc
             except SQLValidationError as exc:
+                if "sensitive" in str(exc).casefold():
+                    error = RejectionError(f"Question rejected: {exc}")
+                    self._store_outcome(fingerprint, recorder, error, started)
+                    raise error from exc
                 if attempt:
                     raise
                 query_messages.append(
@@ -183,13 +307,20 @@ class Runtime:
             execution = Verification("execution_succeeded", True)
         except Exception as exc:
             raise RuntimeError(f"Read-only query execution failed: {exc}") from exc
-        answer_payload = self.llm.generate_structured(
-            [
-                {"role": "system", "content": self._answer_prompt(validated.executed, rows)},
-                {"role": "user", "content": question},
-            ],
-            _ANSWER_SCHEMA,
-        )
+        try:
+            answer_payload = recorder.generate_structured(
+                [
+                    {
+                        "role": "system",
+                        "content": self._answer_prompt(validated.executed, rows),
+                    },
+                    {"role": "user", "content": question},
+                ],
+                _ANSWER_SCHEMA,
+            )
+        except Exception:
+            self._store_error_outcome(fingerprint, recorder, started)
+            raise
         claims = tuple(
             Claim(
                 text=str(raw["text"]),
@@ -218,7 +349,17 @@ class Runtime:
         test_health = {
             test.name: test.status for node in validated.nodes for test in node.tests if test.status
         }
-        usage_raw = getattr(self.llm, "last_usage", {}) or {}
+        usage_raw = recorder.last_usage
+        prompt_tokens = usage_raw.get("prompt_tokens")
+        completion_tokens = usage_raw.get("completion_tokens")
+        prompt_price = self.model_config.get("prompt_cost_per_million_tokens")
+        completion_price = self.model_config.get("completion_cost_per_million_tokens")
+        estimated_cost = None
+        if prompt_price is not None or completion_price is not None:
+            estimated_cost = (
+                (prompt_tokens or 0) * float(prompt_price or 0)
+                + (completion_tokens or 0) * float(completion_price or 0)
+            ) / 1_000_000
         trace = Trace(
             question=question,
             interpretation=interpretation,
@@ -240,21 +381,124 @@ class Runtime:
             warehouse_identity=self.connection.identity,
             usage=Usage(
                 latency_ms=(time.perf_counter() - started) * 1000,
-                prompt_tokens=usage_raw.get("prompt_tokens"),
-                completion_tokens=usage_raw.get("completion_tokens"),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                estimated_cost=estimated_cost,
+                retry_count=sum(call.retry_count for call in recorder.calls),
+                provider_errors=tuple(
+                    error for call in recorder.calls for error in call.provider_errors
+                ),
             ),
+            inference_fingerprint=fingerprint.digest,
+            semantic_digest=self.semantic_digest,
+            prompt_version=self.prompt_version,
+            runtime_version=RUNTIME_SCHEMA,
         )
+        if self.cache_policy.writes and self.inference_store:
+            artifact = InferenceArtifact.create(fingerprint, tuple(recorder.calls), trace)
+            self.inference_store.put(artifact)
         if self.run_directory:
             trace.write(self.run_directory)
         return trace
 
+    def _store_outcome(
+        self,
+        fingerprint: InferenceFingerprint,
+        recorder: RecordingLLM,
+        error: RejectionError,
+        started: float,
+    ) -> None:
+        usage = self._outcome_usage(recorder, started)
+        error.usage = usage
+        error.inference_fingerprint = fingerprint.digest
+        if not self.cache_policy.writes or not self.inference_store:
+            return
+        kind = "ambiguity" if isinstance(error, AmbiguityError) else "rejection"
+        self.inference_store.put(
+            InferenceArtifact.create_outcome(
+                fingerprint,
+                tuple(recorder.calls),
+                kind,
+                str(error),
+                usage,
+            )
+        )
+
+    def _store_error_outcome(
+        self,
+        fingerprint: InferenceFingerprint,
+        recorder: RecordingLLM,
+        started: float,
+    ) -> None:
+        if not self.cache_policy.writes or not self.inference_store:
+            return
+        self.inference_store.put(
+            InferenceArtifact.create_outcome(
+                fingerprint,
+                tuple(recorder.calls),
+                "error",
+                "The recorded model provider call failed.",
+                self._outcome_usage(recorder, started),
+            )
+        )
+
+    def _outcome_usage(self, recorder: RecordingLLM, started: float) -> Usage:
+        prompt_tokens = sum(call.prompt_tokens or 0 for call in recorder.calls)
+        completion_tokens = sum(call.completion_tokens or 0 for call in recorder.calls)
+        prompt_price = self.model_config.get("prompt_cost_per_million_tokens")
+        completion_price = self.model_config.get("completion_cost_per_million_tokens")
+        estimated_cost = None
+        if prompt_price is not None or completion_price is not None:
+            estimated_cost = (
+                prompt_tokens * float(prompt_price or 0)
+                + completion_tokens * float(completion_price or 0)
+            ) / 1_000_000
+        return Usage(
+            latency_ms=(time.perf_counter() - started) * 1000,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            estimated_cost=estimated_cost,
+            retry_count=sum(call.retry_count for call in recorder.calls),
+            provider_errors=tuple(
+                error for call in recorder.calls for error in call.provider_errors
+            ),
+        )
+
     def _query_prompt(self) -> str:
         instructions = "\n".join(f"- {item}" for item in self.agent.source.instructions) or "- None"
+        supported = (
+            "\n".join(f"- {item}" for item in self.agent.source.supported_questions)
+            or "- Use only questions supported by the declared resources."
+        )
+        unsupported = (
+            "\n".join(f"- {item}" for item in self.agent.source.unsupported_questions)
+            or "- Reject questions that need resources or meaning outside this scope."
+        )
+        trusted_statements = tuple(
+            statement for statement in self.semantic_statements if statement.can_support_answer
+        )
+        semantic_lines = []
+        for statement in trusted_statements:
+            semantic_lines.append(f"- {statement.id}: {statement.definition}")
+            if statement.expression:
+                semantic_lines.append(f"  Expression: {statement.expression}")
+            if statement.time_column:
+                semantic_lines.append(f"  Time column: {statement.time_column}")
+            if statement.filters:
+                semantic_lines.append("  Filters: " + ", ".join(statement.filters))
+        semantics = "\n".join(semantic_lines) or "- None"
         return (
             "Interpret the question and produce exactly one read-only SQL query. "
             "Use only the dbt resources and declared columns below. Never infer "
             "that a lineage edge is a safe join. Disclose exact date boundaries "
-            f"and assumptions.\nAgent instructions:\n{instructions}\nResources:\n"
+            "and assumptions. Reject a question when its business meaning is missing, "
+            "conflicting, or only inferred. Set rejection_kind to ambiguity when the "
+            "user can resolve the issue with clarification. Set it to rejection when "
+            "policy or available data blocks the question.\n"
+            f"Agent instructions:\n{instructions}\n"
+            f"Supported question families:\n{supported}\n"
+            f"Unsupported question families:\n{unsupported}\n"
+            f"Trusted semantic statements:\n{semantics}\nResources:\n"
             f"{self.agent.prompt_context()}"
         )
 
@@ -370,7 +614,7 @@ class Runtime:
                 bool(rows) or not claims,
                 "No evidence rows returned" if claims and not rows else "",
             ),
-            Verification("claims_supported", not failures, "; ".join(failures)),
+            Verification("claims_supported", not failures, ". ".join(failures)),
             Verification(
                 "explanation_matches_sql",
                 True,

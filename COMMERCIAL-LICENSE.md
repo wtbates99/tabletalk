@@ -5,8 +5,8 @@ The source code in this repository is available under the
 personal and noncommercial uses described in its terms. It does not grant
 commercial-use rights.
 
-For a commercial license, implementation help, or support, contact
-[William Bates](mailto:wbates@palanbates.com). Commercial terms are provided
-under a separate written agreement.
+William Bates offers implementation, integration, semantic onboarding, and
+custom eval-suite development. Commercial use requires separate written
+permission. Contact [William Bates](mailto:wbates@palanbates.com).
 
 This notice is not itself a commercial license or an offer of specific terms.

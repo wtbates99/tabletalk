@@ -86,6 +86,10 @@ jobs:
               "tabletalk/validation.py",
           ):
               assert required in names, f"missing wheel module: {required}"
+          for license_name in ("LICENSE", "LICENSE_HISTORY.md", "COMMERCIAL-LICENSE.md"):
+              assert any(name.endswith("licenses/" + license_name) for name in names), (
+                  f"missing wheel license file: {license_name}"
+              )
           PY
           uv venv .package-test
           uv pip install --python .package-test/bin/python dist/*.whl

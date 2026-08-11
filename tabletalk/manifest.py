@@ -52,6 +52,44 @@ class Test:
 
 
 @dataclass(frozen=True)
+class DbtMetric:
+    unique_id: str
+    name: str
+    label: str
+    description: str
+    metric_type: str
+    type_params: dict[str, Any]
+    filter: str | None
+    parents: tuple[str, ...]
+    meta: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DbtSemanticModel:
+    unique_id: str
+    name: str
+    description: str
+    model_node: str | None
+    entities: tuple[dict[str, Any], ...]
+    dimensions: tuple[dict[str, Any], ...]
+    measures: tuple[dict[str, Any], ...]
+    defaults: dict[str, Any]
+    meta: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DbtExposure:
+    unique_id: str
+    name: str
+    description: str
+    exposure_type: str
+    maturity: str | None
+    owner: str | None
+    parents: tuple[str, ...]
+    meta: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class Node:
     unique_id: str
     resource_type: str
@@ -109,6 +147,9 @@ class ManifestSummary:
     tags: tuple[str, ...]
     packages: tuple[str, ...]
     paths: tuple[str, ...]
+    semantic_model_count: int = 0
+    metric_count: int = 0
+    exposure_count: int = 0
 
 
 class Manifest:
@@ -136,9 +177,87 @@ class Manifest:
         self.manifest_version = str(metadata.get("dbt_schema_version") or "")
         self.dbt_version = str(metadata.get("dbt_version") or "")
         self.nodes = self._normalize()
+        self.metrics = self._normalize_metrics()
+        self.semantic_models = self._normalize_semantic_models()
+        self.exposures = self._normalize_exposures()
         self._enrich_catalog(catalog or {})
         self._enrich_run_results(run_results or {})
         self._queryable = {uid: node for uid, node in self.nodes.items() if node.queryable}
+
+    def _normalize_metrics(self) -> tuple[DbtMetric, ...]:
+        result = []
+        for uid, raw in (self.payload.get("metrics") or {}).items():
+            if not isinstance(raw, dict):
+                continue
+            dependencies = raw.get("depends_on") or {}
+            parents = dependencies.get("nodes") or () if isinstance(dependencies, dict) else ()
+            result.append(
+                DbtMetric(
+                    unique_id=str(uid),
+                    name=str(raw.get("name") or ""),
+                    label=str(raw.get("label") or raw.get("name") or ""),
+                    description=_text(raw.get("description")),
+                    metric_type=str(raw.get("type") or ""),
+                    type_params=dict(raw.get("type_params") or {}),
+                    filter=str(raw["filter"]) if raw.get("filter") else None,
+                    parents=tuple(str(item) for item in parents),
+                    meta=dict(raw.get("meta") or {}),
+                )
+            )
+        return tuple(sorted(result, key=lambda item: item.unique_id))
+
+    def _normalize_semantic_models(self) -> tuple[DbtSemanticModel, ...]:
+        result = []
+        for uid, raw in (self.payload.get("semantic_models") or {}).items():
+            if not isinstance(raw, dict):
+                continue
+            dependencies = raw.get("depends_on") or {}
+            parents = dependencies.get("nodes") or () if isinstance(dependencies, dict) else ()
+            model_node = next((str(item) for item in parents if str(item) in self.nodes), None)
+
+            def mappings(name: str) -> tuple[dict[str, Any], ...]:
+                values = raw.get(name) or ()
+                return tuple(dict(item) for item in values if isinstance(item, dict))
+
+            result.append(
+                DbtSemanticModel(
+                    unique_id=str(uid),
+                    name=str(raw.get("name") or ""),
+                    description=_text(raw.get("description")),
+                    model_node=model_node,
+                    entities=mappings("entities"),
+                    dimensions=mappings("dimensions"),
+                    measures=mappings("measures"),
+                    defaults=dict(raw.get("defaults") or {}),
+                    meta=dict(raw.get("meta") or {}),
+                )
+            )
+        return tuple(sorted(result, key=lambda item: item.unique_id))
+
+    def _normalize_exposures(self) -> tuple[DbtExposure, ...]:
+        result = []
+        for uid, raw in (self.payload.get("exposures") or {}).items():
+            if not isinstance(raw, dict):
+                continue
+            dependencies = raw.get("depends_on") or {}
+            parents = dependencies.get("nodes") or () if isinstance(dependencies, dict) else ()
+            owner = raw.get("owner") or {}
+            owner_name = (
+                owner.get("name") or owner.get("email") if isinstance(owner, dict) else owner
+            )
+            result.append(
+                DbtExposure(
+                    unique_id=str(uid),
+                    name=str(raw.get("name") or ""),
+                    description=_text(raw.get("description")),
+                    exposure_type=str(raw.get("type") or ""),
+                    maturity=str(raw["maturity"]) if raw.get("maturity") else None,
+                    owner=str(owner_name) if owner_name else None,
+                    parents=tuple(str(item) for item in parents),
+                    meta=dict(raw.get("meta") or {}),
+                )
+            )
+        return tuple(sorted(result, key=lambda item: item.unique_id))
 
     @classmethod
     def load(
@@ -364,6 +483,9 @@ class Manifest:
                     }
                 )
             ),
+            semantic_model_count=len(self.semantic_models),
+            metric_count=len(self.metrics),
+            exposure_count=len(self.exposures),
         )
 
     def select(
@@ -395,7 +517,7 @@ class Manifest:
 
     def _match_selector(self, selector: str) -> set[str]:
         if not isinstance(selector, str) or ":" not in selector:
-            raise ManifestError(f"Invalid dbt selector '{selector}'; expected type:value")
+            raise ManifestError(f"Invalid dbt selector '{selector}'. Expected type:value.")
         kind, value = (part.strip() for part in selector.split(":", 1))
         if kind not in {"group", "tag", "model", "source", "path", "package"} or not value:
             raise ManifestError(f"Unsupported dbt selector '{selector}'")

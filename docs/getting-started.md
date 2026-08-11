@@ -1,6 +1,9 @@
 # Get started
 
-TableTalk starts with a parsed, runnable dbt project. It does not discover arbitrary database tables.
+TableTalk starts from a parsed dbt project. It does not discover arbitrary
+warehouse tables.
+
+## 1. Prepare dbt
 
 ```console
 cd my-dbt-project
@@ -9,30 +12,76 @@ dbt docs generate
 tabletalk init
 ```
 
-Initialization finds the dbt project and manifest, reads the project profile, asks for a target, checks
-that its adapter is SQLite, DuckDB, or Snowflake, summarizes dbt version/models/groups/tags, and writes
-`tabletalk.yaml`. Credentials stay in environment variables and `profiles.yml`.
+Initialization finds `dbt_project.yml` and `manifest.json`. It selects a SQLite,
+DuckDB, or Snowflake target from the dbt profile. It writes a small
+`tabletalk.yaml` file. Credentials remain in the profile or environment.
 
-Create an agent from dbt selectors:
+## 2. Review semantic gaps and proposals
 
 ```console
-tabletalk agent create
+tabletalk propose
 ```
 
-Choose a displayed dbt group, tag, model, path, package, or source, then choose whether to include its
-lineage. The guided preview shows exact resources, catalog types, tests, constraints, and metadata gaps.
-Create the first eval when prompted. TableTalk shows the interpretation and SQL before read-only
-execution, uses that reviewed SQL as the default golden query, verifies it immediately, and saves both
-the case and result record.
+The command prints the semantic quality summary first. It then prints concrete
+questions that can unlock supported queries. Each proposal contains a small
+agent, starter evals, and optional semantic or reference files.
+
+Use explicit inputs when dbt lacks required meaning:
 
 ```console
-tabletalk eval run revenue
+tabletalk propose --answer "GAP_ID=VALUE"
+tabletalk propose --sql-import path/to/query.sql
+tabletalk propose --bi-import path/to/queries.json
+tabletalk propose --history-import path/to/history.csv
+```
+
+An import is a preview. TableTalk normalizes the SQL and removes literal values
+from the preview record. It does not execute the query. Imported behavior is not
+trusted until approval.
+
+`--infer` requests model hypotheses. Every hypothesis remains inferred and
+untrusted.
+
+## 3. Approve exact bytes
+
+```console
+tabletalk proposal show PROPOSAL_ID
+tabletalk approve PROPOSAL_ID
+```
+
+The approval prompt displays exact resource bytes, source evidence, confidence,
+and a unified diff. The command writes no resource before approval.
+
+Automation must bind the proposal digest:
+
+```console
+tabletalk approve PROPOSAL_ID \
+  --yes \
+  --digest sha256:PROPOSAL_DIGEST \
+  --actor ci-user
+```
+
+Approval runs each written eval immediately. A failing regression cannot become
+a baseline unless its case has an explicit known-failure record.
+
+## 4. Run and inspect evals
+
+```console
+tabletalk eval run revenue --trials 3
+```
+
+The terminal prints a short result. Detailed JSON, Markdown, and JUnit reports
+appear under `.tabletalk/reports/`.
+
+## 5. Ask a question
+
+```console
 tabletalk ask revenue "What was recognized revenue last month?"
 ```
 
-Both commands use the same runtime. `ask` prints `VERIFIED` only for an exact normalized question match
-against an approved, passing eval; new or changed questions print `UNVERIFIED` and exit nonzero. Run
-`tabletalk doctor` in CI or locally to detect missing/stale
-artifacts, unsupported targets, connectivity failures, broken selectors, metadata gaps, and uncovered
-agents. Metadata gaps are warnings; conditions that prevent safe or verified execution fail the command.
-The complete runnable journey is in `examples/dbt-analytics`.
+TableTalk prints `VERIFIED` only when an approved eval has the same normalized
+question and all hard checks pass. A different question is `UNVERIFIED`. This
+label does not mean that the answer is false.
+
+Use the [commerce example on GitHub](https://github.com/wtbates99/tabletalk/tree/main/examples/dbt-analytics)
+for the complete workflow.

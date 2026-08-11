@@ -10,6 +10,7 @@ import sys
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from difflib import unified_diff
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +37,34 @@ from tabletalk.evals import (
     ResultExpectation,
     SuiteResult,
     load_eval_suite,
+    suite_result_from_dict,
 )
+from tabletalk.executors import LocalExecutor
+from tabletalk.imports import ImportKind, QueryImportPreview, preview_import
+from tabletalk.inference import CachePolicy
 from tabletalk.manifest import Manifest, Node
+from tabletalk.metrics import BaselineRecord, observations, summarize
+from tabletalk.migrations import migrate_project
 from tabletalk.project import Project
+from tabletalk.proposal_service import (
+    approve_proposal,
+    bind_existing_content,
+    generate_agent_proposals,
+    proposal_from_user_files,
+    reject_proposal,
+    revise_proposal,
+)
+from tabletalk.proposals import ProposalRecord
+from tabletalk.reports import EvaluationReport
+from tabletalk.schemas import (
+    EVAL_SCHEMA,
+    PROJECT_SCHEMA,
+    REPORT_SCHEMA,
+    content_digest,
+    require_schema_version,
+)
+from tabletalk.semantic_analysis import analyze_semantics
+from tabletalk.semantic_inference import infer_semantic_answers
 from tabletalk.traces import Interpretation as TraceInterpretation
 from tabletalk.traces import Trace
 
@@ -113,7 +139,7 @@ def _print_trace(trace: Trace) -> None:
             f"{trace.interpretation.end_date or 'open'}"
         )
     if trace.interpretation.assumptions:
-        console.print("Assumptions: " + "; ".join(trace.interpretation.assumptions))
+        console.print("Assumptions: " + ". ".join(trace.interpretation.assumptions))
     console.print("dbt resources: " + ", ".join(trace.dbt_context.selected_nodes))
     console.print("Columns: " + (", ".join(trace.dbt_context.columns) or "none"))
     if trace.dbt_context.relevant_tests:
@@ -215,19 +241,136 @@ def _print_scope(nodes: tuple[Node, ...], catalog_available: bool) -> None:
 
 def _persist_eval_result(project: Project, result: SuiteResult) -> Path:
     result_dir = project.root / ".tabletalk" / "eval-results" / result.agent
-    timestamp = datetime.now(timezone.utc).isoformat().replace(":", "-")
-    target = result_dir / f"{timestamp}-{result.suite_digest[:12]}.json"
+    rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n"
+    result_digest = content_digest(rendered).removeprefix("sha256:")[:12]
+    target = result_dir / (
+        f"{result.suite_digest[:12]}-trial-{result.trial}-{result_digest}.json"
+    )
     result_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n")
+    if target.exists() and target.read_text() != rendered:
+        raise ValueError(f"Eval result path has different content: {target}")
+    target.write_text(rendered)
     return target
+
+
+def _proposal_diff(project: Project, proposal: ProposalRecord) -> str:
+    lines: list[str] = []
+    for item in proposal.files:
+        target = project.root / item.path
+        before = target.read_text().splitlines(keepends=True) if target.is_file() else []
+        after = item.content.splitlines(keepends=True)
+        lines.extend(
+            unified_diff(
+                before,
+                after,
+                fromfile=item.path if before else "/dev/null",
+                tofile=item.path,
+            )
+        )
+    return "".join(lines)
+
+
+def _load_proposal(project: Project, proposal_id: str | None) -> ProposalRecord:
+    if proposal_id:
+        source = Path(proposal_id)
+        if not source.is_file():
+            source = project.proposal_path(proposal_id.removesuffix(".json"))
+        return ProposalRecord.load(source)
+    available = tuple(sorted(project.proposals_directory.glob("prp_*.json")))
+    if not available:
+        raise ValueError("No proposals exist. Run 'tabletalk propose' first.")
+    if len(available) == 1:
+        return ProposalRecord.load(available[0])
+    if not sys.stdin.isatty():
+        raise ValueError("More than one proposal exists. Specify a proposal ID.")
+    choices = {ProposalRecord.load(path).id: path for path in available}
+    selected = click.prompt("Proposal ID", type=click.Choice(tuple(choices)))
+    return ProposalRecord.load(choices[selected])
+
+
+def _print_proposal(project: Project, proposal: ProposalRecord) -> None:
+    console.print(f"[bold]{proposal.id}[/bold]  {proposal.digest}")
+    for item in proposal.files:
+        console.print(Panel(Syntax(item.content, "yaml"), title=item.path))
+        confidence = {field.confidence.value for field in item.fields}
+        references = {
+            evidence.reference for field in item.fields for evidence in field.evidence
+        }
+        console.print(
+            f"Evidence: {len(item.fields)} fields, "
+            f"confidence {', '.join(sorted(confidence))}, "
+            f"sources {', '.join(sorted(references))}"
+        )
+    diff = _proposal_diff(project, proposal)
+    console.print(Panel(Syntax(diff or "No file change.\n", "diff"), title="Exact change"))
+
+
+def _run_approved_evals(project: Project, paths: tuple[Path, ...]) -> bool:
+    eval_paths = tuple(path for path in paths if path.parent == project.evals_directory)
+    passed = True
+    for path in eval_paths:
+        try:
+            suite = load_eval_suite(path)
+            runtime = project.runtime(suite.agent, cache_policy=CachePolicy.NORMAL)
+            for trial in range(1, suite.trials + 1):
+                raw = EvalRunner(suite, runtime).run(trial=trial)
+                result = SuiteResult(
+                    raw.name,
+                    raw.agent,
+                    raw.cases,
+                    raw.suite_digest,
+                    trial,
+                    suite.trials,
+                )
+                result_path = _persist_eval_result(project, result)
+                label = "PASS" if result.passed else "FAIL"
+                color = "green" if result.passed else "red"
+                console.print(
+                    f"[{color}]{label}[/{color}] {suite.name} "
+                    f"trial {trial}/{suite.trials}: {result_path}"
+                )
+                passed = result.passed and passed
+                if not result.passed and suite.kind == "regression":
+                    cases = {case.name: case for case in suite.cases}
+                    unaccepted = [
+                        item.name
+                        for item in result.cases
+                        if not item.passed and not cases[item.name].known_failure
+                    ]
+                    if unaccepted:
+                        console.print(
+                            "[red]No regression baseline was created. "
+                            "These cases failed without known_failure: "
+                            + ", ".join(unaccepted)
+                            + "[/red]"
+                        )
+        except Exception as exc:
+            console.print(f"[red]Immediate eval validation failed for {path}: {exc}[/red]")
+            passed = False
+    return passed
 
 
 @click.group()
 @click.version_option(__version__)
 @click.option("--verbose", is_flag=True)
 def cli(verbose: bool) -> None:
-    """Evaluate and observe natural-language agents over an existing dbt project."""
+    """Develop, evaluate, and observe trusted data agents over a dbt project."""
     logging.basicConfig(level=logging.DEBUG if verbose else logging.WARNING, stream=sys.stderr)
+
+
+@cli.command()
+@click.argument("path", default=".", type=click.Path(path_type=Path))
+def migrate(path: Path) -> None:
+    """Add current schema identifiers to editable project resources."""
+    try:
+        changed = migrate_project(path)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if not changed:
+        console.print("All editable TableTalk resources already use the current schema.")
+        return
+    for resource in changed:
+        console.print(f"Migrated {resource}")
 
 
 @cli.command()
@@ -276,6 +419,7 @@ def init(
                 target = click.prompt("dbt target", type=click.Choice(targets), default=targets[0])
         resolved_target = load_profile_target(dbt_root, target, profiles_dir)
         config: dict[str, Any] = {
+            "schema_version": PROJECT_SCHEMA,
             "dbt": {"project_dir": ".", "manifest": manifest, "target": target},
             "llm": {"provider": llm_provider, "model": llm_model},
         }
@@ -300,8 +444,15 @@ def init(
         elif llm_provider == "openai-compatible":
             config["llm"]["api_key"] = "${LLM_API_KEY}"
         (dbt_root / "tabletalk.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
-        (dbt_root / "agents").mkdir(exist_ok=True)
-        (dbt_root / "evals").mkdir(exist_ok=True)
+        for directory in (
+            "agents",
+            "evals",
+            "semantics",
+            "references",
+            "provenance",
+            "baselines",
+        ):
+            (dbt_root / directory).mkdir(exist_ok=True)
     except Exception as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     summary = index.summary
@@ -318,6 +469,283 @@ def init(
     )
     console.print("Groups: " + (", ".join(summary.groups) or "none"))
     console.print("Tags: " + (", ".join(summary.tags) or "none"))
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--sql-import",
+    "sql_imports",
+    multiple=True,
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+)
+@click.option(
+    "--bi-import",
+    "bi_imports",
+    multiple=True,
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+)
+@click.option(
+    "--history-import",
+    "history_imports",
+    multiple=True,
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+)
+@click.option(
+    "--answer",
+    "semantic_answers",
+    multiple=True,
+    help="Answer one semantic gap with GAP_ID=VALUE.",
+)
+@click.option(
+    "--infer",
+    "use_inference",
+    is_flag=True,
+    help="Ask the configured model for untrusted semantic hypotheses.",
+)
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+def propose(
+    project_folder: str,
+    sql_imports: tuple[Path, ...],
+    bi_imports: tuple[Path, ...],
+    history_imports: tuple[Path, ...],
+    semantic_answers: tuple[str, ...],
+    use_inference: bool,
+    output_format: str,
+) -> None:
+    """Analyze dbt metadata and create review-only agent proposals."""
+    project = _project(project_folder)
+    try:
+        answers: dict[str, str] = {}
+        for raw_answer in semantic_answers:
+            gap_id, separator, value = raw_answer.partition("=")
+            if not separator or not gap_id.strip() or not value.strip():
+                raise ValueError("Each --answer value must use GAP_ID=VALUE")
+            if gap_id in answers:
+                raise ValueError(f"Semantic gap '{gap_id}' has more than one answer")
+            answers[gap_id] = value.strip()
+        imports: list[QueryImportPreview] = []
+        configured_imports = (
+            *((path, ImportKind.SQL) for path in sql_imports),
+            *((path, ImportKind.BI_QUERY) for path in bi_imports),
+            *((path, ImportKind.QUERY_HISTORY) for path in history_imports),
+        )
+        if configured_imports:
+            dialect = project.connection().dialect
+            for path, kind in configured_imports:
+                imports.extend(
+                    preview_import(path, kind, project.manifest, dialect=dialect)
+                )
+        analysis = analyze_semantics(project.manifest)
+        hypotheses = {}
+        if use_inference:
+            llm_config = project.config.get("llm") or {}
+            if not isinstance(llm_config, dict):
+                raise ValueError("tabletalk.yaml requires an llm mapping")
+            model_identity = (
+                f"{llm_config.get('provider') or 'unknown'}:"
+                f"{llm_config.get('model') or 'unknown'}"
+            )
+            hypotheses = infer_semantic_answers(
+                analysis,
+                project.llm_provider(),
+                model_identity=model_identity,
+            )
+        proposals = tuple(
+            bind_existing_content(record, project.root)
+            for record in generate_agent_proposals(
+                project.manifest,
+                tuple(imports),
+                answers,
+                hypotheses,
+            )
+        )
+        paths = tuple(item.write(project.proposals_directory) for item in proposals)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if not proposals:
+        _fail(ValueError("The dbt manifest has no queryable agent scope"))
+    if output_format == "json":
+        click.echo(
+            json.dumps(
+                {
+                    "analysis": analysis.to_dict(),
+                    "imports": [item.to_dict() for item in imports],
+                    "proposals": [item.to_dict() for item in proposals],
+                    "proposal_paths": [str(path) for path in paths],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    quality = analysis.quality
+    console.print(
+        f"Semantic quality: {quality.documented_resources}/{quality.resources} resources. "
+        f"Columns documented: {quality.documented_columns}/{quality.columns}."
+    )
+    for question in analysis.high_value_questions():
+        console.print(
+            f"[yellow]Question {question.id}:[/yellow] {question.question}"
+        )
+        if question.options:
+            console.print("Options: " + ", ".join(question.options))
+    for item in imports:
+        console.print(
+            f"Imported {item.kind.value}: {item.source_path} {item.locator}. "
+            f"Found {item.literal_count} literal value(s). No query ran."
+        )
+        console.print(Panel(Syntax(item.normalized_sql, "sql"), title="Imported query"))
+    if use_inference:
+        console.print(
+            f"Model hypotheses: {len(hypotheses)}. "
+            "All hypotheses remain inferred and untrusted."
+        )
+    for proposal in proposals:
+        _print_proposal(project, proposal)
+    console.print(
+        f"Created {len(proposals)} review-only proposal record(s). "
+        "No agent or eval resource changed."
+    )
+
+
+@cli.group()
+def proposal() -> None:
+    """Inspect, edit, or reject immutable proposal records."""
+
+
+@proposal.command("show")
+@click.argument("proposal_id", required=False)
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+def proposal_show(
+    proposal_id: str | None,
+    project_folder: str,
+    output_format: str,
+) -> None:
+    project = _project(project_folder)
+    try:
+        record = _load_proposal(project, proposal_id)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if output_format == "json":
+        click.echo(record.dump(), nl=False)
+    else:
+        _print_proposal(project, record)
+
+
+@proposal.command("edit")
+@click.argument("proposal_id")
+@click.argument("resource_path")
+@click.option(
+    "--from",
+    "edited_path",
+    required=True,
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+)
+@click.option("--editor", default=lambda: os.environ.get("USER") or "local-user")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def proposal_edit(
+    proposal_id: str,
+    resource_path: str,
+    edited_path: Path,
+    editor: str,
+    project_folder: str,
+) -> None:
+    """Create a new proposal from an edited resource file."""
+    project = _project(project_folder)
+    try:
+        original = _load_proposal(project, proposal_id)
+        revised = revise_proposal(
+            original,
+            resource_path,
+            edited_path.read_text(),
+            editor=editor,
+        )
+        path = revised.write(project.proposals_directory)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    _print_proposal(project, revised)
+    console.print(f"Created revised proposal {revised.id}: {path}")
+
+
+@proposal.command("reject")
+@click.argument("proposal_id", required=False)
+@click.option("--reason", required=True)
+@click.option("--actor", default=lambda: os.environ.get("USER") or "local-user")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def proposal_reject(
+    proposal_id: str | None,
+    reason: str,
+    actor: str,
+    project_folder: str,
+) -> None:
+    """Record a proposal rejection without changing project resources."""
+    project = _project(project_folder)
+    try:
+        record = _load_proposal(project, proposal_id)
+        path = reject_proposal(
+            project.proposals_directory,
+            record,
+            actor=actor,
+            reason=reason,
+        )
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    console.print(f"Rejected {record.id}: {path}")
+
+
+@cli.command()
+@click.argument("proposal_id", required=False)
+@click.option("--file", "selected_paths", multiple=True)
+@click.option("--digest")
+@click.option("--actor", default=lambda: os.environ.get("USER") or "local-user")
+@click.option("--yes", is_flag=True, help="Approve without an interactive confirmation.")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def approve(
+    proposal_id: str | None,
+    selected_paths: tuple[str, ...],
+    digest: str | None,
+    actor: str,
+    yes: bool,
+    project_folder: str,
+) -> None:
+    """Approve exact proposal bytes and write the selected resources."""
+    project = _project(project_folder)
+    try:
+        record = _load_proposal(project, proposal_id)
+        _print_proposal(project, record)
+        if yes and not digest:
+            raise ValueError("Automated approval requires --digest")
+        if digest and digest != record.digest:
+            raise ValueError("The supplied digest does not match the proposal digest")
+        if not yes and not click.confirm(
+            f"Approve exact proposal digest {record.digest}?",
+            default=False,
+        ):
+            raise click.Abort()
+        result = approve_proposal(
+            project.root,
+            record,
+            manifest_digest="sha256:" + project.manifest.digest,
+            expected_digest=digest or record.digest,
+            actor=actor,
+            selected_paths=selected_paths or None,
+        )
+    except click.Abort:
+        raise
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    console.print(f"[green]Approved {result.approval.id}.[/green]")
+    for path in result.written_files:
+        console.print(f"Wrote {path.relative_to(project.root)}")
+    console.print(f"Provenance: {result.provenance_path.relative_to(project.root)}")
+    if not _run_approved_evals(project, result.written_files):
+        raise click.exceptions.Exit(EXIT_EVAL_FAILURE)
 
 
 @cli.group()
@@ -412,18 +840,26 @@ def agent_create(
         include_parents=include_parents,
         include_children=include_children,
     )
-    project.agents_directory.mkdir(parents=True, exist_ok=True)
     target = project.agents_directory / f"{name}.yaml"
-    if target.exists() and not click.confirm(f"Overwrite {target}?", default=False):
-        raise click.Abort()
-    target.write_text(definition.dump())
-    console.print(f"[green]Created {target}[/green]")
+    if target.exists():
+        _fail(
+            ValueError(
+                f"Agent '{name}' already exists. Use 'tabletalk propose' for a change."
+            ),
+            EXIT_VALIDATION_FAILURE,
+        )
+    record = proposal_from_user_files(
+        project.manifest,
+        ((str(target.relative_to(project.root)), definition.dump()),),
+        reference="tabletalk agent create",
+    )
+    proposal_path = record.write(project.proposals_directory)
+    _print_proposal(project, record)
+    console.print(f"Created review-only proposal {record.id}: {proposal_path}")
     if create_eval:
-        ctx = click.get_current_context()
-        ctx.invoke(eval_create, agent_name=name, project_folder=project_folder)
-    elif sys.stdin.isatty() and click.confirm("Create the first eval now?", default=True):
-        ctx = click.get_current_context()
-        ctx.invoke(eval_create, agent_name=name, project_folder=project_folder)
+        console.print(
+            "Approve the agent proposal first. Then use 'tabletalk eval create'."
+        )
 
 
 @agent.command("list")
@@ -477,7 +913,13 @@ def eval() -> None:
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option("--question")
 @click.option("--reference-sql")
-@click.option("--approve", is_flag=True, help="Approve generated SQL without prompting.")
+@click.option(
+    "--execute",
+    "--approve",
+    "execute_without_prompt",
+    is_flag=True,
+    help="Execute validated read-only SQL without an interactive prompt.",
+)
 @click.option("--name")
 @click.option("--starter-cases", is_flag=True, help="Add paraphrase, ambiguity, and scope cases.")
 def eval_create(
@@ -485,7 +927,7 @@ def eval_create(
     project_folder: str,
     question: str | None,
     reference_sql: str | None,
-    approve: bool,
+    execute_without_prompt: bool,
     name: str | None,
     starter_cases: bool,
 ) -> None:
@@ -495,11 +937,13 @@ def eval_create(
     def approve_sql(interpretation: TraceInterpretation, generated: str, executed: str) -> None:
         console.print(f"Interpretation: {interpretation.intent}")
         if interpretation.assumptions:
-            console.print("Assumptions: " + "; ".join(interpretation.assumptions))
+            console.print("Assumptions: " + ". ".join(interpretation.assumptions))
         console.print(Panel(Syntax(generated, "sql", word_wrap=True), title="Generated SQL"))
         if executed != generated:
             console.print(Panel(Syntax(executed, "sql", word_wrap=True), title="SQL to execute"))
-        if not approve and not click.confirm("Execute this read-only SQL?", default=True):
+        if not execute_without_prompt and not click.confirm(
+            "Execute this read-only SQL?", default=True
+        ):
             raise click.Abort()
 
     try:
@@ -508,10 +952,12 @@ def eval_create(
     except Exception as exc:
         _fail(exc)
     _print_trace(trace)
-    if not approve and not click.confirm("Approve this result and answer trace?", default=True):
+    if not execute_without_prompt and not click.confirm(
+        "Use this result in an eval proposal?", default=True
+    ):
         raise click.Abort()
     if reference_sql is None:
-        if approve or click.confirm(
+        if execute_without_prompt or click.confirm(
             "Use the reviewed SQL as the changing-data reference?", default=True
         ):
             reference_sql = trace.sql.generated
@@ -521,7 +967,7 @@ def eval_create(
             )
     required_models = list(trace.dbt_context.selected_nodes)
     required_columns = list(trace.dbt_context.columns)
-    if not approve:
+    if not execute_without_prompt:
         raw_models = click.prompt("Required dbt node IDs", default=", ".join(required_models))
         raw_columns = click.prompt("Required columns", default=", ".join(required_columns))
         required_models = [item.strip() for item in raw_models.split(",") if item.strip()]
@@ -538,12 +984,13 @@ def eval_create(
     else:
         result["rows"] = _yaml_value(trace.result.rows)
     suite: dict[str, Any] = {
+        "schema_version": EVAL_SCHEMA,
         "name": f"{agent_name}-regression",
         "agent": agent_name,
         "cases": [{"name": case_name, "question": question, "expect": expect}],
     }
     if starter_cases or (
-        not approve and click.confirm("Add starter robustness cases?", default=True)
+        not execute_without_prompt and click.confirm("Add starter robustness cases?", default=True)
     ):
         suite["cases"].extend(
             [
@@ -589,15 +1036,18 @@ def eval_create(
         for check in initial_result.checks:
             if not check.passed:
                 console.print(f"  ✗ {check.name}: {check.message}")
-        if approve:
+        if execute_without_prompt:
             _fail(ValueError("Refusing to save an eval that fails immediately"), EXIT_EVAL_FAILURE)
         if not click.confirm("Save this intentionally failing regression?", default=False):
             raise click.Abort()
 
-    project.evals_directory.mkdir(parents=True, exist_ok=True)
     target = project.evals_directory / f"{agent_name}.yaml"
+    base_contents: dict[str, str] = {}
     if target.exists():
-        existing = yaml.safe_load(target.read_text()) or {}
+        original_content = target.read_text()
+        base_contents[str(target.relative_to(project.root))] = original_content
+        existing = yaml.safe_load(original_content) or {}
+        existing.setdefault("schema_version", EVAL_SCHEMA)
         existing_cases = existing.setdefault("cases", [])
         existing_names = {
             item["name"]
@@ -612,21 +1062,17 @@ def eval_create(
             )
         existing_cases.extend(suite["cases"])
         suite = existing
-    target.write_text(yaml.safe_dump(suite, sort_keys=False, allow_unicode=True))
-    saved_suite = load_eval_suite(target)
-    saved_case = next(case for case in saved_suite.cases if case.name == case_name)
-    saved_case_result = EvalRunner(saved_suite, runtime).evaluate_trace(saved_case, trace)
-    saved_result = SuiteResult(
-        saved_suite.name,
-        saved_suite.agent,
-        (saved_case_result,),
-        saved_suite.digest,
+    content = yaml.safe_dump(suite, sort_keys=False, allow_unicode=True)
+    record = proposal_from_user_files(
+        project.manifest,
+        ((str(target.relative_to(project.root)), content),),
+        reference="tabletalk eval create",
+        base_contents=base_contents,
     )
-    result_path = _persist_eval_result(project, saved_result)
-    label = "VERIFIED" if saved_case_result.passed else "FAILING REGRESSION"
-    color = "green" if saved_case_result.passed else "yellow"
-    console.print(f"[{color}]{label}: saved {target}[/{color}]")
-    console.print(f"[dim]Verification record: {result_path}[/dim]")
+    proposal_path = record.write(project.proposals_directory)
+    _print_proposal(project, record)
+    console.print(f"Created review-only eval proposal {record.id}: {proposal_path}")
+    console.print("Approve the proposal to write and run the eval.")
 
 
 @eval.command("run")
@@ -637,6 +1083,14 @@ def eval_create(
     type=click.IntRange(1, 20),
     help="Override the number of independent trials declared by each suite.",
 )
+@click.option(
+    "--cache-policy",
+    type=click.Choice([item.value for item in CachePolicy]),
+    default=CachePolicy.NORMAL.value,
+    show_default=True,
+)
+@click.option("--workers", type=click.IntRange(1, 32), default=1, show_default=True)
+@click.option("--baseline", help="Compare with an approved baseline name or JSON path.")
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option(
     "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
@@ -645,6 +1099,9 @@ def eval_run(
     agent_name: str | None,
     case_name: str | None,
     trials: int | None,
+    cache_policy: str,
+    workers: int,
+    baseline: str | None,
     project_folder: str,
     output_format: str,
 ) -> None:
@@ -652,50 +1109,221 @@ def eval_run(
     paths = sorted(
         (*project.evals_directory.glob("*.yaml"), *project.evals_directory.glob("*.yml"))
     )
-    results = []
+    results: list[SuiteResult] = []
+    suites: dict[str, tuple[EvalCase, ...]] = {}
+    approved_baseline: BaselineRecord | None = None
     try:
+        if baseline:
+            baseline_path = Path(baseline)
+            if not baseline_path.is_file():
+                baseline_path = project.root / "baselines" / f"{baseline}.json"
+            approved_baseline = BaselineRecord.load(baseline_path)
+        tasks: list[tuple[Path, int, int]] = []
         for path in paths:
             suite = load_eval_suite(path)
             if agent_name and suite.agent != agent_name:
                 continue
             if case_name and all(case.name != case_name for case in suite.cases):
                 continue
+            suites[suite.name] = suite.cases
             trial_count = trials or suite.trials
-            runtime = project.runtime(suite.agent)
             for trial in range(1, trial_count + 1):
-                raw_result = EvalRunner(suite, runtime).run(case_name)
-                result = SuiteResult(
-                    raw_result.name,
-                    raw_result.agent,
-                    raw_result.cases,
-                    raw_result.suite_digest,
-                    trial,
-                    trial_count,
-                )
-                results.append(result)
-                _persist_eval_result(project, result)
+                tasks.append((path, trial, trial_count))
+
+        def run_trial(task: tuple[Path, int, int]) -> SuiteResult:
+            path, trial, trial_count = task
+            suite = load_eval_suite(path)
+            runtime = project.runtime(
+                suite.agent,
+                cache_policy=CachePolicy(cache_policy),
+            )
+            raw_result = EvalRunner(suite, runtime).run(case_name, trial=trial)
+            result = SuiteResult(
+                raw_result.name,
+                raw_result.agent,
+                raw_result.cases,
+                raw_result.suite_digest,
+                trial,
+                trial_count,
+            )
+            _persist_eval_result(project, result)
+            return result
+
+        results.extend(LocalExecutor(workers).map(run_trial, tasks))
     except Exception as exc:
         _fail(exc)
     if not results:
         _fail(ValueError("No matching eval suites were found"), EXIT_VALIDATION_FAILURE)
+    try:
+        report = EvaluationReport.create(tuple(results), suites, approved_baseline)
+        report_paths = report.write(project.root / ".tabletalk" / "reports")
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
     if output_format == "json":
-        click.echo(json.dumps([result.to_dict() for result in results], indent=2, sort_keys=True))
+        click.echo(report.json_text(), nl=False)
     else:
+        summary = report.summary
+        color = "green" if report.passed else "red"
+        interval = summary.pass_rate_interval
+        console.print(
+            f"[{color}]{'PASS' if report.passed else 'FAIL'}[/{color}] "
+            f"{summary.passed}/{summary.trials} eval trials passed "
+            f"({summary.pass_rate:.1%}). "
+            f"The 95% CI is {interval[0]:.1%} to {interval[1]:.1%}."
+        )
+        cost_text = (
+            "not recorded"
+            if summary.estimated_cost is None
+            else f"${summary.estimated_cost:.6f}"
+        )
+        console.print(
+            f"Latency mean: {summary.latency_mean_ms or 0:.0f} ms. "
+            f"Tokens: {summary.prompt_tokens + summary.completion_tokens}. "
+            f"Cost: {cost_text}"
+        )
         for result in results:
-            suffix = f" — trial {result.trial}/{result.trials}" if result.trials > 1 else ""
-            console.print(f"[bold]{result.name}{suffix}[/bold]")
             for case in result.cases:
+                label = "PASS" if case.passed else "FAIL"
                 console.print(
-                    f"{'[green]PASS[/green]' if case.passed else '[red]FAIL[/red]'} {case.name}"
+                    f"{label} {case.name} "
+                    f"(trial {result.trial}/{result.trials})"
                 )
-                for check in case.checks:
-                    console.print(f"  {'✓' if check.passed else '✗'} {check.name} {check.message}")
-        if any(result.trials > 1 for result in results):
-            passed = sum(result.passed for result in results)
-            rate = passed / len(results)
-            console.print(f"[bold]Trial pass rate: {passed}/{len(results)} ({rate:.1%})[/bold]")
+        if report.comparison:
+            comparison = report.comparison
+            console.print(
+                f"Baseline {report.baseline_name}: pass-rate effect "
+                f"{comparison.pass_rate_effect:+.1%}. "
+                f"McNemar p={comparison.mcnemar_p_value:.4g}."
+            )
+        for diagnosis in report.diagnoses[:10]:
+            console.print(
+                f"[red]{diagnosis.code.value}[/red] "
+                f"{diagnosis.suite}/{diagnosis.case}. "
+                f"Owner: {diagnosis.owner.value}. {diagnosis.corrective_action}"
+            )
+        console.print(f"Report: {report_paths.markdown}")
+        console.print(f"JSON: {report_paths.json}")
+        console.print(f"JUnit: {report_paths.junit}")
     if any(not result.passed for result in results):
         raise click.exceptions.Exit(EXIT_EVAL_FAILURE)
+
+
+@cli.group()
+def baseline() -> None:
+    """Approve and inspect paired-comparison baselines."""
+
+
+@baseline.command("approve")
+@click.argument("name")
+@click.option(
+    "--from",
+    "report_path",
+    required=True,
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+)
+@click.option("--digest")
+@click.option("--known-failure", multiple=True, help="Use the suite/case form.")
+@click.option("--actor", default=lambda: os.environ.get("USER") or "local-user")
+@click.option("--yes", is_flag=True, help="Approve without an interactive confirmation.")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def baseline_approve(
+    name: str,
+    report_path: Path,
+    digest: str | None,
+    known_failure: tuple[str, ...],
+    actor: str,
+    yes: bool,
+    project_folder: str,
+) -> None:
+    """Approve exact eval results as a paired baseline."""
+    project = _project(project_folder)
+    try:
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
+            raise ValueError("Baseline name must use lowercase letters, numbers, '_' or '-'")
+        raw = report_path.read_bytes()
+        source_digest = content_digest(raw)
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("The report must be a JSON object")
+        require_schema_version(
+            payload,
+            REPORT_SCHEMA,
+            resource=str(report_path),
+            editable=False,
+        )
+        raw_results = payload.get("results")
+        if not isinstance(raw_results, list):
+            raise ValueError("The report results must be a list")
+        results = tuple(
+            suite_result_from_dict(item) for item in raw_results if isinstance(item, dict)
+        )
+        failing = {
+            f"{result.name}/{case.name}"
+            for result in results
+            for case in result.cases
+            if not case.passed
+        }
+        declared = set(known_failure)
+        unknown = declared - failing
+        if unknown:
+            raise ValueError(
+                "Known-failure entries did not fail: " + ", ".join(sorted(unknown))
+            )
+        unapproved = failing - declared
+        if unapproved:
+            raise ValueError(
+                "The report has failing cases. Mark each case with --known-failure: "
+                + ", ".join(sorted(unapproved))
+            )
+        if yes and not digest:
+            raise ValueError("Automated baseline approval requires --digest")
+        if digest and digest != source_digest:
+            raise ValueError("The supplied digest does not match the exact report bytes")
+        console.print(f"Report digest: {source_digest}")
+        console.print(f"Observations: {len(observations(results))}. Failures: {len(failing)}.")
+        if not yes and not click.confirm(
+            "Approve these exact results as a baseline?",
+            default=False,
+        ):
+            raise click.Abort()
+        record = BaselineRecord(
+            name,
+            observations(results),
+            actor,
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            source_digest,
+            tuple(sorted(declared)),
+        )
+        path = record.write(project.root / "baselines" / f"{name}.json")
+    except click.Abort:
+        raise
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    console.print(f"[green]Approved baseline {name}.[/green] {path}")
+
+
+@baseline.command("show")
+@click.argument("name")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+def baseline_show(name: str, project_folder: str, output_format: str) -> None:
+    """Show an approved baseline and its exact source digest."""
+    project = _project(project_folder)
+    try:
+        record = BaselineRecord.load(project.root / "baselines" / f"{name}.json")
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if output_format == "json":
+        click.echo(record.dump(), nl=False)
+    else:
+        summary = summarize(record.observations)
+        console.print(f"Baseline: {record.name}")
+        console.print(f"Source report: {record.source_digest}")
+        console.print(
+            f"Pass rate: {summary.passed}/{summary.trials} ({summary.pass_rate:.1%})."
+        )
 
 
 @cli.command()
@@ -734,7 +1362,7 @@ def doctor(project_folder: str, connect: bool) -> None:
         project = Project.load(project_folder)
         summary = project.manifest.summary
         checks.append(
-            ("manifest", True, f"{summary.model_count} models; dbt {summary.dbt_version}")
+            ("manifest", True, f"{summary.model_count} models, dbt {summary.dbt_version}")
         )
         physical_columns = sum(
             1
@@ -748,7 +1376,7 @@ def doctor(project_folder: str, connect: bool) -> None:
                 project.manifest.catalog_digest is not None,
                 f"{physical_columns} physical column types"
                 if project.manifest.catalog_digest
-                else "missing; run 'dbt docs generate'",
+                else "missing. Run 'dbt docs generate'.",
             )
         )
         manifest_mtime = project.manifest.path.stat().st_mtime
@@ -792,8 +1420,8 @@ def doctor(project_folder: str, connect: bool) -> None:
                 warnings.append(
                     (
                         f"metadata:{item.name}",
-                        f"{len(resolved.missing_descriptions)} missing descriptions; "
-                        "run 'tabletalk agent show "
+                        f"{len(resolved.missing_descriptions)} missing descriptions. "
+                        "Run 'tabletalk agent show "
                         f"{item.name}' for details",
                     )
                 )

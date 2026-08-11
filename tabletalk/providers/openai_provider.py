@@ -129,6 +129,9 @@ class OpenAIProvider(LLMProvider):
         if self.reasoning_effort:
             request["reasoning_effort"] = self.reasoning_effort
         last_error: ValueError | None = None
+        provider_errors: list[str] = []
+        self.last_retry_count = 0
+        self.last_provider_errors = ()
         for attempt in range(2):
             response = self.client.chat.completions.create(**request)
             if response.usage:
@@ -145,10 +148,14 @@ class OpenAIProvider(LLMProvider):
                 try:
                     value = _json_object(content, self.model)
                     validate_structured_value(value, json_schema)
+                    self.last_retry_count = attempt
+                    self.last_provider_errors = tuple(provider_errors)
                     return value
                 except ValueError as exc:
                     last_error = exc
+                    provider_errors.append(str(exc))
             if attempt == 0:
+                self.last_retry_count = 1
                 request["messages"] = [
                     *schema_messages,
                     {
@@ -159,6 +166,7 @@ class OpenAIProvider(LLMProvider):
                         ),
                     },
                 ]
+        self.last_provider_errors = tuple(provider_errors)
         raise ValueError(
             f"Configured model '{self.model}' failed structured output after one retry: "
             f"{last_error}"

@@ -3,8 +3,8 @@
 TableTalk requires Python 3.10+ and uses `uv`:
 
 ```console
-uv sync --all-extras
-uv run pytest
+uv sync --locked --all-groups
+uv run pytest -q
 uv run ruff check .
 uv run mypy tabletalk
 ```
@@ -15,15 +15,21 @@ change, regenerate the checked-in artifact instead of hand-editing it:
 ```console
 cd examples/dbt-analytics
 uv run dbt deps
-uv run dbt parse --profiles-dir . --no-partial-parse
+uv run dbt seed --full-refresh --profiles-dir .
+uv run dbt build --profiles-dir .
 uv run dbt docs generate --profiles-dir .
 ```
 
-Keep these boundaries intact: manifest selection is the only source of query scope; database
-introspection cannot add resources; all live and eval questions use `Runtime.answer`; model and column
-usage comes from parsed SQL; result comparison is the hard correctness gate; and persisted records are
-observability evidence, never deployment authorization.
+Keep these boundaries intact:
 
-Tests should cover manifest selection, SQL safety/scope, connectors, deterministic comparisons,
-evidence-linked traces, and the complete dbt → agent → eval → ask journey. Snowflake behavior should use
-a mocked connector contract unless a test is explicitly marked for live credentials.
+- Manifest selection is the only source of query scope.
+- Database introspection must not add resources.
+- All live and eval questions use `Runtime.answer`.
+- Parsed SQL defines actual model and column use.
+- Result comparison is the hard correctness gate.
+- Persisted records are observability evidence. They are not deployment authorization.
+
+Tests must use fakes at model boundaries. The opt-in Ollama test must use
+`gemma4:31b-cloud`. Normal CI must not require a network service. Snowflake
+tests must use a connector contract unless a test explicitly requires live
+credentials.

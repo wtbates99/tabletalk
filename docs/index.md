@@ -1,6 +1,8 @@
 # TableTalk documentation
 
-TableTalk evaluates and observes natural-language agents over resources already defined by dbt.
+TableTalk mounts a dbt project. It proposes scoped data agents and evals. It
+records evidence that shows whether those agents remain safe, grounded, and
+correct.
 
 ```{toctree}
 :maxdepth: 2
@@ -10,5 +12,7 @@ configuration
 evals
 architecture
 commands
+research
+release
 contributing
 ```

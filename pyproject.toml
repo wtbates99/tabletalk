@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tabletalk"
-version = "0.5.0"
-description = "Evaluation and observability for natural-language agents over dbt projects"
+version = "0.6.0"
+description = "dbt-native development, evaluation, and observability for trusted data agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "LICENSE_HISTORY.md", "COMMERCIAL-LICENSE.md"]
 authors = [{ name = "William Bates", email = "wbates@palanbates.com" }]
-keywords = ["sql", "llm", "dbt", "database", "natural-language", "ai"]
+keywords = ["sql", "llm", "dbt", "evaluation", "data-agents", "observability"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: Other/Proprietary License",

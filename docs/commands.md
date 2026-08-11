@@ -1,16 +1,33 @@
 # Commands
 
-- `tabletalk init`: initialize from `dbt_project.yml`, a parsed manifest, and a dbt target.
-- `tabletalk agent create`: guided selector preview and agent authoring.
-- `tabletalk agent list`: list source agents and resolved model counts.
-- `tabletalk agent show NAME`: show source, resolved node IDs, fingerprint, and warnings.
-- `tabletalk eval create NAME`: execute and approve a question/reference case.
-- `tabletalk eval run [NAME] [--case CASE] [--trials N]`: run deterministic hard-gate evals and
-  optionally override the suite's independent-trial count.
-- `tabletalk ask NAME QUESTION`: answer (quoted or unquoted), show provenance, and require passing exact eval coverage for a
-  `VERIFIED` status.
-- `tabletalk doctor`: fail on artifact, target, connectivity, selector, or eval-coverage blockers and
-  report incomplete dbt descriptions as non-blocking metadata warnings.
+| Command | Result |
+|---|---|
+| `tabletalk init` | Mount a parsed dbt project and create small project directories. |
+| `tabletalk migrate [PATH]` | Add current schema identifiers to editable YAML resources. |
+| `tabletalk propose` | Analyze semantics and create at most three review-only proposals. |
+| `tabletalk proposal show [ID]` | Show exact proposal bytes, evidence, and diff. |
+| `tabletalk proposal edit ID FILE --from PATH` | Create a new immutable proposal from an edited file. |
+| `tabletalk proposal reject [ID] --reason TEXT` | Record a proposal rejection. |
+| `tabletalk approve [ID]` | Approve exact proposal bytes and run written evals. |
+| `tabletalk agent create` | Create a review-only agent proposal from explicit selectors. |
+| `tabletalk agent list` | List approved agents and resolved model counts. |
+| `tabletalk agent show NAME` | Show one approved agent and its resolved dbt scope. |
+| `tabletalk eval create NAME` | Execute reviewed SQL and create a review-only eval proposal. |
+| `tabletalk eval run [NAME]` | Run eval trials and write JSON, Markdown, and JUnit reports. |
+| `tabletalk baseline approve NAME --from REPORT` | Approve exact prior trial results as a baseline. |
+| `tabletalk baseline show NAME` | Show an approved baseline. |
+| `tabletalk ask NAME QUESTION` | Run the shared runtime and show answer provenance. |
+| `tabletalk doctor` | Validate artifacts, target access, selectors, and eval coverage. |
 
-`compile`, `plan`, `apply`, `connect`, `discover`, `connections`, and registry-style `agents` commands
-were removed. A source agent is active immediately and asking never depends on applied state.
+`tabletalk propose` accepts `--sql-import`, `--bi-import`, `--history-import`,
+`--answer GAP=VALUE`, and `--infer`.
+
+`tabletalk eval run` accepts `--case`, `--trials`, `--workers`, `--baseline`, and
+`--cache-policy`. Cache policies are `normal`, `read-only`, `write-only`,
+`replay`, and `disabled`.
+
+`replay` fails on a cache miss. It never calls a model.
+
+Exit code 3 means that one or more eval hard checks failed. Exit code 4 means
+that a resource or approval failed validation. Exit code 1 means that an
+operational step failed.

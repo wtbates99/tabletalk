@@ -8,7 +8,7 @@ groups:
 
 models:
   - name: stg_orders
-    description: Cleaned orders used to build finance marts.
+    description: Cleaned commerce orders used to build finance marts.
     columns:
       - name: order_id
         description: Stable order identifier.
@@ -18,7 +18,7 @@ models:
         description: Date on which revenue was recognized.
         data_type: date
   - name: fct_orders
-    description: One row per order with recognized revenue.
+    description: One row per order with commercial and fulfillment measures.
     config:
       group: finance
       tags: [revenue]
@@ -32,13 +32,48 @@ models:
         description: Stable order identifier.
         data_type: integer
         tests: [not_null, unique]
+      - name: customer_id
+        description: Customer identifier. Access is sensitive.
+        data_type: varchar
+        config:
+          meta:
+            sensitive: true
+      - name: sku
+        description: Product stock-keeping unit.
+        data_type: varchar
+      - name: booked_date
+        description: Date on which the customer placed the order.
+        data_type: date
       - name: order_date
         description: Date on which revenue was recognized.
         data_type: date
-        tests: [not_null]
+      - name: promised_date
+        description: Date by which fulfillment was promised.
+        data_type: date
+      - name: delivered_date
+        description: Date on which fulfillment completed.
+        data_type: date
+      - name: order_status
+        description: Current order state.
+        data_type: varchar
+        tests:
+          - accepted_values:
+              arguments:
+                values: [fulfilled, cancelled, in_progress]
+      - name: booked_revenue
+        description: Contracted order value in USD before recognition.
+        data_type: decimal(18,2)
       - name: recognized_revenue
         description: Revenue recognized in USD.
         data_type: decimal(18,2)
-      - name: customer_id
-        description: Customer identifier; access is sensitive.
-        data_type: varchar
+      - name: ordered_quantity
+        description: Number of units in the order.
+        data_type: integer
+      - name: available_inventory
+        description: Units available after reservations at order observation time.
+        data_type: integer
+      - name: work_in_progress
+        description: Units in production at order observation time.
+        data_type: integer
+      - name: late_order
+        data_type: boolean

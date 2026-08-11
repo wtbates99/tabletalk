@@ -22,6 +22,10 @@ def validate_structured_value(value: Any, schema: dict[str, Any], path: str = "$
     }
     if allowed and not any(kind in matches and matches[kind](value) for kind in allowed):
         raise ValueError(f"Structured output {path} must have type {' or '.join(allowed)}")
+    if "const" in schema and value != schema["const"]:
+        raise ValueError(f"Structured output {path} must equal {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"Structured output {path} must be one of {schema['enum']!r}")
     if isinstance(value, dict) and "object" in allowed:
         properties = schema.get("properties") or {}
         missing = [name for name in schema.get("required") or () if name not in value]
@@ -54,6 +58,8 @@ class DatabaseProvider(ABC):
 class LLMProvider(ABC):
     def __init__(self) -> None:
         self.last_usage: dict[str, int] = {}
+        self.last_retry_count = 0
+        self.last_provider_errors: tuple[str, ...] = ()
 
     @abstractmethod
     def generate_response(self, prompt: str) -> str:

@@ -1,27 +1,33 @@
-# Execution-based evals
+# Evaluation and reports
 
-Suites may declare `kind: regression|capability`, a human-readable `description`, and `trials: 1..20`.
-Regression suites are expected to remain nearly perfect; capability suites hold harder tasks with room
-to improve. Repeated trials are persisted separately, all must pass for the command to succeed, and the
-terminal reports aggregate trial pass rate.
+An eval is a versioned test case that measures agent behavior. A trial is one
+execution of one eval case with one fixed configuration.
 
-Create evals interactively with `tabletalk eval create AGENT`. The default is the generated SQL the
-user just reviewed, so changing warehouse data is compared by executing candidate and golden queries
-against the same snapshot. The proposed case runs immediately and automated authoring refuses to save
-an already-failing case. Literal rows remain available for stable fixtures and CI.
+## Eval content
+
+Each generated case states its protected behavior, generation reason, source
+evidence, determinism, warehouse-data dependency, category, and failure rule.
 
 ```yaml
-name: revenue-regression
+schema_version: tabletalk.eval/v1
+name: revenue-capability
 agent: revenue
+kind: capability
+trials: 3
+budgets:
+  latency_ms: 120000
+  total_tokens: 12000
 cases:
-  - name: july-revenue
+  - name: july-recognized-revenue
+    kind: regression
     question: What was recognized revenue in July 2026?
+    protects: The approved measure and recognition date.
+    reason: Finance approved the reference query.
+    deterministic: true
+    warehouse_data: true
+    failure: The result differs from the reference query.
     expect:
-      reference_sql: |
-        select sum(recognized_revenue) as recognized_revenue
-        from {{ ref('fct_orders') }}
-        where order_date >= '2026-07-01'
-          and order_date < '2026-08-01'
+      reference: references/july-recognized-revenue.sql
       result:
         comparison: scalar
         tolerance: 0.01
@@ -31,19 +37,58 @@ cases:
         required: [recognized_revenue, order_date]
 ```
 
-Result modes are `scalar`, `ordered`, `ordered_values`, `unordered`, and `keyed`; keyed comparisons
-require `keys`. `ordered_values` deliberately ignores presentation-only aliases while preserving row
-and value order.
-Expectations may also include literal `value` or `rows`, `row_count`, exact result `columns`, forbidden
-models/columns, `allow_extra_columns: true` for harmless additional evidence fields, and
-`outcome: ambiguity|rejection`. Reference SQL supports only dbt `ref()` templating,
-is parsed with the same read-only scope validator, and executes against the same warehouse snapshot.
+Case categories are regression, capability, safety, ambiguity, and refusal.
+Suite categories are regression and capability.
 
-Hard gates are execution, SQL safety/scope, expected models/columns, expected rejection, result
-comparison and tolerance, shape/count, and evidence-linked claims. Latency and token usage are recorded
-but informational. Empty literal row sets are enforced rather than treated as a missing expectation.
-Results are written to `.tabletalk/eval-results/AGENT` and failures exit with code 3.
+## Hard checks
 
-Live correctness uses exact normalized question matching, not semantic guesswork. A covered question is
-`VERIFIED` only when every hard gate passes. Uncovered questions still return their inspectable trace,
-but are labeled `UNVERIFIED` and exit with code 4.
+Hard checks cover read-only execution, SQL scope, resource and column use,
+expected refusal, result values, result shape, evidence-linked claims, and
+configured budgets. Budget checks fail when the provider does not report the
+required measure.
+
+Result comparison modes are `scalar`, `ordered`, `ordered_values`, `unordered`,
+and `keyed`. A keyed comparison requires keys. A case may use a project-relative
+reference file, inline reference SQL, or literal rows. It must not combine
+ground-truth sources.
+
+## Inference and replay
+
+TableTalk fingerprints the question, resolved agent, manifest, semantic
+knowledge, model configuration, prompt version, runtime version, warehouse
+identity, execution limits, and trial number.
+
+The normal cache policy reads and writes immutable artifacts. Read-only policy
+reads but does not write. Write-only policy always requests inference and writes
+the result. Replay reads only and fails on a miss. Disabled policy does not use
+the store.
+
+Artifacts store successful traces and typed non-answer outcomes. A typed outcome
+is an ambiguity request, rejection, or provider failure. Replayed ambiguity and
+rejection cases keep their original latency, token, retry, and cost measures.
+
+Metrics and reports load saved result records. They can change without another
+model request.
+
+## Statistics and baselines
+
+Reports include a Wilson confidence interval for pass rate. A paired baseline
+comparison uses McNemar's exact test for binary outcomes. It uses a Wilcoxon
+signed-rank test for paired latency values. The report includes effect sizes and
+intervals. It warns when fewer than 20 paired observations exist.
+
+An approved baseline binds exact report bytes. A failed regression case requires
+an explicit known-failure record. TableTalk never creates a passing baseline by
+weakening an expectation.
+
+## Failure diagnosis
+
+Every deterministic diagnosis contains the failed stage, evidence, corrective
+action, and likely owner. Owners are dbt metadata, semantic knowledge, agent
+definition, eval definition, runtime code, or warehouse.
+
+The stable taxonomy includes unsupported questions, ambiguity, clarification,
+model and column selection, joins, filters, time boundaries, aggregation and
+grain, unsafe access, SQL validation, execution, result mismatch, unsupported
+claims, missing output, budget violations, flaky outcomes, and invalid ground
+truth.

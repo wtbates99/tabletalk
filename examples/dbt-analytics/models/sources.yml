@@ -11,9 +11,30 @@ sources:
         columns:
           - name: order_id
             description: Source order identifier.
+          - name: booked_date
+            description: Source booking date.
           - name: order_date
-            description: Source order date.
+            description: Source recognition date.
+          - name: promised_date
+            description: Source promised delivery date.
+          - name: delivered_date
+            description: Source actual delivery date.
+          - name: order_status
+            description: Source order state.
+          - name: booked_revenue
+            description: Source booked revenue.
           - name: recognized_revenue
             description: Source recognized revenue.
           - name: customer_id
             description: Source customer identifier.
+            config:
+              meta:
+                sensitive: true
+          - name: sku
+            description: Source product stock-keeping unit.
+          - name: ordered_quantity
+            description: Source ordered unit count.
+          - name: available_inventory
+            description: Source available unit count.
+          - name: work_in_progress
+            description: Source work-in-progress unit count.

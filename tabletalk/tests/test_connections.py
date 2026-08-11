@@ -93,7 +93,7 @@ def test_optional_catalog_and_run_results_only_enrich_metadata(tmp_path: Path) -
     test_id = next(
         uid
         for uid in manifest_payload["nodes"]
-        if uid.startswith("test.analytics.not_null_fct_orders_order_date")
+        if uid.startswith("test.analytics.not_null_fct_orders_order_id")
     )
     (tmp_path / "run_results.json").write_text(
         json.dumps({"results": [{"unique_id": test_id, "status": "pass"}]})

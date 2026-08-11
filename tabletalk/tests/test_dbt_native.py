@@ -17,6 +17,7 @@ from tabletalk.authoring import parse_choices, selector_options
 from tabletalk.cli import cli
 from tabletalk.connections import ReadOnlyConnection, Target
 from tabletalk.evals import (
+    BudgetLimits,
     EvalCase,
     EvalError,
     EvalRunner,
@@ -25,15 +26,23 @@ from tabletalk.evals import (
     load_eval_suite,
 )
 from tabletalk.evals import _compare_result as compare_result
+from tabletalk.inference import (
+    CachePolicy,
+    InferenceError,
+    InferenceStore,
+    ReplayMissError,
+)
 from tabletalk.interfaces import LLMProvider, validate_structured_value
 from tabletalk.manifest import Manifest, ManifestError
 from tabletalk.project import Project
+from tabletalk.proposals import ProposalRecord
 from tabletalk.providers.duckdb_provider import DuckDBProvider
 from tabletalk.providers.openai_provider import _json_object
-from tabletalk.runtime import Runtime
+from tabletalk.runtime import AmbiguityError, RejectionError, Runtime
 from tabletalk.runtime import _claim_covered as claim_covered
 from tabletalk.runtime import _text_value_present as text_value_present
-from tabletalk.traces import Claim, Evidence
+from tabletalk.semantics import SemanticStatement, SemanticStatus
+from tabletalk.traces import Claim, Evidence, Trace
 from tabletalk.validation import SQLValidationError, validate_sql
 
 EXAMPLE = Path(__file__).parents[2] / "examples" / "dbt-analytics"
@@ -62,6 +71,10 @@ def test_cloud_output_is_validated_against_the_requested_schema() -> None:
         validate_structured_value({"answer": 42, "extra": True}, schema)
     with pytest.raises(ValueError, match=r"\$\.answer must have type integer"):
         validate_structured_value({"answer": "42"}, schema)
+    with pytest.raises(ValueError, match="must equal 'ready'"):
+        validate_structured_value("not-ready", {"type": "string", "const": "ready"})
+    with pytest.raises(ValueError, match="must be one of"):
+        validate_structured_value("other", {"type": "string", "enum": ["one", "two"]})
 
 
 def test_claim_matching_tolerates_wording_but_not_different_claims() -> None:
@@ -160,6 +173,7 @@ def test_claim_evidence_does_not_treat_iso_date_parts_as_numeric_metrics() -> No
 def test_eval_suite_declares_kind_and_repeat_trials(tmp_path: Path) -> None:
     path = tmp_path / "suite.yaml"
     path.write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: reliability\nagent: revenue\nkind: regression\ntrials: 3\n"
         "description: Repeats customer-facing regressions.\n"
         "cases:\n  - name: one\n    question: One?\n"
@@ -168,6 +182,34 @@ def test_eval_suite_declares_kind_and_repeat_trials(tmp_path: Path) -> None:
     assert suite.kind == "regression"
     assert suite.trials == 3
     assert suite.description == "Repeats customer-facing regressions."
+
+
+def test_ambiguity_eval_requires_a_clarification_outcome() -> None:
+    case = EvalCase(
+        "ambiguous",
+        "What was revenue?",
+        expected_outcome="ambiguity",
+        kind="ambiguity",
+    )
+    suite = EvalSuite("ambiguity", "revenue", (case,))
+
+    class RejectingRuntime:
+        def __init__(self, error: RejectionError) -> None:
+            self.error = error
+
+        def answer(self, question: str, *, trial: int = 1) -> Trace:
+            raise self.error
+
+    policy = EvalRunner(
+        suite,
+        RejectingRuntime(RejectionError("Sensitive data is not allowed")),  # type: ignore[arg-type]
+    ).run()
+    clarification = EvalRunner(
+        suite,
+        RejectingRuntime(AmbiguityError("Choose booked or recognized revenue")),  # type: ignore[arg-type]
+    ).run()
+    assert policy.passed is False
+    assert clarification.passed is True
 
 
 class StubLLM(LLMProvider):
@@ -184,7 +226,7 @@ class StubLLM(LLMProvider):
         self, messages: list[dict[str, str]], json_schema: dict[str, Any]
     ) -> dict[str, Any]:
         self.calls += 1
-        if self.calls % 2:
+        if "sql" in json_schema.get("properties", {}):
             return {
                 "interpretation": {
                     "intent": "aggregate",
@@ -196,6 +238,7 @@ class StubLLM(LLMProvider):
                 },
                 "sql": self.sql,
                 "rejection": None,
+                "rejection_kind": None,
             }
         return {
             "text": self.value,
@@ -235,7 +278,21 @@ def runtime(manifest: Manifest) -> Runtime:
         "from analytics.main.fct_orders "
         "where order_date >= '2026-07-01' and order_date < '2026-08-01'"
     )
-    return Runtime(manifest, agent, connection, StubLLM(sql), model_identity="stub:model")
+    return Runtime(
+        manifest,
+        agent,
+        connection,
+        StubLLM(sql),
+        model_identity="stub:model",
+        semantic_statements=(
+            SemanticStatement(
+                "recognized_revenue",
+                SemanticStatus.TRUSTED,
+                "Recognized revenue uses the recognition date.",
+                time_column="order_date",
+            ),
+        ),
+    )
 
 
 def test_manifest_normalizes_authoritative_metadata(manifest: Manifest) -> None:
@@ -253,6 +310,179 @@ def test_manifest_normalizes_authoritative_metadata(manifest: Manifest) -> None:
     assert node.parents == ("model.analytics.stg_orders",)
     assert node.checksum and len(node.checksum) == 64
     assert manifest.summary.model_count == 4
+
+
+def test_strict_replay_uses_an_immutable_artifact_without_model_calls(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    runtime.inference_store = InferenceStore(tmp_path / "inference")
+    runtime.cache_policy = CachePolicy.NORMAL
+    question = "What was recognized revenue in July 2026? secret-question-marker"
+    first = runtime.answer(question)
+    provider = runtime.llm
+    assert isinstance(provider, StubLLM)
+    assert provider.calls == 2
+    assert first.cache_hit is False
+    assert first.inference_fingerprint
+    artifact_path = next((tmp_path / "inference" / "artifacts").glob("inf_*.json"))
+    assert "secret-question-marker" not in artifact_path.read_text()
+
+    runtime.cache_policy = CachePolicy.REPLAY
+    replayed = runtime.answer(question)
+    assert provider.calls == 2
+    assert replayed.cache_hit is True
+    assert replayed.result.rows == first.result.rows
+    with pytest.raises(ReplayMissError, match="Strict replay found no artifact"):
+        runtime.answer(question, trial=2)
+    assert provider.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("kind", "error_type"),
+    (("ambiguity", AmbiguityError), ("rejection", RejectionError)),
+)
+def test_strict_replay_preserves_typed_non_answer_outcomes(
+    runtime: Runtime,
+    tmp_path: Path,
+    kind: str,
+    error_type: type[Exception],
+) -> None:
+    class OutcomeLLM(StubLLM):
+        def generate_structured(
+            self,
+            messages: list[dict[str, str]],
+            json_schema: dict[str, Any],
+        ) -> dict[str, Any]:
+            self.calls += 1
+            return {
+                "interpretation": {
+                    "intent": "refuse",
+                    "metrics": [],
+                    "dimensions": [],
+                    "start_date": None,
+                    "end_date": None,
+                    "assumptions": [],
+                },
+                "sql": None,
+                "rejection": "The question needs a safer or clearer request.",
+                "rejection_kind": kind,
+            }
+
+    provider = OutcomeLLM("select 1")
+    runtime.llm = provider
+    store = InferenceStore(tmp_path / "inference")
+    runtime.inference_store = store
+    runtime.cache_policy = CachePolicy.NORMAL
+    question = "Use a typed non-answer outcome."
+    with pytest.raises(error_type):
+        runtime.answer(question)
+    artifact = store.get(runtime.fingerprint(question))
+    assert artifact is not None
+    assert artifact.outcome is not None
+    assert artifact.outcome.kind == kind
+    assert provider.calls == 1
+
+    runtime.cache_policy = CachePolicy.REPLAY
+    with pytest.raises(error_type):
+        runtime.answer(question)
+    assert provider.calls == 1
+
+
+def test_provider_failure_artifact_replays_without_a_provider_call(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    class FailingLLM(LLMProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def generate_response(self, prompt: str) -> str:
+            raise NotImplementedError
+
+        def generate_structured(
+            self,
+            messages: list[dict[str, str]],
+            json_schema: dict[str, Any],
+        ) -> dict[str, Any]:
+            self.calls += 1
+            raise ConnectionError("provider unavailable")
+
+    provider = FailingLLM()
+    runtime.llm = provider
+    store = InferenceStore(tmp_path / "inference")
+    runtime.inference_store = store
+    runtime.cache_policy = CachePolicy.NORMAL
+    question = "Record a provider failure."
+    with pytest.raises(ConnectionError, match="provider unavailable"):
+        runtime.answer(question)
+    artifact = store.get(runtime.fingerprint(question))
+    assert artifact is not None
+    assert artifact.outcome is not None
+    assert artifact.outcome.kind == "error"
+    assert artifact.calls[0].provider_errors == ("ConnectionError",)
+
+    runtime.cache_policy = CachePolicy.REPLAY
+    with pytest.raises(RuntimeError, match="recorded model provider call failed"):
+        runtime.answer(question)
+    assert provider.calls == 1
+
+
+def test_cache_policies_control_reads_and_writes(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    store = InferenceStore(tmp_path / "inference")
+    runtime.inference_store = store
+    runtime.cache_policy = CachePolicy.READ_ONLY
+    question = "What was recognized revenue in July 2026?"
+    runtime.answer(question)
+    provider = runtime.llm
+    assert isinstance(provider, StubLLM)
+    assert provider.calls == 2
+    assert not (tmp_path / "inference").exists()
+
+    runtime.cache_policy = CachePolicy.WRITE_ONLY
+    runtime.answer(question)
+    runtime.answer(question)
+    assert provider.calls == 6
+    assert len(list((tmp_path / "inference" / "artifacts").glob("inf_*.json"))) == 2
+
+
+def test_inference_cache_detects_corruption_and_redacts_config_secrets(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    runtime.inference_store = InferenceStore(tmp_path / "inference")
+    runtime.cache_policy = CachePolicy.NORMAL
+    runtime.model_config = {
+        "model": "stub",
+        "api_key": "do-not-store-this-secret",
+        "nested": {"access_token": "also-secret"},
+    }
+    question = "What was recognized revenue in July 2026?"
+    runtime.answer(question)
+    artifact_path = next((tmp_path / "inference" / "artifacts").glob("inf_*.json"))
+    rendered = artifact_path.read_text()
+    assert "do-not-store-this-secret" not in rendered
+    assert "also-secret" not in rendered
+    payload = json.loads(rendered)
+    payload["calls"][0]["output"]["sql"] = "select corrupt"
+    artifact_path.write_text(json.dumps(payload))
+    with pytest.raises(InferenceError, match="content digest"):
+        runtime.answer(question)
+
+
+def test_runtime_refuses_suspected_sensitive_data_without_approval(
+    runtime: Runtime,
+) -> None:
+    runtime.llm = StubLLM(
+        "select customer_id from analytics.main.fct_orders",
+        "Customer C001.",
+    )
+    with pytest.raises(RejectionError, match="Sensitive columns require explicit permission"):
+        runtime.answer("List every customer ID.")
 
 
 def test_example_manifest_is_generated_by_dbt_from_example_project(tmp_path: Path) -> None:
@@ -478,6 +708,7 @@ def test_runtime_repairs_one_sql_validation_failure(runtime: Runtime) -> None:
                     if self.calls == 1
                     else valid_sql,
                     "rejection": None,
+                    "rejection_kind": None,
                 }
             return {
                 "text": "Recognized revenue was $184.25.",
@@ -530,7 +761,7 @@ def test_reference_result_difference_is_a_regression(runtime: Runtime) -> None:
 def test_empty_literal_rows_are_a_real_expectation(runtime: Runtime, tmp_path: Path) -> None:
     path = tmp_path / "empty.yaml"
     path.write_text(
-        "name: empty\nagent: revenue\ncases:\n"
+        "schema_version: tabletalk.eval/v1\nname: empty\nagent: revenue\ncases:\n"
         "  - name: empty\n    question: none\n"
         "    expect:\n      result:\n        rows: []\n"
     )
@@ -539,6 +770,78 @@ def test_empty_literal_rows_are_a_real_expectation(runtime: Runtime, tmp_path: P
     trace = runtime.answer("What was recognized revenue in July 2026?")
     result = EvalRunner(suite, runtime).evaluate_trace(suite.cases[0], trace)
     assert not result.passed
+
+
+def test_eval_reference_file_uses_project_relative_sql(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    evals = tmp_path / "evals"
+    references = tmp_path / "references"
+    evals.mkdir()
+    references.mkdir()
+    (references / "july.sql").write_text(
+        "select sum(recognized_revenue) as recognized_revenue "
+        "from {{ ref('fct_orders') }} "
+        "where order_date >= '2026-07-01' and order_date < '2026-08-01'\n"
+    )
+    suite_path = evals / "revenue.yaml"
+    suite_path.write_text(
+        "schema_version: tabletalk.eval/v1\n"
+        "name: revenue-reference\nagent: revenue\ncases:\n"
+        "  - name: july\n"
+        "    question: What was recognized revenue in July 2026?\n"
+        "    expect:\n      reference: references/july.sql\n"
+    )
+    suite = load_eval_suite(suite_path)
+    result = EvalRunner(suite, runtime).run()
+    assert result.passed
+
+
+def test_eval_budgets_are_enforceable_hard_checks(runtime: Runtime) -> None:
+    trace = runtime.answer("What was recognized revenue in July 2026?")
+    case = EvalCase("july", "What was recognized revenue in July 2026?")
+    suite = EvalSuite(
+        "budget",
+        "revenue",
+        (case,),
+        budgets=BudgetLimits(
+            latency_ms=0,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            cost=0,
+        ),
+    )
+    result = EvalRunner(suite, runtime).evaluate_trace(case, trace)
+    budget_checks = tuple(
+        check for check in result.checks if check.name.startswith("budget_")
+    )
+    assert len(budget_checks) == 5
+    assert not result.passed
+    assert not next(check for check in budget_checks if check.name == "budget_latency_ms").passed
+    assert not next(check for check in budget_checks if check.name == "budget_cost").passed
+
+
+@pytest.mark.parametrize(
+    "budget",
+    [
+        "prompt_tokens: '10'",
+        "completion_tokens: 2.5",
+        "latency_ms: nope",
+        "cost: .nan",
+    ],
+)
+def test_eval_budget_types_fail_before_execution(tmp_path: Path, budget: str) -> None:
+    path = tmp_path / "budget.yaml"
+    path.write_text(
+        "schema_version: tabletalk.eval/v1\n"
+        "name: budget\nagent: revenue\nbudgets:\n  "
+        + budget
+        + "\ncases:\n  - name: one\n    question: One?\n"
+    )
+    with pytest.raises((EvalError, ValueError), match="budget"):
+        load_eval_suite(path)
 
 
 @pytest.mark.parametrize(
@@ -559,7 +862,7 @@ def _project_with_runtime(tmp_path: Path, runtime: Runtime) -> Project:
     project = object.__new__(Project)
     project.root = tmp_path
     project.config = {"evals_dir": "evals"}
-    project.runtime = lambda agent_name: runtime  # type: ignore[method-assign]
+    project.runtime = lambda agent_name, **kwargs: runtime  # type: ignore[method-assign]
     return project
 
 
@@ -582,6 +885,7 @@ def test_live_answer_is_verified_by_an_exact_approved_eval(
     evals = tmp_path / "evals"
     evals.mkdir()
     (evals / "revenue.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: revenue-regression\nagent: revenue\ncases:\n"
         "  - name: july\n    question: What was recognized revenue in July 2026?\n"
         "    expect:\n      result:\n        comparison: scalar\n        value: 184.25\n"
@@ -597,6 +901,7 @@ def test_structural_eval_cannot_claim_result_verification(runtime: Runtime, tmp_
     evals = tmp_path / "evals"
     evals.mkdir()
     (evals / "revenue.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: structural\nagent: revenue\ncases:\n"
         "  - name: july\n    question: What was recognized revenue in July 2026?\n"
         "    expect:\n      result:\n        row_count: 1\n"
@@ -612,6 +917,7 @@ def test_broken_reference_marks_live_answer_unverified(runtime: Runtime, tmp_pat
     evals = tmp_path / "evals"
     evals.mkdir()
     (evals / "revenue.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: revenue-regression\nagent: revenue\ncases:\n"
         "  - name: july\n    question: What was recognized revenue in July 2026?\n"
         "    expect:\n      reference_sql: select missing from {{ ref('fct_orders') }}\n"
@@ -630,6 +936,7 @@ def test_eval_create_appends_all_starter_cases_and_verifies(
     evals = tmp_path / "evals"
     evals.mkdir()
     (evals / "revenue.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: revenue-regression\nagent: revenue\ncases:\n"
         "  - name: existing\n    question: Existing question\n"
         "    expect:\n      result:\n        row_count: 1\n"
@@ -644,13 +951,38 @@ def test_eval_create_appends_all_starter_cases_and_verifies(
             "create",
             "revenue",
             "--question",
-            "What was recognized revenue in July 2026?",
+            "What was recognized revenue using order date in July 2026?",
             "--approve",
             "--starter-cases",
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "VERIFIED" in result.output
+    assert "review-only eval proposal" in result.output
+    assert len(load_eval_suite(evals / "revenue.yaml").cases) == 1
+    proposal_path = next((tmp_path / ".tabletalk" / "proposals").glob("prp_*.json"))
+    proposal = ProposalRecord.load(proposal_path)
+    proposed_eval = next(item for item in proposal.files if item.path.startswith("evals/"))
+    preview_path = tmp_path / ".tabletalk" / "preview.yaml"
+    preview_path.write_text(proposed_eval.content)
+    assert len(load_eval_suite(preview_path).cases) == 5
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    (agents / "revenue.yaml").write_text(runtime.agent.source.dump())
+    approved = CliRunner().invoke(
+        cli,
+        [
+            "approve",
+            proposal.id,
+            "--project-folder",
+            str(tmp_path),
+            "--yes",
+            "--digest",
+            proposal.digest,
+            "--actor",
+            "test-user",
+        ],
+    )
+    assert approved.exit_code == 3, approved.output
     assert len(load_eval_suite(evals / "revenue.yaml").cases) == 5
     assert list((tmp_path / ".tabletalk" / "eval-results" / "revenue").glob("*.json"))
 
@@ -730,9 +1062,11 @@ def test_eval_case_filter_skips_other_suites_for_same_agent(
     evals = tmp_path / "evals"
     evals.mkdir()
     (evals / "a.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: first\nagent: revenue\ncases:\n  - name: other\n    question: Other?\n"
     )
     (evals / "b.yaml").write_text(
+        "schema_version: tabletalk.eval/v1\n"
         "name: second\nagent: revenue\ncases:\n"
         "  - name: july\n    question: What was recognized revenue in July 2026?\n"
         "    expect:\n      result:\n        comparison: scalar\n        value: 184.25\n"
@@ -822,7 +1156,7 @@ def test_end_to_end_dbt_init_agent_eval_and_live_ask(
             str(project),
             "--no-input",
             "--llm-model",
-            "stub",
+            "gemma4:31b-cloud",
         ],
     )
     assert initialized.exit_code == 0, initialized.output
@@ -846,6 +1180,23 @@ def test_end_to_end_dbt_init_agent_eval_and_live_ask(
         ],
     )
     assert created.exit_code == 0, created.output
+    agent_proposal_path = next((project / ".tabletalk" / "proposals").glob("prp_*.json"))
+    agent_proposal = ProposalRecord.load(agent_proposal_path)
+    agent_approved = runner.invoke(
+        cli,
+        [
+            "approve",
+            agent_proposal.id,
+            "--project-folder",
+            str(project),
+            "--yes",
+            "--digest",
+            agent_proposal.digest,
+            "--actor",
+            "test-user",
+        ],
+    )
+    assert agent_approved.exit_code == 0, agent_approved.output
 
     sql = (
         "select sum(recognized_revenue) as recognized_revenue "
@@ -867,13 +1218,31 @@ def test_end_to_end_dbt_init_agent_eval_and_live_ask(
             "--project-folder",
             str(project),
             "--question",
-            "What was recognized revenue in July 2026?",
+            "What was recognized revenue using order date in July 2026?",
             "--reference-sql",
             reference,
             "--approve",
         ],
     )
     assert authored.exit_code == 0, authored.output
+    proposal_paths = tuple((project / ".tabletalk" / "proposals").glob("prp_*.json"))
+    eval_proposal_path = next(path for path in proposal_paths if path != agent_proposal_path)
+    eval_proposal = ProposalRecord.load(eval_proposal_path)
+    eval_approved = runner.invoke(
+        cli,
+        [
+            "approve",
+            eval_proposal.id,
+            "--project-folder",
+            str(project),
+            "--yes",
+            "--digest",
+            eval_proposal.digest,
+            "--actor",
+            "test-user",
+        ],
+    )
+    assert eval_approved.exit_code == 0, eval_approved.output
     evaluated = runner.invoke(cli, ["eval", "run", "revenue", "--project-folder", str(project)])
     assert evaluated.exit_code == 0, evaluated.output
     asked = runner.invoke(
@@ -881,7 +1250,7 @@ def test_end_to_end_dbt_init_agent_eval_and_live_ask(
         [
             "ask",
             "revenue",
-            "What was recognized revenue in July 2026?",
+            "What was recognized revenue using order date in July 2026?",
             "--project-folder",
             str(project),
         ],

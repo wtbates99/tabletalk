@@ -6,7 +6,7 @@
 project = "tabletalk"
 copyright = "2025, william bates"
 author = "william bates"
-release = "0.5.0"
+release = "0.6.0"
 
 # -- General configuration -----------------------------------------------------
 
@@ -40,7 +40,7 @@ html_theme = "alabaster"
 html_static_path = []
 
 html_theme_options = {
-    "description": "dbt-native evaluation and observability for natural-language agents",
+    "description": "dbt-native development, evaluation, and observability for trusted data agents",
     "github_user": "wtbates99",
     "github_repo": "tabletalk",
     "github_button": True,

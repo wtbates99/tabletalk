@@ -1,3 +1,4 @@
+schema_version: tabletalk.project/v1
 dbt:
   project_dir: .
   manifest: target/manifest.json

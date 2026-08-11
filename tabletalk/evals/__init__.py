@@ -15,13 +15,84 @@ from typing import Any
 import yaml
 
 from tabletalk.manifest import Manifest
-from tabletalk.runtime import RejectionError, Runtime
-from tabletalk.traces import Trace, Verification
+from tabletalk.runtime import AmbiguityError, RejectionError, Runtime
+from tabletalk.schemas import EVAL_RESULT_SCHEMA, EVAL_SCHEMA, require_schema_version
+from tabletalk.traces import Trace, Usage, Verification, trace_from_dict
 from tabletalk.validation import SQLValidationError, validate_sql
 
 
 class EvalError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class BudgetLimits:
+    latency_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    cost: float | None = None
+
+    def __post_init__(self) -> None:
+        values = {
+            "latency_ms": self.latency_ms,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "cost": self.cost,
+        }
+        token_names = ("prompt_tokens", "completion_tokens", "total_tokens")
+        for name in token_names:
+            value = values[name]
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool)
+            ):
+                raise EvalError(f"Eval budget {name} must be an integer")
+        for name in ("latency_ms", "cost"):
+            value = values[name]
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+            ):
+                raise EvalError(f"Eval budget {name} must be a finite number")
+        if any(value is not None and value < 0 for value in values.values()):
+            raise EvalError("Eval budget values must not be negative")
+
+    def checks(self, trace: Trace) -> tuple[Verification, ...]:
+        usage = trace.usage
+        values = {
+            "latency_ms": usage.latency_ms,
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": (
+                (usage.prompt_tokens or 0) + (usage.completion_tokens or 0)
+                if usage.prompt_tokens is not None or usage.completion_tokens is not None
+                else None
+            ),
+            "cost": usage.estimated_cost,
+        }
+        limits = {
+            "latency_ms": self.latency_ms,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "cost": self.cost,
+        }
+        checks = []
+        for name, limit in limits.items():
+            if limit is None:
+                continue
+            actual = values[name]
+            checks.append(
+                Verification(
+                    f"budget_{name}",
+                    actual is not None and actual <= limit,
+                    f"Limit: {limit}. Actual: "
+                    f"{actual if actual is not None else 'not recorded'}.",
+                )
+            )
+        return tuple(checks)
 
 
 @dataclass(frozen=True)
@@ -64,24 +135,55 @@ class EvalCase:
     name: str
     question: str
     reference_sql: str | None = None
+    reference_file: str | None = None
     result: ResultExpectation = ResultExpectation()
     required_models: tuple[str, ...] = ()
     forbidden_models: tuple[str, ...] = ()
     required_columns: tuple[str, ...] = ()
     forbidden_columns: tuple[str, ...] = ()
     expected_outcome: str = "answer"
+    kind: str = "regression"
+    protects: str = ""
+    reason: str = ""
+    source: tuple[dict[str, Any], ...] = ()
+    deterministic: bool = False
+    warehouse_data: bool = True
+    failure: str = ""
+    known_failure: bool = False
 
     def __post_init__(self) -> None:
         if not self.name.strip() or not self.question.strip():
             raise EvalError("Every eval case requires a non-empty name and question")
         if self.expected_outcome not in {"answer", "ambiguity", "rejection"}:
             raise EvalError("expect.outcome must be one of: answer, ambiguity, rejection")
-        if self.reference_sql and (self.result.rows is not None or self.result.value_set):
-            raise EvalError("Use reference_sql or a literal expected result, not both")
+        if self.kind not in {
+            "regression",
+            "capability",
+            "safety",
+            "ambiguity",
+            "refusal",
+        }:
+            raise EvalError(f"Unsupported eval case kind '{self.kind}'")
+        ground_truth_count = sum(
+            (
+                bool(self.reference_sql),
+                bool(self.reference_file),
+                self.result.rows is not None or self.result.value_set,
+            )
+        )
+        if ground_truth_count > 1:
+            raise EvalError(
+                "Use reference_sql, reference, or a literal expected result. "
+                "Do not combine these fields."
+            )
 
     @property
     def verifies_result(self) -> bool:
-        return bool(self.reference_sql) or self.result.rows is not None or self.result.value_set
+        return (
+            bool(self.reference_sql or self.reference_file)
+            or self.result.rows is not None
+            or self.result.value_set
+        )
 
 
 @dataclass(frozen=True)
@@ -93,6 +195,7 @@ class EvalSuite:
     description: str = ""
     kind: str = "regression"
     trials: int = 1
+    budgets: BudgetLimits = BudgetLimits()
 
     def __post_init__(self) -> None:
         if not self.name.strip() or not self.agent.strip():
@@ -124,6 +227,8 @@ class CaseResult:
     checks: tuple[Verification, ...]
     trace: Trace | None = None
     error: str | None = None
+    usage: Usage | None = None
+    inference_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +246,7 @@ class SuiteResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": EVAL_RESULT_SCHEMA,
             "name": self.name,
             "agent": self.agent,
             "passed": self.passed,
@@ -154,10 +260,72 @@ class SuiteResult:
                     "error": case.error,
                     "checks": [vars(check) for check in case.checks],
                     "trace": case.trace.to_dict() if case.trace else None,
+                    "usage": vars(case.usage) if case.usage else None,
+                    "inference_fingerprint": case.inference_fingerprint,
                 }
                 for case in self.cases
             ],
         }
+
+
+def suite_result_from_dict(payload: dict[str, Any]) -> SuiteResult:
+    require_schema_version(
+        payload,
+        EVAL_RESULT_SCHEMA,
+        resource="eval result",
+        editable=False,
+    )
+    raw_cases = payload.get("cases")
+    if not isinstance(raw_cases, list):
+        raise EvalError("Eval result cases must be a list")
+    cases = []
+    for raw_case in raw_cases:
+        if not isinstance(raw_case, dict):
+            raise EvalError("Each eval result case must be an object")
+        raw_checks = raw_case.get("checks") or ()
+        raw_trace = raw_case.get("trace")
+        cases.append(
+            CaseResult(
+                name=str(raw_case.get("name") or ""),
+                passed=bool(raw_case.get("passed")),
+                checks=tuple(
+                    Verification(
+                        str(item.get("name") or ""),
+                        bool(item.get("passed")),
+                        str(item.get("message") or ""),
+                    )
+                    for item in raw_checks
+                    if isinstance(item, dict)
+                ),
+                trace=trace_from_dict(raw_trace) if isinstance(raw_trace, dict) else None,
+                error=str(raw_case["error"]) if raw_case.get("error") else None,
+                usage=(
+                    Usage(
+                        **{
+                            **dict(raw_case["usage"]),
+                            "provider_errors": tuple(
+                                raw_case["usage"].get("provider_errors") or ()
+                            ),
+                        }
+                    )
+                    if isinstance(raw_case.get("usage"), dict)
+                    else None
+                ),
+                inference_fingerprint=(
+                    str(raw_case["inference_fingerprint"])
+                    if raw_case.get("inference_fingerprint")
+                    else None
+                ),
+            )
+        )
+    return SuiteResult(
+        name=str(payload.get("name") or ""),
+        agent=str(payload.get("agent") or ""),
+        cases=tuple(cases),
+        suite_digest=str(payload.get("suite_digest") or ""),
+        trial=int(payload.get("trial") or 1),
+        trials=int(payload.get("trials") or 1),
+    )
 
 
 def _strings(value: Any, field_name: str) -> tuple[str, ...]:
@@ -184,6 +352,7 @@ def load_eval_suite(path: str | Path) -> EvalSuite:
         raise EvalError(f"Could not load eval suite {source}: {exc}") from exc
     if not isinstance(payload, dict):
         raise EvalError("Eval suite must be a YAML mapping")
+    require_schema_version(payload, EVAL_SCHEMA, resource=str(source))
     if "metrics" in payload or "fixtures" in payload:
         raise EvalError(f"Eval suite {source.name} uses the removed judge/fixture format")
     name = payload.get("name")
@@ -198,6 +367,11 @@ def load_eval_suite(path: str | Path) -> EvalSuite:
         result_raw = _mapping(expect.get("result"), f"cases[{index}].expect.result")
         models = _mapping(expect.get("models"), f"cases[{index}].expect.models")
         columns = _mapping(expect.get("columns"), f"cases[{index}].expect.columns")
+        source_evidence = raw.get("source") or []
+        if not isinstance(source_evidence, list) or not all(
+            isinstance(item, dict) for item in source_evidence
+        ):
+            raise EvalError(f"cases[{index}].source must be a list of mappings")
         literal_rows = result_raw.get("rows") if "rows" in result_raw else None
         if literal_rows is not None and (
             not isinstance(literal_rows, list)
@@ -209,6 +383,7 @@ def load_eval_suite(path: str | Path) -> EvalSuite:
                 name=str(raw.get("name") or f"case-{index + 1}"),
                 question=str(raw.get("question") or ""),
                 reference_sql=str(expect["reference_sql"]) if expect.get("reference_sql") else None,
+                reference_file=str(expect["reference"]) if expect.get("reference") else None,
                 result=ResultExpectation(
                     comparison=str(result_raw.get("comparison") or "unordered"),
                     tolerance=float(result_raw.get("tolerance") or 0),
@@ -229,11 +404,20 @@ def load_eval_suite(path: str | Path) -> EvalSuite:
                 required_columns=_strings(columns.get("required"), "columns.required"),
                 forbidden_columns=_strings(columns.get("forbidden"), "columns.forbidden"),
                 expected_outcome=str(expect.get("outcome") or "answer"),
+                kind=str(raw.get("kind") or "regression"),
+                protects=str(raw.get("protects") or ""),
+                reason=str(raw.get("reason") or ""),
+                source=tuple(dict(item) for item in source_evidence),
+                deterministic=bool(raw.get("deterministic", False)),
+                warehouse_data=bool(raw.get("warehouse_data", True)),
+                failure=str(raw.get("failure") or ""),
+                known_failure=bool(raw.get("known_failure", False)),
             )
         )
     description = payload.get("description") or ""
     kind = payload.get("kind") or "regression"
     trials = payload.get("trials", 1)
+    budgets_raw = _mapping(payload.get("budgets"), "budgets")
     if not isinstance(description, str) or not isinstance(kind, str):
         raise EvalError("Eval suite description and kind must be strings")
     return EvalSuite(
@@ -244,6 +428,13 @@ def load_eval_suite(path: str | Path) -> EvalSuite:
         description.strip(),
         kind.strip(),
         trials,
+        BudgetLimits(
+            latency_ms=budgets_raw.get("latency_ms"),
+            prompt_tokens=budgets_raw.get("prompt_tokens"),
+            completion_tokens=budgets_raw.get("completion_tokens"),
+            total_tokens=budgets_raw.get("total_tokens"),
+            cost=budgets_raw.get("cost"),
+        ),
     )
 
 
@@ -267,35 +458,54 @@ class EvalRunner:
         self.suite = suite
         self.runtime = runtime
 
-    def run(self, case_name: str | None = None) -> SuiteResult:
+    def run(self, case_name: str | None = None, *, trial: int = 1) -> SuiteResult:
         cases = [case for case in self.suite.cases if case_name is None or case.name == case_name]
         if not cases:
             raise EvalError(f"Eval case '{case_name}' was not found")
-        results = tuple(self._run_case(case) for case in cases)
-        return SuiteResult(self.suite.name, self.suite.agent, results, self.suite.digest)
+        results = tuple(self._run_case(case, trial) for case in cases)
+        return SuiteResult(
+            self.suite.name,
+            self.suite.agent,
+            results,
+            self.suite.digest,
+            trial=trial,
+            trials=self.suite.trials,
+        )
 
-    def _run_case(self, case: EvalCase) -> CaseResult:
+    def _run_case(self, case: EvalCase, trial: int) -> CaseResult:
         try:
-            trace = self.runtime.answer(case.question)
+            trace = self.runtime.answer(case.question, trial=trial)
         except Exception as exc:
             expected_exception = (
-                case.expected_outcome == "ambiguity" and isinstance(exc, RejectionError)
+                case.expected_outcome == "ambiguity" and isinstance(exc, AmbiguityError)
             ) or (
                 case.expected_outcome == "rejection"
                 and isinstance(exc, (RejectionError, SQLValidationError))
             )
             check = Verification("expected_outcome", expected_exception, str(exc))
-            return CaseResult(case.name, check.passed, (check,), error=str(exc))
+            return CaseResult(
+                case.name,
+                check.passed,
+                (check,),
+                error=str(exc),
+                usage=getattr(exc, "usage", None),
+                inference_fingerprint=getattr(exc, "inference_fingerprint", None),
+            )
         return self.evaluate_trace(case, trace)
 
     def evaluate_trace(self, case: EvalCase, trace: Trace) -> CaseResult:
         """Apply deterministic expectations to an already executed live trace."""
         expected_failure = case.expected_outcome in {"ambiguity", "rejection"}
+        expected_message = (
+            "Expected a clarification request"
+            if case.expected_outcome == "ambiguity"
+            else "Expected rejection"
+        )
         checks: list[Verification] = [
             Verification(
                 "expected_outcome",
                 not expected_failure,
-                "Agent answered" if not expected_failure else "Expected rejection",
+                "Agent answered" if not expected_failure else expected_message,
             )
         ]
         selected = set(trace.dbt_context.selected_nodes)
@@ -325,7 +535,7 @@ class EvalRunner:
                 Verification(
                     "supported_claims",
                     trace.passed,
-                    "; ".join(
+                    ". ".join(
                         f"{check.name}: {check.message or 'failed'}"
                         for check in trace.verification
                         if not check.passed
@@ -334,9 +544,20 @@ class EvalRunner:
             ]
         )
         expected_rows = case.result.rows or ()
-        if case.reference_sql:
+        reference_sql = case.reference_sql
+        if case.reference_file:
             try:
-                sql = render_reference_sql(case.reference_sql, self.runtime.manifest)
+                if self.suite.source_path is None:
+                    raise EvalError("A reference file requires a saved eval suite")
+                project_root = self.suite.source_path.parent.parent.resolve()
+                reference_path = (project_root / case.reference_file).resolve()
+                reference_path.relative_to(project_root)
+                reference_sql = reference_path.read_text()
+            except (OSError, ValueError) as exc:
+                checks.append(Verification("reference_query", False, str(exc)))
+        if reference_sql:
+            try:
+                sql = render_reference_sql(reference_sql, self.runtime.manifest)
                 validated_reference = validate_sql(
                     sql,
                     self.runtime.manifest,
@@ -352,7 +573,7 @@ class EvalRunner:
                 checks.append(Verification("reference_query", True))
             except Exception as exc:
                 checks.append(Verification("reference_query", False, str(exc)))
-        if case.reference_sql or case.result.rows is not None or case.result.value_set:
+        if reference_sql or case.result.rows is not None or case.result.value_set:
             checks.append(_compare_result(trace.result.rows, expected_rows, case.result))
         if case.result.row_count is not None:
             checks.append(
@@ -372,6 +593,7 @@ class EvalRunner:
                 )
             )
         trace = replace(trace, eval_suite_digest=self.suite.digest)
+        checks.extend(self.suite.budgets.checks(trace))
         return CaseResult(case.name, all(check.passed for check in checks), tuple(checks), trace)
 
 
@@ -454,22 +676,25 @@ def _result_difference(
         expected_value = config.value
         if expected_value is None and len(expected) == 1:
             expected_value = next(iter(expected[0].values()), None)
-        return f"expected scalar {expected_value!r}; got {actual_value!r}"
+        return f"Expected scalar {expected_value!r}. Got {actual_value!r}."
     if len(actual) != len(expected):
-        return f"expected {len(expected)} rows; got {len(actual)} rows"
+        return f"Expected {len(expected)} rows. Got {len(actual)} rows."
     if config.comparison == "keyed":
         expected_by_key = {tuple(row.get(name) for name in config.keys): row for row in expected}
         actual_by_key = {tuple(row.get(name) for name in config.keys): row for row in actual}
         missing = sorted(set(expected_by_key) - set(actual_by_key), key=repr)
         unexpected = sorted(set(actual_by_key) - set(expected_by_key), key=repr)
         if missing or unexpected:
-            return f"missing keys {missing[:5]}; unexpected keys {unexpected[:5]}"
+            return f"Missing keys: {missing[:5]}. Unexpected keys: {unexpected[:5]}."
         for key in expected_by_key:
             if not _rows_equal((actual_by_key[key],), (expected_by_key[key],), config.tolerance):
-                return f"key {key}: expected {expected_by_key[key]!r}; got {actual_by_key[key]!r}"
+                return (
+                    f"Key {key}: expected {expected_by_key[key]!r}. "
+                    f"Got {actual_by_key[key]!r}."
+                )
     for index, (actual_row, expected_row) in enumerate(zip(actual, expected)):
         if not _rows_equal((actual_row,), (expected_row,), config.tolerance):
-            return f"row {index}: expected {expected_row!r}; got {actual_row!r}"
+            return f"Row {index}: expected {expected_row!r}. Got {actual_row!r}."
     return "result rows differ"
 
 
@@ -530,9 +755,11 @@ def _unordered_equal(
 
 __all__ = [
     "EvalCase",
+    "BudgetLimits",
     "EvalRunner",
     "EvalSuite",
     "SuiteResult",
     "load_eval_suite",
     "render_reference_sql",
+    "suite_result_from_dict",
 ]

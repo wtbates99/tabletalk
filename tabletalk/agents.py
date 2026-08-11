@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from tabletalk.manifest import Manifest, Node
+from tabletalk.schemas import AGENT_SCHEMA, require_schema_version
 
 
 class AgentError(ValueError):
@@ -35,6 +36,9 @@ class Agent:
     exclude: tuple[str, ...] = ()
     instructions: tuple[str, ...] = ()
     sample_questions: tuple[str, ...] = ()
+    supported_questions: tuple[str, ...] = ()
+    unsupported_questions: tuple[str, ...] = ()
+    knowledge: tuple[str, ...] = ()
     include_parents: bool = False
     include_children: bool = False
     allow_sensitive: tuple[str, ...] = ()
@@ -63,6 +67,7 @@ class Agent:
             raise AgentError(f"Could not load agent {source}: {exc}") from exc
         if not isinstance(payload, dict):
             raise AgentError(f"Agent {source.name} must be a YAML mapping")
+        require_schema_version(payload, AGENT_SCHEMA, resource=str(source))
         if "relations" in payload or "connection" in payload or payload.get("kind") == "Agent":
             raise AgentError(
                 f"Agent {source.name} uses the removed pre-dbt format. "
@@ -95,6 +100,13 @@ class Agent:
             exclude=_strings(payload.get("exclude"), "exclude"),
             instructions=_strings(payload.get("instructions"), "instructions"),
             sample_questions=_strings(payload.get("sample_questions"), "sample_questions"),
+            supported_questions=_strings(
+                payload.get("supported_questions"), "supported_questions"
+            ),
+            unsupported_questions=_strings(
+                payload.get("unsupported_questions"), "unsupported_questions"
+            ),
+            knowledge=_strings(payload.get("knowledge"), "knowledge"),
             include_parents=bool(payload.get("include_parents", False)),
             include_children=bool(payload.get("include_children", False)),
             allow_sensitive=_strings(payload.get("allow_sensitive"), "allow_sensitive"),
@@ -106,6 +118,7 @@ class Agent:
 
     def dump(self) -> str:
         payload: dict[str, Any] = {
+            "schema_version": AGENT_SCHEMA,
             "name": self.name,
             "description": self.description,
             "select": list(self.select),
@@ -120,6 +133,12 @@ class Agent:
             payload["instructions"] = list(self.instructions)
         if self.sample_questions:
             payload["sample_questions"] = list(self.sample_questions)
+        if self.supported_questions:
+            payload["supported_questions"] = list(self.supported_questions)
+        if self.unsupported_questions:
+            payload["unsupported_questions"] = list(self.unsupported_questions)
+        if self.knowledge:
+            payload["knowledge"] = list(self.knowledge)
         if self.allow_sensitive:
             payload["allow_sensitive"] = list(self.allow_sensitive)
         if self.reject_if_contains:

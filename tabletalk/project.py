@@ -11,8 +11,12 @@ import yaml
 from tabletalk.agents import Agent, ResolvedAgent, load_agents
 from tabletalk.connections import ReadOnlyConnection, load_profile_target
 from tabletalk.factories import get_llm_provider
+from tabletalk.inference import CachePolicy, InferenceStore
+from tabletalk.interfaces import LLMProvider
 from tabletalk.manifest import Manifest
 from tabletalk.runtime import Runtime
+from tabletalk.schemas import PROJECT_SCHEMA, content_digest, require_schema_version
+from tabletalk.semantics import SemanticKnowledge, SemanticStatement
 from tabletalk.traces import Trace, Verification
 
 
@@ -54,7 +58,8 @@ class Project:
             config_file = nested_config
         if not config_file.is_file():
             raise ValueError(
-                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}; run 'tabletalk init'"
+                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}. "
+                "Run 'tabletalk init'."
             )
         try:
             config = yaml.safe_load(config_file.read_text())
@@ -62,6 +67,7 @@ class Project:
             raise ValueError(f"Could not load {config_file}: {exc}") from exc
         if not isinstance(config, dict):
             raise ValueError("tabletalk.yaml must be a mapping")
+        require_schema_version(config, PROJECT_SCHEMA, resource=str(config_file))
         if "connections" in config or "state" in config:
             raise ValueError(
                 "tabletalk.yaml uses removed connection/applied-state configuration. "
@@ -77,6 +83,13 @@ class Project:
     @property
     def evals_directory(self) -> Path:
         return self.root / str(self.config.get("evals_dir") or "evals")
+
+    @property
+    def proposals_directory(self) -> Path:
+        return self.root / ".tabletalk" / "proposals"
+
+    def proposal_path(self, proposal_id: str) -> Path:
+        return self.proposals_directory / f"{proposal_id}.json"
 
     def agents(self) -> tuple[Agent, ...]:
         return load_agents(self.agents_directory)
@@ -106,19 +119,62 @@ class Project:
     def connection(self) -> ReadOnlyConnection:
         return ReadOnlyConnection(self.target())
 
-    def runtime(self, agent_name: str) -> Runtime:
+    def _semantic_context(
+        self,
+        agent: Agent,
+    ) -> tuple[str | None, tuple[SemanticStatement, ...]]:
+        values = []
+        statements: list[SemanticStatement] = []
+        for reference in agent.knowledge:
+            path = (self.root / reference).resolve()
+            try:
+                path.relative_to(self.root)
+            except ValueError as exc:
+                raise ValueError(f"Agent knowledge path leaves the project: {reference}") from exc
+            if not path.is_file():
+                raise ValueError(f"Agent knowledge file was not found: {reference}")
+            values.append({"path": reference, "sha256": content_digest(path.read_bytes())})
+            statements.extend(SemanticKnowledge.load(path).statements)
+        return (content_digest(values) if values else None, tuple(statements))
+
+    def runtime(
+        self,
+        agent_name: str,
+        *,
+        cache_policy: CachePolicy | None = None,
+    ) -> Runtime:
         llm_config = self.config.get("llm")
         if not isinstance(llm_config, dict):
             raise ValueError("tabletalk.yaml requires an llm mapping")
         model = str(llm_config.get("model") or "unknown")
         provider = str(llm_config.get("provider") or "unknown")
+        agent = self.agent(agent_name)
+        inference_config = self.config.get("inference") or {}
+        if not isinstance(inference_config, dict):
+            raise ValueError("tabletalk.yaml inference must be a mapping")
+        selected_policy = cache_policy or CachePolicy(
+            str(inference_config.get("cache_policy") or CachePolicy.DISABLED.value)
+        )
+        semantic_digest, semantic_statements = self._semantic_context(agent)
         return Runtime(
             self.manifest,
-            self.resolve_agent(agent_name),
+            agent.resolve(self.manifest),
             self.connection(),
             get_llm_provider(llm_config),
             model_identity=f"{provider}:{model}",
+            inference_store=InferenceStore(self.root / ".tabletalk" / "inference"),
+            cache_policy=selected_policy,
+            model_config=dict(llm_config),
+            semantic_digest=semantic_digest,
+            persist_prompts=bool(inference_config.get("persist_prompts", False)),
+            semantic_statements=semantic_statements,
         )
+
+    def llm_provider(self) -> LLMProvider:
+        llm_config = self.config.get("llm")
+        if not isinstance(llm_config, dict):
+            raise ValueError("tabletalk.yaml requires an llm mapping")
+        return get_llm_provider(llm_config)
 
     def answer(self, agent_name: str, question: str) -> Trace:
         runtime = self.runtime(agent_name)
@@ -149,7 +205,7 @@ class Project:
                     Verification(
                         f"correctness_eval:{suite.name}/{case.name}",
                         result.passed,
-                        "; ".join(failures) if failures else "Approved eval matched",
+                        ". ".join(failures) if failures else "Approved eval matched",
                     )
                 )
                 matched_digest = suite.digest
