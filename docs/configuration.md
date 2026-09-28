@@ -22,6 +22,17 @@ inference:
   persist_prompts: false
 ```
 
+## Snowflake authentication
+
+TableTalk reads Snowflake connection settings from the resolved dbt profile
+target, not from `tabletalk.yaml`. Password auth remains the default: set
+`password` (typically via `{{ env_var('...') }}`) in the dbt target as usual.
+Any other authenticator declared on the target — for example
+`authenticator: externalbrowser` for SSO, or `oauth`/key-pair authenticators —
+is passed through to the Snowflake connector as-is and does not require a
+stored password.
+
+
 All editable TableTalk resources require a `schema_version`. Run
 `tabletalk migrate` to add version identifiers to pre-0.6 editable YAML files.
 Immutable inference, report, result, and baseline artifacts fail on an unknown

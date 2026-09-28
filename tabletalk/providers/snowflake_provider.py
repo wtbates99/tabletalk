@@ -12,11 +12,12 @@ class SnowflakeProvider(DatabaseProvider):
         self,
         account: str,
         user: str,
-        password: str,
+        password: str | None,
         database: str,
         warehouse: str,
         schema: str = "PUBLIC",
         role: str | None = None,
+        authenticator: str | None = None,
     ) -> None:
         try:
             import snowflake.connector
@@ -27,11 +28,17 @@ class SnowflakeProvider(DatabaseProvider):
         arguments: dict[str, Any] = {
             "account": account,
             "user": user,
-            "password": password,
             "database": database,
             "warehouse": warehouse,
             "schema": schema,
         }
+        # Password-based auth is the default. Any other authenticator (for example
+        # externalbrowser SSO, oauth, or key-pair) is passed through as-is and does
+        # not require a stored password.
+        if authenticator:
+            arguments["authenticator"] = authenticator
+        if password:
+            arguments["password"] = password
         if role:
             arguments["role"] = role
         self.connection = snowflake.connector.connect(**arguments)
