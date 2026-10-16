@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tabletalk.connections import ReadOnlyConnection, Target, load_profile_target
+from tabletalk.factories import get_db_provider
 from tabletalk.manifest import Manifest
 from tabletalk.providers.snowflake_provider import SnowflakeProvider
 from tabletalk.providers.sqlite_provider import SQLiteProvider
@@ -70,6 +71,74 @@ def test_snowflake_connector_contract_uses_mapping_rows(monkeypatch: pytest.Monk
     monkeypatch.setitem(sys.modules, "snowflake.connector", connector)
     provider = SnowflakeProvider("account", "user", "password", "db", "warehouse")
     assert provider.execute_query("select 184.25 as revenue") == [{"REVENUE": 184.25}]
+
+
+def test_snowflake_authenticator_supports_sso_without_a_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Connection:
+        def cursor(self):
+            raise AssertionError("not exercised in this test")
+
+    def fake_connect(**kwargs):
+        captured.update(kwargs)
+        return Connection()
+
+    connector = types.ModuleType("snowflake.connector")
+    connector.connect = fake_connect  # type: ignore[attr-defined]
+    package = types.ModuleType("snowflake")
+    package.connector = connector  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "snowflake", package)
+    monkeypatch.setitem(sys.modules, "snowflake.connector", connector)
+    SnowflakeProvider(
+        "account",
+        "user",
+        None,
+        "db",
+        "warehouse",
+        authenticator="externalbrowser",
+    )
+    assert captured["authenticator"] == "externalbrowser"
+    assert "password" not in captured
+
+
+def test_dbt_snowflake_profile_passes_through_authenticator(tmp_path: Path) -> None:
+    (tmp_path / "dbt_project.yml").write_text("name: made\nprofile: made\n")
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "profiles.yml").write_text(
+        "made:\n"
+        "  target: dev\n"
+        "  outputs:\n"
+        "    dev:\n"
+        "      type: snowflake\n"
+        "      account: acct\n"
+        "      user: someone\n"
+        "      authenticator: externalbrowser\n"
+        "      role: made_engineer_role\n"
+        "      warehouse: dev_made_analytics_whs\n"
+        "      database: dev_made_analytics\n"
+        "      schema: public\n"
+    )
+    target = load_profile_target(tmp_path, None, profiles)
+    assert target.adapter == "snowflake"
+    assert target.config["authenticator"] == "externalbrowser"
+    assert "password" not in target.config
+
+
+def test_get_db_provider_requires_password_only_without_an_authenticator() -> None:
+    with pytest.raises(ValueError, match="password"):
+        get_db_provider(
+            {
+                "type": "snowflake",
+                "account": "acct",
+                "user": "someone",
+                "database": "db",
+                "warehouse": "wh",
+            }
+        )
 
 
 def test_optional_catalog_and_run_results_only_enrich_metadata(tmp_path: Path) -> None:

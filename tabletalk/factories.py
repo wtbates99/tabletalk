@@ -97,16 +97,19 @@ def _build_db_provider(provider: str, config: dict[str, Any]) -> DatabaseProvide
     from tabletalk.providers.snowflake_provider import SnowflakeProvider
 
     missing = [
-        name
-        for name in ("account", "user", "password", "database", "warehouse")
-        if not config.get(name)
+        name for name in ("account", "user", "database", "warehouse") if not config.get(name)
     ]
+    # Password-based auth is the default; any other authenticator (for example
+    # externalbrowser SSO, oauth, or key-pair) does not require a stored password.
+    if not config.get("authenticator") and not config.get("password"):
+        missing.append("password")
     if missing:
         raise ValueError("snowflake requires: " + ", ".join(missing))
     return SnowflakeProvider(
         account=str(config["account"]),
         user=str(config["user"]),
-        password=str(config["password"]),
+        password=str(config["password"]) if config.get("password") else None,
+        authenticator=str(config["authenticator"]) if config.get("authenticator") else None,
         database=str(config["database"]),
         warehouse=str(config["warehouse"]),
         schema=str(config.get("schema") or "PUBLIC"),
