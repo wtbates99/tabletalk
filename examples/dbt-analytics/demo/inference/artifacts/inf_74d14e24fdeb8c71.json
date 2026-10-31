@@ -1,0 +1,235 @@
+{
+  "calls": [
+    {
+      "completion_tokens": 148,
+      "input_digest": "sha256:53a2265f81895f06f1759b1d1e1048ab50e076028896018e528b156364f4e839",
+      "latency_ms": 1010.3313330328092,
+      "output": {
+        "interpretation": {
+          "assumptions": [],
+          "dimensions": [],
+          "end_date": "2026-07-31",
+          "intent": "Calculate the total recognized revenue for the month of July 2026.",
+          "metrics": [
+            "recognized_revenue"
+          ],
+          "start_date": "2026-07-01"
+        },
+        "rejection": null,
+        "rejection_kind": null,
+        "sql": "SELECT sum(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
+      },
+      "prompt_tokens": 1000,
+      "provider_errors": [],
+      "retry_count": 0,
+      "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
+      "stage": "query"
+    },
+    {
+      "completion_tokens": 61,
+      "input_digest": "sha256:c9c57772237eba52691e1e4399517d116c18804f5e883894eeefb7173066a09a",
+      "latency_ms": 498.80970804952085,
+      "output": {
+        "claims": [
+          {
+            "evidence": [
+              {
+                "column": "recognized_revenue",
+                "row": 0
+              }
+            ],
+            "text": "The recognized revenue in July 2026 was 184.25."
+          }
+        ],
+        "text": "The recognized revenue in July 2026 was 184.25."
+      },
+      "prompt_tokens": 356,
+      "provider_errors": [],
+      "retry_count": 0,
+      "schema_digest": "sha256:870aba82a2959d21d354b1c210e2af6a667c2ff69c5f47a1a2e6da1216e72a72",
+      "stage": "answer"
+    }
+  ],
+  "created_at": "2026-10-31T19:27:51.134409+00:00",
+  "digest": "sha256:74d14e24fdeb8c7161fd9a4ccf577a67174c19f8783b19eff87a2d466aee32cb",
+  "fingerprint": {
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "execution_config": {
+      "dialect": "duckdb",
+      "max_rows": 1000,
+      "timeout_seconds": 60,
+      "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+    },
+    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
+    "model_config": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question_digest": "sha256:6929e33ad1a68d9efdf00ba52da0efa154ae04d64dea5c27c616f055a8846195",
+    "runtime_version": "tabletalk.runtime/v1",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "trial": 2
+  },
+  "fingerprint_digest": "sha256:0c7f5abf7d8e2c0f23368de5d38ee04daae5478c0d4acba50def386eb7654288",
+  "id": "inf_74d14e24fdeb8c71",
+  "schema_version": "tabletalk.inference/v1",
+  "trace": {
+    "agent": "revenue",
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "answer": {
+      "claims": [
+        {
+          "evidence": [
+            {
+              "column": "recognized_revenue",
+              "row": 0
+            }
+          ],
+          "text": "The recognized revenue in July 2026 was 184.25."
+        }
+      ],
+      "text": "The recognized revenue in July 2026 was 184.25."
+    },
+    "cache_hit": false,
+    "created_at": "2026-10-31T19:27:51.134377+00:00",
+    "dbt_context": {
+      "catalog_digest": "a19973232d974f7a7dcaf5065b33b43d496e3e935b2b5b9cdea572e459e55708",
+      "columns": [
+        "order_date",
+        "order_status",
+        "recognized_revenue"
+      ],
+      "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
+      "relevant_tests": [
+        "not_null",
+        "unique",
+        "accepted_values"
+      ],
+      "selected_nodes": [
+        "model.analytics.fct_orders"
+      ],
+      "test_health": {
+        "accepted_values": "success",
+        "not_null": "success",
+        "unique": "success"
+      }
+    },
+    "eval_suite_digest": null,
+    "inference_fingerprint": "sha256:0c7f5abf7d8e2c0f23368de5d38ee04daae5478c0d4acba50def386eb7654288",
+    "interpretation": {
+      "assumptions": [],
+      "dimensions": [],
+      "end_date": "2026-07-31",
+      "intent": "Calculate the total recognized revenue for the month of July 2026.",
+      "metrics": [
+        "recognized_revenue"
+      ],
+      "start_date": "2026-07-01"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question": "[HASHED:sha256:6929e33ad1a68d9efdf00ba52da0efa154ae04d64dea5c27c616f055a8846195]",
+    "result": {
+      "row_count": 1,
+      "rows": [
+        {
+          "recognized_revenue": {
+            "__tabletalk_type__": "decimal",
+            "value": "184.25"
+          }
+        }
+      ]
+    },
+    "runtime_version": "tabletalk.runtime/v1",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "sql": {
+      "dialect": "duckdb",
+      "executed": "SELECT SUM(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status <> 'cancelled' LIMIT 1000",
+      "generated": "SELECT sum(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
+    },
+    "usage": {
+      "completion_tokens": 209,
+      "estimated_cost": null,
+      "latency_ms": 1515.057250042446,
+      "prompt_tokens": 1356,
+      "provider_errors": [],
+      "retry_count": 0
+    },
+    "verification": [
+      {
+        "message": "",
+        "name": "read_only",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "forbidden_functions",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "resources_in_scope",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "relations_unambiguous",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "join_conditions",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "columns_exist",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "sensitive_access",
+        "passed": true
+      },
+      {
+        "message": "maximum 1000 rows",
+        "name": "row_limit",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "execution_succeeded",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "evidence_present",
+        "passed": true
+      },
+      {
+        "message": "",
+        "name": "claims_supported",
+        "passed": true
+      },
+      {
+        "message": "Answer was constructed after execution from SQL and evidence",
+        "name": "explanation_matches_sql",
+        "passed": true
+      },
+      {
+        "message": "Boundaries are recorded in the interpretation",
+        "name": "date_boundaries_disclosed",
+        "passed": true
+      },
+      {
+        "message": "Assumptions are recorded in the interpretation",
+        "name": "assumptions_disclosed",
+        "passed": true
+      }
+    ],
+    "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+  }
+}

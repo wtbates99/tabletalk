@@ -207,20 +207,32 @@ def test_approve_locks_only_the_approved_agent(
     assert {change.agent for change in plan.changes} == {"revenue"}  # Not silently accepted.
 
 
-@pytest.mark.skipif(shutil.which("dbt") is None, reason="dbt-duckdb is not installed")
-def test_offline_drift_demo_blocks_the_pr() -> None:
+def _run_demo(script: str) -> subprocess.CompletedProcess[str]:
     bin_dir = str(Path(sys.executable).parent)
     env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
-    result = subprocess.run(
-        ["bash", str(EXAMPLE / "demo" / "drift.sh")],
+    return subprocess.run(
+        ["bash", str(EXAMPLE / "demo" / script)],
         capture_output=True,
         text=True,
         env=env,
         timeout=300,
     )
 
+
+@pytest.mark.skipif(shutil.which("dbt") is None, reason="dbt-duckdb is not installed")
+def test_offline_drift_demo_blocks_the_pr() -> None:
+    result = _run_demo("drift.sh")
+
     assert result.returncode == 0, result.stdout + result.stderr
     assert "fct_orders.recognized_revenue" in result.stdout
     assert "column removed" in result.stdout
     assert "model.analytics.dim_customers" in result.stdout
     assert "revenue-capability › july-recognized-revenue" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("dbt") is None, reason="dbt-duckdb is not installed")
+def test_committed_replay_fixtures_replay_in_a_fresh_checkout() -> None:
+    result = _run_demo("replay.sh")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS 12/12 eval trials passed" in result.stdout

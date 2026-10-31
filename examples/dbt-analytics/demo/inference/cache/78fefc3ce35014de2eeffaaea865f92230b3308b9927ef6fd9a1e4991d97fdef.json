@@ -1,0 +1,25 @@
+{
+  "artifact_digest": "sha256:325d5859d2697f5546534382d80d24bd321558dfae3be01d7caea444929eeb4b",
+  "artifact_id": "inf_325d5859d2697f55",
+  "fingerprint": {
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "execution_config": {
+      "dialect": "duckdb",
+      "max_rows": 1000,
+      "timeout_seconds": 60,
+      "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+    },
+    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
+    "model_config": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question_digest": "sha256:8ad0bd1937fa74589d194a983a4fc95c5821f71b64e96f1474e27d10e95db642",
+    "runtime_version": "tabletalk.runtime/v1",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "trial": 2
+  }
+}

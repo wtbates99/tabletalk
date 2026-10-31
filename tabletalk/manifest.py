@@ -9,7 +9,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-
 # dbt rewrites these on every invocation. They say nothing about the project, so they
 # are excluded from digests: re-running `dbt parse` must not change identity.
 _VOLATILE_METADATA = frozenset(

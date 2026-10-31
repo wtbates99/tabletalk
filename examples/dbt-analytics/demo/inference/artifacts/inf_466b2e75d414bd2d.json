@@ -1,0 +1,68 @@
+{
+  "calls": [
+    {
+      "completion_tokens": 92,
+      "input_digest": "sha256:91af530cd6f30970319bfa1a9ab8ca148ed4c29907887f8b1b0013b1fb340d08",
+      "latency_ms": 657.0172080537304,
+      "output": {
+        "interpretation": {
+          "assumptions": [],
+          "dimensions": [],
+          "end_date": null,
+          "intent": "Count the total number of orders marked as late.",
+          "metrics": [
+            "count(order_id)"
+          ],
+          "start_date": null
+        },
+        "rejection": null,
+        "rejection_kind": null,
+        "sql": "SELECT count(order_id) AS late_order_count FROM \"analytics\".\"main\".\"fct_orders\" WHERE late_order = true"
+      },
+      "prompt_tokens": 995,
+      "provider_errors": [],
+      "retry_count": 0,
+      "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
+      "stage": "query"
+    }
+  ],
+  "created_at": "2026-10-31T19:27:56.725318+00:00",
+  "digest": "sha256:466b2e75d414bd2d701ee053eea0c79f2507244c844d498b9d2b75418adbb836",
+  "fingerprint": {
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "execution_config": {
+      "dialect": "duckdb",
+      "max_rows": 1000,
+      "timeout_seconds": 60,
+      "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+    },
+    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
+    "model_config": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
+    "runtime_version": "tabletalk.runtime/v1",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "trial": 3
+  },
+  "fingerprint_digest": "sha256:06b51562fa88802630d2f51ab5e6533eb04ce4cec88856dc4cd2b0adc239cce6",
+  "id": "inf_466b2e75d414bd2d",
+  "outcome": {
+    "kind": "rejection",
+    "message": "Question rejected: Semantic statement 'late_order' is inferred and untrusted",
+    "usage": {
+      "completion_tokens": 92,
+      "estimated_cost": null,
+      "latency_ms": 659.0793340001255,
+      "prompt_tokens": 995,
+      "provider_errors": [],
+      "retry_count": 0
+    }
+  },
+  "schema_version": "tabletalk.inference/v1",
+  "trace": null
+}

@@ -23,6 +23,20 @@ model to `group:finance`. Every dbt test still passes. `tabletalk plan --check`
 shows the removed column, the expanded scope with sensitive columns, and the eval
 case at risk, then exits 5. It needs no model and no network.
 
+## Replay a recorded eval run without a model
+
+```console
+make replay
+```
+
+`demo/inference` holds real `gemma4:31b-cloud` inference artifacts for the
+`revenue` eval suite. The script loads the example data into DuckDB and runs
+`tabletalk eval run revenue --cache-policy replay`. Strict replay never calls a
+model and fails on any fingerprint miss. A pass therefore shows that the agent,
+manifest, semantics, prompt, and warehouse identity match the recording. To
+re-record after an intended change, run the same command with
+`--cache-policy write-only` and an available model.
+
 ## Build the dbt project
 
 Run these commands from this directory:
