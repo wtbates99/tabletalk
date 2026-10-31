@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 from tabletalk.evals import CaseResult, EvalCase, SuiteResult
 
 
-class FailureCode(StrEnum):
+class FailureCode(str, Enum):
     UNSUPPORTED_QUESTION = "unsupported_question"
     AMBIGUITY_NOT_DETECTED = "ambiguity_not_detected"
     INSUFFICIENT_CLARIFICATION = "insufficient_clarification"
@@ -32,7 +32,7 @@ class FailureCode(StrEnum):
     INVALID_OR_AMBIGUOUS_GROUND_TRUTH = "invalid_or_ambiguous_ground_truth"
 
 
-class FailureOwner(StrEnum):
+class FailureOwner(str, Enum):
     DBT_METADATA = "dbt_metadata"
     SEMANTIC_KNOWLEDGE = "semantic_knowledge"
     AGENT_DEFINITION = "agent_definition"

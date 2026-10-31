@@ -7,7 +7,7 @@ import io
 import json
 import re
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ class EvidenceImportError(ValueError):
     """Explicit imported material cannot pass the safe preview boundary."""
 
 
-class ImportKind(StrEnum):
+class ImportKind(str, Enum):
     SQL = "sql"
     BI_QUERY = "bi_query"
     QUERY_HISTORY = "query_history"

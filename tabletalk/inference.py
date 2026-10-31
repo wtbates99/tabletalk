@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ class ReplayMissError(InferenceError):
     """Strict replay found no matching inference artifact."""
 
 
-class CachePolicy(StrEnum):
+class CachePolicy(str, Enum):
     NORMAL = "normal"
     READ_ONLY = "read-only"
     WRITE_ONLY = "write-only"
