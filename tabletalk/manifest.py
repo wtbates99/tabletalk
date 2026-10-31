@@ -125,6 +125,8 @@ class DbtExposure:
     owner: str | None
     parents: tuple[str, ...]
     meta: dict[str, Any]
+    label: str | None = None
+    url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +288,8 @@ class Manifest:
                     owner=str(owner_name) if owner_name else None,
                     parents=tuple(str(item) for item in parents),
                     meta=dict(raw.get("meta") or {}),
+                    label=str(raw["label"]) if raw.get("label") else None,
+                    url=str(raw["url"]) if raw.get("url") else None,
                 )
             )
         return tuple(sorted(result, key=lambda item: item.unique_id))

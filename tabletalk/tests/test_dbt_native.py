@@ -258,6 +258,11 @@ def manifest() -> Manifest:
 
 @pytest.fixture
 def runtime(manifest: Manifest) -> Runtime:
+    return make_runtime(manifest)
+
+
+def make_runtime(manifest: Manifest) -> Runtime:
+    """Build the example revenue runtime on in-memory DuckDB with a stub model."""
     provider = DuckDBProvider()
     provider.connection.execute("ATTACH ':memory:' AS analytics")
     provider.connection.execute(

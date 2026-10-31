@@ -2,8 +2,8 @@
   "calls": [
     {
       "completion_tokens": 103,
-      "input_digest": "sha256:485a11ac49b14a3da962d9150beeb90658294d5c1fd3d8538f6bb45caece1fa8",
-      "latency_ms": 543.2545420480892,
+      "input_digest": "sha256:24bf512ee6621a50391d545a513fb376b6adf905150976a1576131e7ca256f5d",
+      "latency_ms": 562.4977920670062,
       "output": {
         "interpretation": {
           "assumptions": [],
@@ -19,17 +19,17 @@
         },
         "rejection": null,
         "rejection_kind": null,
-        "sql": "SELECT customer_id, SUM(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_status != 'cancelled' GROUP BY 1"
+        "sql": "SELECT customer_id, sum(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_status != 'cancelled' GROUP BY 1"
       },
-      "prompt_tokens": 995,
+      "prompt_tokens": 1003,
       "provider_errors": [],
       "retry_count": 0,
       "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:51:23.553519+00:00",
-  "digest": "sha256:1d4756517eba87f9fb8474ee3947d1fe17bed4a36f65ff439aad518f488cd7f1",
+  "created_at": "2026-10-31T19:59:33.417376+00:00",
+  "digest": "sha256:b88a5b3246b741d017ebc08cdaa68519c2ae47b5bb827430a650c7169c16a87e",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -47,20 +47,20 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
     "runtime_version": "tabletalk.runtime/v1",
-    "scope_digest": "sha256:52fef1d19a96088b8361b439ac2dc0ec6b54d008d336b72de1c9ad2212e78db2",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 2
+    "trial": 1
   },
-  "fingerprint_digest": "sha256:a077868b97d4d6697c7a448940549b57f5745d9be7a03a021b9339a357e3fda3",
-  "id": "inf_1d4756517eba87f9",
+  "fingerprint_digest": "sha256:fb2aa972be2497f6ee69e84eda72067cff0ba71b3f6114f90142e812efa0d889",
+  "id": "inf_b88a5b3246b741d0",
   "outcome": {
     "kind": "rejection",
     "message": "Question rejected: Sensitive columns require explicit permission: customer_id",
     "usage": {
       "completion_tokens": 103,
       "estimated_cost": null,
-      "latency_ms": 546.9423329923302,
-      "prompt_tokens": 995,
+      "latency_ms": 565.367457922548,
+      "prompt_tokens": 1003,
       "provider_errors": [],
       "retry_count": 0
     }

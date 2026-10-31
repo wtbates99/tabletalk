@@ -1,6 +1,6 @@
 {
-  "artifact_digest": "sha256:41c489be75e7b83c0e964a40ae9c824a4fe105479386161751a09c6a40c5a0ab",
-  "artifact_id": "inf_41c489be75e7b83c",
+  "artifact_digest": "sha256:e7d4c9f18773675f4a1015b5c222c804d2046e0a0fe10aab50628dce0ad05440",
+  "artifact_id": "inf_e7d4c9f18773675f",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -18,8 +18,8 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
     "runtime_version": "tabletalk.runtime/v1",
-    "scope_digest": "sha256:52fef1d19a96088b8361b439ac2dc0ec6b54d008d336b72de1c9ad2212e78db2",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 2
+    "trial": 3
   }
 }

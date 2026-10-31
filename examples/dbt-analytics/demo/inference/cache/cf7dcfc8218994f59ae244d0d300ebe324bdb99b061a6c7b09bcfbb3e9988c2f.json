@@ -1,6 +1,6 @@
 {
-  "artifact_digest": "sha256:88ce94122e296334f49aac1bff662670f7862a7c4b6c3731bd98e2f14ffe0174",
-  "artifact_id": "inf_88ce94122e296334",
+  "artifact_digest": "sha256:a21c33c5a2aa9076148f6786b5be168d71362f4a81d3f6bf0f58b380e4bcce72",
+  "artifact_id": "inf_a21c33c5a2aa9076",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -16,10 +16,10 @@
     },
     "model_identity": "ollama:gemma4:31b-cloud",
     "prompt_version": "tabletalk.prompt/v2",
-    "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
+    "question_digest": "sha256:6929e33ad1a68d9efdf00ba52da0efa154ae04d64dea5c27c616f055a8846195",
     "runtime_version": "tabletalk.runtime/v1",
-    "scope_digest": "sha256:52fef1d19a96088b8361b439ac2dc0ec6b54d008d336b72de1c9ad2212e78db2",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 1
+    "trial": 2
   }
 }

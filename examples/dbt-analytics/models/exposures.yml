@@ -1,0 +1,14 @@
+version: 2
+
+exposures:
+  - name: weekly_revenue
+    label: Weekly Revenue
+    type: dashboard
+    maturity: high
+    url: https://app.powerbi.com/groups/finance/reports/weekly-revenue
+    description: Power BI report that finance uses in the weekly revenue review.
+    depends_on:
+      - ref('fct_orders')
+    owner:
+      name: Finance Analytics
+      email: finance@example.com

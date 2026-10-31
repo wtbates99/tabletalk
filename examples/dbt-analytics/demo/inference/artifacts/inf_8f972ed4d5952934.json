@@ -1,33 +1,35 @@
 {
   "calls": [
     {
-      "completion_tokens": 92,
-      "input_digest": "sha256:91af530cd6f30970319bfa1a9ab8ca148ed4c29907887f8b1b0013b1fb340d08",
-      "latency_ms": 566.7833749903366,
+      "completion_tokens": 108,
+      "input_digest": "sha256:24bf512ee6621a50391d545a513fb376b6adf905150976a1576131e7ca256f5d",
+      "latency_ms": 810.1338749984279,
       "output": {
         "interpretation": {
           "assumptions": [],
-          "dimensions": [],
+          "dimensions": [
+            "customer_id"
+          ],
           "end_date": null,
-          "intent": "Count the total number of orders marked as late.",
+          "intent": "List customer IDs and their total recognized revenue, excluding cancelled orders.",
           "metrics": [
-            "count(order_id)"
+            "sum(recognized_revenue)"
           ],
           "start_date": null
         },
         "rejection": null,
         "rejection_kind": null,
-        "sql": "SELECT count(order_id) AS late_order_count FROM \"analytics\".\"main\".\"fct_orders\" WHERE late_order = TRUE"
+        "sql": "SELECT customer_id, sum(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_status != 'cancelled' GROUP BY 1"
       },
-      "prompt_tokens": 995,
+      "prompt_tokens": 1003,
       "provider_errors": [],
       "retry_count": 0,
       "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:51:27.638589+00:00",
-  "digest": "sha256:d3ee709c17ee1f6f841e5ea2be310ece912cb88706f822df7b0fffad4718f083",
+  "created_at": "2026-10-31T19:59:40.507835+00:00",
+  "digest": "sha256:8f972ed4d59529346c19ea38ae013c29dd3c44fd8fd9ab49ef2121b4cbb79d58",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -43,22 +45,22 @@
     },
     "model_identity": "ollama:gemma4:31b-cloud",
     "prompt_version": "tabletalk.prompt/v2",
-    "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
+    "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
     "runtime_version": "tabletalk.runtime/v1",
-    "scope_digest": "sha256:52fef1d19a96088b8361b439ac2dc0ec6b54d008d336b72de1c9ad2212e78db2",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
     "trial": 3
   },
-  "fingerprint_digest": "sha256:dbd5253265ec456125ea8f81a46dccc44d39a2f95b47f72b8d4842215fdf64b9",
-  "id": "inf_d3ee709c17ee1f6f",
+  "fingerprint_digest": "sha256:8c8b879a22de5428296393cbd8468da7b351d7ddf6f102b71e11715058ce04d3",
+  "id": "inf_8f972ed4d5952934",
   "outcome": {
     "kind": "rejection",
-    "message": "Question rejected: Semantic statement 'late_order' is inferred and untrusted",
+    "message": "Question rejected: Sensitive columns require explicit permission: customer_id",
     "usage": {
-      "completion_tokens": 92,
+      "completion_tokens": 108,
       "estimated_cost": null,
-      "latency_ms": 572.3745420109481,
-      "prompt_tokens": 995,
+      "latency_ms": 814.3662919756025,
+      "prompt_tokens": 1003,
       "provider_errors": [],
       "retry_count": 0
     }
