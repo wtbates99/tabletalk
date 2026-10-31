@@ -253,9 +253,7 @@ def _persist_eval_result(project: Project, result: SuiteResult) -> Path:
     result_dir = project.root / ".tabletalk" / "eval-results" / result.agent
     rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n"
     result_digest = content_digest(rendered).removeprefix("sha256:")[:12]
-    target = result_dir / (
-        f"{result.suite_digest[:12]}-trial-{result.trial}-{result_digest}.json"
-    )
+    target = result_dir / (f"{result.suite_digest[:12]}-trial-{result.trial}-{result_digest}.json")
     result_dir.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.read_text() != rendered:
         raise ValueError(f"Eval result path has different content: {target}")
@@ -303,9 +301,7 @@ def _print_proposal(project: Project, proposal: ProposalRecord) -> None:
     for item in proposal.files:
         console.print(Panel(Syntax(item.content, "yaml"), title=item.path))
         confidence = {field.confidence.value for field in item.fields}
-        references = {
-            evidence.reference for field in item.fields for evidence in field.evidence
-        }
+        references = {evidence.reference for field in item.fields for evidence in field.evidence}
         console.print(
             f"Evidence: {len(item.fields)} fields, "
             f"confidence {', '.join(sorted(confidence))}, "
@@ -545,9 +541,7 @@ def propose(
         if configured_imports:
             dialect = project.connection().dialect
             for path, kind in configured_imports:
-                imports.extend(
-                    preview_import(path, kind, project.manifest, dialect=dialect)
-                )
+                imports.extend(preview_import(path, kind, project.manifest, dialect=dialect))
         analysis = analyze_semantics(project.manifest)
         hypotheses = {}
         if use_inference:
@@ -555,8 +549,7 @@ def propose(
             if not isinstance(llm_config, dict):
                 raise ValueError("tabletalk.yaml requires an llm mapping")
             model_identity = (
-                f"{llm_config.get('provider') or 'unknown'}:"
-                f"{llm_config.get('model') or 'unknown'}"
+                f"{llm_config.get('provider') or 'unknown'}:{llm_config.get('model') or 'unknown'}"
             )
             hypotheses = infer_semantic_answers(
                 analysis,
@@ -597,9 +590,7 @@ def propose(
         f"Columns documented: {quality.documented_columns}/{quality.columns}."
     )
     for question in analysis.high_value_questions():
-        console.print(
-            f"[yellow]Question {question.id}:[/yellow] {question.question}"
-        )
+        console.print(f"[yellow]Question {question.id}:[/yellow] {question.question}")
         if question.options:
             console.print("Options: " + ", ".join(question.options))
     for item in imports:
@@ -610,8 +601,7 @@ def propose(
         console.print(Panel(Syntax(item.normalized_sql, "sql"), title="Imported query"))
     if use_inference:
         console.print(
-            f"Model hypotheses: {len(hypotheses)}. "
-            "All hypotheses remain inferred and untrusted."
+            f"Model hypotheses: {len(hypotheses)}. All hypotheses remain inferred and untrusted."
         )
     for proposal in proposals:
         _print_proposal(project, proposal)
@@ -873,9 +863,7 @@ def agent_create(
     target = project.agents_directory / f"{name}.yaml"
     if target.exists():
         _fail(
-            ValueError(
-                f"Agent '{name}' already exists. Use 'tabletalk propose' for a change."
-            ),
+            ValueError(f"Agent '{name}' already exists. Use 'tabletalk propose' for a change."),
             EXIT_VALIDATION_FAILURE,
         )
     record = proposal_from_user_files(
@@ -887,9 +875,7 @@ def agent_create(
     _print_proposal(project, record)
     console.print(f"Created review-only proposal {record.id}: {proposal_path}")
     if create_eval:
-        console.print(
-            "Approve the agent proposal first. Then use 'tabletalk eval create'."
-        )
+        console.print("Approve the agent proposal first. Then use 'tabletalk eval create'.")
 
 
 @agent.command("list")
@@ -1202,9 +1188,7 @@ def eval_run(
             f"The 95% CI is {interval[0]:.1%} to {interval[1]:.1%}."
         )
         cost_text = (
-            "not recorded"
-            if summary.estimated_cost is None
-            else f"${summary.estimated_cost:.6f}"
+            "not recorded" if summary.estimated_cost is None else f"${summary.estimated_cost:.6f}"
         )
         console.print(
             f"Latency mean: {summary.latency_mean_ms or 0:.0f} ms. "
@@ -1214,10 +1198,7 @@ def eval_run(
         for result in results:
             for case in result.cases:
                 label = "PASS" if case.passed else "FAIL"
-                console.print(
-                    f"{label} {case.name} "
-                    f"(trial {result.trial}/{result.trials})"
-                )
+                console.print(f"{label} {case.name} (trial {result.trial}/{result.trials})")
         if report.comparison:
             comparison = report.comparison
             console.print(
@@ -1296,9 +1277,7 @@ def baseline_approve(
         declared = set(known_failure)
         unknown = declared - failing
         if unknown:
-            raise ValueError(
-                "Known-failure entries did not fail: " + ", ".join(sorted(unknown))
-            )
+            raise ValueError("Known-failure entries did not fail: " + ", ".join(sorted(unknown)))
         unapproved = failing - declared
         if unapproved:
             raise ValueError(
@@ -1351,9 +1330,7 @@ def baseline_show(name: str, project_folder: str, output_format: str) -> None:
         summary = summarize(record.observations)
         console.print(f"Baseline: {record.name}")
         console.print(f"Source report: {record.source_digest}")
-        console.print(
-            f"Pass rate: {summary.passed}/{summary.trials} ({summary.pass_rate:.1%})."
-        )
+        console.print(f"Pass rate: {summary.passed}/{summary.trials} ({summary.pass_rate:.1%}).")
 
 
 @cli.command()
@@ -1534,9 +1511,7 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
             "each agent is approved to see."
         )
         raise click.exceptions.Exit(EXIT_DRIFT if check else 0)
-    result = compute_plan(
-        locked, current, case_footprints(suites, project.manifest, project.root)
-    )
+    result = compute_plan(locked, current, case_footprints(suites, project.manifest, project.root))
     if output_format == "json":
         click.echo(result.model_dump_json(indent=2))
     else:

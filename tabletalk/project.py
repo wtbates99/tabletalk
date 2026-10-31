@@ -58,8 +58,7 @@ class Project:
             config_file = nested_config
         if not config_file.is_file():
             raise ValueError(
-                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}. "
-                "Run 'tabletalk init'."
+                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}. Run 'tabletalk init'."
             )
         try:
             config = yaml.safe_load(config_file.read_text())

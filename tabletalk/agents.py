@@ -100,9 +100,7 @@ class Agent:
             exclude=_strings(payload.get("exclude"), "exclude"),
             instructions=_strings(payload.get("instructions"), "instructions"),
             sample_questions=_strings(payload.get("sample_questions"), "sample_questions"),
-            supported_questions=_strings(
-                payload.get("supported_questions"), "supported_questions"
-            ),
+            supported_questions=_strings(payload.get("supported_questions"), "supported_questions"),
             unsupported_questions=_strings(
                 payload.get("unsupported_questions"), "unsupported_questions"
             ),

@@ -83,9 +83,7 @@ class TrialObservation:
                 else None
             ),
             latency_ms=(
-                float(payload["latency_ms"])
-                if payload.get("latency_ms") is not None
-                else None
+                float(payload["latency_ms"]) if payload.get("latency_ms") is not None else None
             ),
             prompt_tokens=payload.get("prompt_tokens"),
             completion_tokens=payload.get("completion_tokens"),
@@ -133,11 +131,7 @@ def wilson_interval(
     rate = successes / total
     denominator = 1 + z * z / total
     center = (rate + z * z / (2 * total)) / denominator
-    spread = (
-        z
-        * math.sqrt(rate * (1 - rate) / total + z * z / (4 * total * total))
-        / denominator
-    )
+    spread = z * math.sqrt(rate * (1 - rate) / total + z * z / (4 * total * total)) / denominator
     return (max(0.0, center - spread), min(1.0, center + spread))
 
 
@@ -290,9 +284,7 @@ class PairedComparison:
             "mcnemar_p_value": self.mcnemar_p_value,
             "latency_effect_ms": self.latency_effect_ms,
             "latency_effect_interval_ms": (
-                list(self.latency_effect_interval_ms)
-                if self.latency_effect_interval_ms
-                else None
+                list(self.latency_effect_interval_ms) if self.latency_effect_interval_ms else None
             ),
             "wilcoxon_statistic": self.wilcoxon_statistic,
             "wilcoxon_p_value": self.wilcoxon_p_value,

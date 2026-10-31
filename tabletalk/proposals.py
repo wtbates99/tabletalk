@@ -295,9 +295,7 @@ class ApprovalRecord:
         unknown = selected - set(available)
         if unknown:
             raise ProposalError("Approval selected unknown files: " + ", ".join(sorted(unknown)))
-        files = tuple(
-            ApprovedFile(path, available[path].digest) for path in sorted(selected)
-        )
+        files = tuple(ApprovedFile(path, available[path].digest) for path in sorted(selected))
         action = (
             ApprovalAction.APPROVE_ALL
             if selected == set(available)
@@ -349,11 +347,7 @@ class ProvenanceRecord:
             "files": {
                 item.path: {
                     "sha256": item.digest,
-                    **(
-                        {"base_sha256": item.base_sha256}
-                        if item.base_sha256
-                        else {}
-                    ),
+                    **({"base_sha256": item.base_sha256} if item.base_sha256 else {}),
                     "fields": {
                         field.path: {
                             "confidence": field.confidence.value,

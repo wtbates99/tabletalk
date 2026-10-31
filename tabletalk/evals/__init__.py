@@ -44,9 +44,7 @@ class BudgetLimits:
         token_names = ("prompt_tokens", "completion_tokens", "total_tokens")
         for name in token_names:
             value = values[name]
-            if value is not None and (
-                not isinstance(value, int) or isinstance(value, bool)
-            ):
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
                 raise EvalError(f"Eval budget {name} must be an integer")
         for name in ("latency_ms", "cost"):
             value = values[name]
@@ -88,8 +86,7 @@ class BudgetLimits:
                 Verification(
                     f"budget_{name}",
                     actual is not None and actual <= limit,
-                    f"Limit: {limit}. Actual: "
-                    f"{actual if actual is not None else 'not recorded'}.",
+                    f"Limit: {limit}. Actual: {actual if actual is not None else 'not recorded'}.",
                 )
             )
         return tuple(checks)
@@ -688,10 +685,7 @@ def _result_difference(
             return f"Missing keys: {missing[:5]}. Unexpected keys: {unexpected[:5]}."
         for key in expected_by_key:
             if not _rows_equal((actual_by_key[key],), (expected_by_key[key],), config.tolerance):
-                return (
-                    f"Key {key}: expected {expected_by_key[key]!r}. "
-                    f"Got {actual_by_key[key]!r}."
-                )
+                return f"Key {key}: expected {expected_by_key[key]!r}. Got {actual_by_key[key]!r}."
     for index, (actual_row, expected_row) in enumerate(zip(actual, expected)):
         if not _rows_equal((actual_row,), (expected_row,), config.tolerance):
             return f"Row {index}: expected {expected_row!r}. Got {actual_row!r}."

@@ -142,8 +142,7 @@ def test_project_migration_adds_schema_versions_deterministically(tmp_path: Path
         "name: revenue\ndescription: Revenue.\nselect: [group:finance]\n"
     )
     (tmp_path / "evals" / "revenue.yaml").write_text(
-        "name: revenue\nagent: revenue\ncases:\n"
-        "- name: one\n  question: One?\n"
+        "name: revenue\nagent: revenue\ncases:\n- name: one\n  question: One?\n"
     )
     changed = migrate_project(tmp_path)
     assert len(changed) == 3
@@ -151,21 +150,18 @@ def test_project_migration_adds_schema_versions_deterministically(tmp_path: Path
     assert yaml.safe_load((tmp_path / "tabletalk.yaml").read_text())["schema_version"] == (
         "tabletalk.project/v1"
     )
-    assert yaml.safe_load((tmp_path / "agents" / "revenue.yaml").read_text())[
-        "schema_version"
-    ] == "tabletalk.agent/v1"
-    assert yaml.safe_load((tmp_path / "evals" / "revenue.yaml").read_text())[
-        "schema_version"
-    ] == "tabletalk.eval/v1"
+    assert (
+        yaml.safe_load((tmp_path / "agents" / "revenue.yaml").read_text())["schema_version"]
+        == "tabletalk.agent/v1"
+    )
+    assert (
+        yaml.safe_load((tmp_path / "evals" / "revenue.yaml").read_text())["schema_version"]
+        == "tabletalk.eval/v1"
+    )
 
 
 def proposed_file() -> ProposedFile:
-    content = (
-        "schema_version: tabletalk.agent/v1\n"
-        "name: revenue\n"
-        "select:\n"
-        "  - group:finance\n"
-    )
+    content = "schema_version: tabletalk.agent/v1\nname: revenue\nselect:\n  - group:finance\n"
     source = evidence()
     return ProposedFile(
         "agents/revenue.yaml",

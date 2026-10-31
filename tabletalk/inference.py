@@ -218,9 +218,7 @@ class InferenceArtifact:
 
     def __post_init__(self) -> None:
         if (self.trace is None) == (self.outcome is None):
-            raise InferenceError(
-                "Inference artifact must contain one trace or one typed outcome"
-            )
+            raise InferenceError("Inference artifact must contain one trace or one typed outcome")
 
     @classmethod
     def create(

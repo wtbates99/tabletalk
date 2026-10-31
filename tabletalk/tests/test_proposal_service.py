@@ -125,14 +125,10 @@ def test_explicit_query_import_adds_an_attributed_reference_eval(
     imported_case = next(
         item for item in payload["cases"] if item["name"].startswith("approved-query-")
     )
-    assert imported_case["question"] == (
-        "What is the total recognized revenue in July 2026?"
-    )
+    assert imported_case["question"] == ("What is the total recognized revenue in July 2026?")
     assert imported_case["expect"]["reference"] == reference.path
     assert imported_case["expect"]["result"]["comparison"] == "scalar"
-    semantic_file = next(
-        item for item in proposal.files if item.path.startswith("semantics/")
-    )
+    semantic_file = next(item for item in proposal.files if item.path.startswith("semantics/"))
     semantic_path = tmp_path / semantic_file.path
     semantic_path.parent.mkdir(parents=True)
     semantic_path.write_text(semantic_file.content)
@@ -154,9 +150,7 @@ def test_targeted_answer_proposes_confirmed_semantic_knowledge(tmp_path: Path) -
         current_manifest,
         semantic_answers={gap_id: "booked_date"},
     )[0]
-    semantic_file = next(
-        item for item in proposal.files if item.path.startswith("semantics/")
-    )
+    semantic_file = next(item for item in proposal.files if item.path.startswith("semantics/"))
     semantic_path = tmp_path / semantic_file.path
     semantic_path.parent.mkdir(parents=True)
     semantic_path.write_text(semantic_file.content)
@@ -173,12 +167,8 @@ def test_targeted_answer_proposes_confirmed_semantic_knowledge(tmp_path: Path) -
     assert yaml.safe_load(agent_file.content)["knowledge"] == [semantic_file.path]
     eval_file = next(item for item in proposal.files if item.path.startswith("evals/"))
     cases = yaml.safe_load(eval_file.content)["cases"]
-    assert not any(
-        item["name"] == "clarify-booked-revenue-time-field" for item in cases
-    )
-    monthly = next(
-        item for item in cases if item["name"] == "group-booked-revenue-by-month"
-    )
+    assert not any(item["name"] == "clarify-booked-revenue-time-field" for item in cases)
+    monthly = next(item for item in cases if item["name"] == "group-booked-revenue-by-month")
     assert monthly["expect"]["columns"]["required"] == [
         "booked_revenue",
         "booked_date",
@@ -203,9 +193,7 @@ def test_optional_model_hypothesis_stays_inferred_and_untrusted(tmp_path: Path) 
         current_manifest,
         inferred_answers=inferred,
     )[0]
-    semantic_file = next(
-        item for item in proposal.files if item.path.startswith("semantics/")
-    )
+    semantic_file = next(item for item in proposal.files if item.path.startswith("semantics/"))
     semantic_path = tmp_path / semantic_file.path
     semantic_path.parent.mkdir(parents=True)
     semantic_path.write_text(semantic_file.content)
@@ -245,8 +233,7 @@ def test_approval_writes_exact_bytes_and_records_provenance(tmp_path: Path) -> N
     suite = load_eval_suite(tmp_path / f"evals/{Agent.load(target).name}.yaml")
     assert {case.kind for case in suite.cases} >= {"capability", "refusal"}
     assert all(
-        case.protects and case.reason and case.source and case.failure
-        for case in suite.cases
+        case.protects and case.reason and case.source and case.failure for case in suite.cases
     )
 
 

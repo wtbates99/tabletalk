@@ -80,9 +80,7 @@ def test_non_answer_trial_preserves_usage_and_fingerprint() -> None:
 
 
 def test_paired_comparison_uses_mcnemar_and_wilcoxon() -> None:
-    baseline = tuple(
-        observation(index + 1, index >= 10, 200 + index) for index in range(20)
-    )
+    baseline = tuple(observation(index + 1, index >= 10, 200 + index) for index in range(20))
     candidate = tuple(observation(index + 1, True, 190 + index) for index in range(20))
     comparison = compare_paired(baseline, candidate)
     assert comparison.pairs == 20
@@ -122,9 +120,7 @@ def test_baseline_is_versioned_content_addressed_and_immutable(tmp_path: Path) -
 
 def test_stale_baseline_has_a_regeneration_message(tmp_path: Path) -> None:
     path = tmp_path / "stale.json"
-    path.write_text(
-        '{"schema_version":"tabletalk.baseline/v0","observations":[]}\n'
-    )
+    path.write_text('{"schema_version":"tabletalk.baseline/v0","observations":[]}\n')
     with pytest.raises(SchemaVersionError, match="immutable artifact cannot migrate"):
         BaselineRecord.load(path)
 

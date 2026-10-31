@@ -210,9 +210,7 @@ class Runtime:
                     raise ValueError("Cached inference artifact has no trace")
                 return replace(cached.trace, question=question, cache_hit=True)
             if self.cache_policy is CachePolicy.REPLAY:
-                raise ReplayMissError(
-                    f"Strict replay found no artifact for {fingerprint.digest}"
-                )
+                raise ReplayMissError(f"Strict replay found no artifact for {fingerprint.digest}")
         recorder = RecordingLLM(self.llm, persist_prompts=self.persist_prompts)
         normalized_question = question.casefold()
         blocked_term = next(
@@ -276,9 +274,7 @@ class Runtime:
                 break
             except SemanticSupportError as exc:
                 error_type = (
-                    AmbiguityError
-                    if "ambiguous" in str(exc).casefold()
-                    else RejectionError
+                    AmbiguityError if "ambiguous" in str(exc).casefold() else RejectionError
                 )
                 error = error_type(f"Question rejected: {exc}")
                 self._store_outcome(fingerprint, recorder, error, started)

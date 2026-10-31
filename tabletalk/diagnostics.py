@@ -249,11 +249,7 @@ def diagnose_case(
                 "Ask a concrete question that names the available choices.",
                 FailureOwner.AGENT_DEFINITION,
             )
-        if (
-            check.name == "expected_outcome"
-            and case.expected_outcome == "answer"
-            and result.error
-        ):
+        if check.name == "expected_outcome" and case.expected_outcome == "answer" and result.error:
             continue
         if mapping is None:
             mapping = (
@@ -290,9 +286,7 @@ def diagnose_results(
             outcomes.setdefault((result.name, case_result.name), set()).add(case_result.passed)
             eval_case = cases.get(case_result.name)
             if eval_case:
-                diagnoses.extend(
-                    diagnose_case(result.name, eval_case, case_result, result.trial)
-                )
+                diagnoses.extend(diagnose_case(result.name, eval_case, case_result, result.trial))
     for (suite, case_name), values in sorted(outcomes.items()):
         if len(values) < 2:
             continue
