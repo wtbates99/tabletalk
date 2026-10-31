@@ -6,7 +6,7 @@
 project = "tabletalk"
 copyright = "2025, william bates"
 author = "william bates"
-release = "0.6.0"
+release = "0.7.0"
 
 # -- General configuration -----------------------------------------------------
 

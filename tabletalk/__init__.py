@@ -6,7 +6,7 @@ from tabletalk.manifest import Manifest, Node
 from tabletalk.project import Project
 from tabletalk.traces import Trace
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "Agent",
