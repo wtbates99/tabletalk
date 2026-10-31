@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -234,7 +234,7 @@ class InferenceArtifact:
             calls,
             trace,
             None,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
         )
 
     @classmethod
@@ -251,7 +251,7 @@ class InferenceArtifact:
             calls,
             None,
             InferenceOutcome(kind, message, usage),
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
         )
 
     def content_payload(self) -> dict[str, Any]:
