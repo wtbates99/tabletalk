@@ -53,6 +53,9 @@ class FailureDiagnosis:
     owner: FailureOwner
     baseline_value: Any = None
     candidate_value: Any = None
+    # Structured references for column checks, so tools need not parse ``evidence``.
+    models: tuple[str, ...] = ()
+    columns: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         value = {
@@ -69,6 +72,9 @@ class FailureDiagnosis:
             value["baseline_value"] = self.baseline_value
         if self.candidate_value is not None:
             value["candidate_value"] = self.candidate_value
+        if self.columns:
+            value["models"] = list(self.models)
+            value["columns"] = list(self.columns)
         return value
 
 
@@ -195,6 +201,21 @@ def _expected_outcome_diagnosis(case: EvalCase) -> tuple[FailureCode, str, str, 
     )
 
 
+def _column_references(
+    case: EvalCase, result: CaseResult, check: str
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the models and columns a failed column check is about."""
+    if result.trace is None:
+        return (), ()
+    used = set(result.trace.dbt_context.columns)
+    selected = result.trace.dbt_context.selected_nodes
+    if check == "forbidden_columns":
+        return selected, tuple(sorted(set(case.forbidden_columns) & used))
+    if check == "required_columns":
+        return case.required_models or selected, tuple(sorted(set(case.required_columns) - used))
+    return (), ()
+
+
 def diagnose_case(
     suite: str,
     case: EvalCase,
@@ -259,6 +280,7 @@ def diagnose_case(
                 FailureOwner.RUNTIME_CODE,
             )
         code, stage, action, owner = mapping
+        models, columns = _column_references(case, result, check.name)
         diagnoses.append(
             FailureDiagnosis(
                 suite,
@@ -269,6 +291,8 @@ def diagnose_case(
                 (f"{check.name}: {check.message or 'failed'}",),
                 action,
                 owner,
+                models=models,
+                columns=columns,
             )
         )
     return tuple(diagnoses)

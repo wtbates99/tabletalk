@@ -8,10 +8,16 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
-from tabletalk.fixes import plan_fixes
+from tabletalk.cli import cli
+from tabletalk.diagnostics import diagnose_case
+from tabletalk.evals import CaseResult, EvalCase
+from tabletalk.fixes import ReportedFailure, load_failures, plan_fixes
 from tabletalk.project import Project
+from tabletalk.tests.test_dbt_native import make_runtime
 from tabletalk.tests.test_plan import FCT, project_dir
+from tabletalk.traces import Verification
 
 __all__ = ["project_dir"]  # Re-exported fixture.
 
@@ -138,3 +144,103 @@ def test_patch_applies_with_git_and_dbt_accepts_the_result(project_dir: Path) ->
     )
     assert (project_dir / "models" / "schema.yml").read_text() == expected
     assert "No certain dbt fixes" in run("tabletalk", "fix")
+
+
+# Eval failures → fixes ----------------------------------------------------------
+
+
+def _failure(project: Project, check: str, columns: tuple[str, ...]) -> list[ReportedFailure]:
+    """Diagnose a real failed column check and round-trip it through report JSON."""
+    trace = make_runtime(project.manifest).answer("What was recognized revenue in July 2026?")
+    case = EvalCase(
+        name="probe",
+        question=trace.question,
+        **{check: columns},  # type: ignore[arg-type]
+        required_models=("model.analytics.fct_orders",),
+    )
+    failed = Verification(check, False, "probe")
+    [diagnosis] = diagnose_case(
+        "probe-suite", case, CaseResult("probe", False, (failed,), trace), 1
+    )
+    path = project.root / "report.json"
+    path.write_text(json.dumps({"diagnoses": [diagnosis.to_dict()]}))
+    return load_failures(path)
+
+
+def test_diagnoses_carry_structured_column_references(project_dir: Path) -> None:
+    project = Project.load(project_dir)
+
+    [forbidden] = _failure(project, "forbidden_columns", ("recognized_revenue",))
+    [missed] = _failure(project, "required_columns", ("late_order", "order_date"))
+
+    assert (forbidden.models, forbidden.columns) == (
+        ["model.analytics.fct_orders"],
+        ["recognized_revenue"],
+    )
+    assert missed.columns == ["late_order"]  # order_date was used; only late_order was missed.
+
+
+def test_a_forbidden_column_the_agent_read_gets_flagged(project_dir: Path) -> None:
+    project = Project.load(project_dir)
+    failures = _failure(project, "forbidden_columns", ("recognized_revenue",))
+
+    result = plan_fixes(project.agents(), project.manifest, project.dbt_project_dir, failures)
+
+    [fix] = result.fixes
+    assert (fix.kind, fix.column) == ("flag_sensitive", "recognized_revenue")
+    assert fix.because == "eval probe-suite/probe read this forbidden column"
+
+
+def test_a_forbidden_column_already_flagged_points_at_the_agent(project_dir: Path) -> None:
+    project = Project.load(project_dir)
+    failures = [
+        ReportedFailure(
+            suite="s",
+            case="c",
+            code="unsafe_or_out_of_scope_access",
+            models=["model.analytics.fct_orders"],
+            columns=["customer_id"],
+        )
+    ]
+
+    result = plan_fixes(project.agents(), project.manifest, project.dbt_project_dir, failures)
+
+    assert result.fixes == []
+    [manual] = result.manual
+    assert manual.reason == "already flagged in dbt; check the agent's allow_sensitive"
+
+
+def test_a_missed_column_without_upstream_meaning_needs_a_human(project_dir: Path) -> None:
+    project = Project.load(project_dir)
+    failures = _failure(project, "required_columns", ("late_order",))
+
+    result = plan_fixes(project.agents(), project.manifest, project.dbt_project_dir, failures)
+
+    [manual] = result.manual
+    assert (manual.kind, manual.column, manual.because) == (
+        "write_description",
+        "late_order",
+        "eval probe-suite/probe needed this column",
+    )
+
+
+def test_cli_fix_reads_an_eval_report(project_dir: Path) -> None:
+    project = Project.load(project_dir)
+    _failure(project, "forbidden_columns", ("recognized_revenue",))
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "fix",
+            "--project-folder",
+            str(project_dir),
+            "--report",
+            str(project_dir / "report.json"),
+            "--format",
+            "patch",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("--- a/models/schema.yml")
+    assert "+            sensitive: true" in result.output
