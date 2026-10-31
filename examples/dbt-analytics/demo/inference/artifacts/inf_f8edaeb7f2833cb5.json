@@ -1,0 +1,71 @@
+{
+  "calls": [
+    {
+      "completion_tokens": 179,
+      "input_digest": "sha256:eec511b06abd0da61f846f0335fb8bf4b973616c4785924b1c2a47591e066445",
+      "latency_ms": 736.4239169983193,
+      "output": {
+        "interpretation": {
+          "assumptions": [
+            "Revenue is interpreted as recognized_revenue based on the trusted semantic statements.",
+            "The date range is inclusive of the entire month of July 2026."
+          ],
+          "dimensions": [],
+          "end_date": "2026-07-31",
+          "intent": "Calculate the total recognized revenue for July 2026.",
+          "metrics": [
+            "recognized_revenue"
+          ],
+          "start_date": "2026-07-01"
+        },
+        "rejection": null,
+        "rejection_kind": null,
+        "sql": "SELECT sum(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
+      },
+      "prompt_tokens": 1007,
+      "provider_errors": [],
+      "retry_count": 0,
+      "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
+      "stage": "query"
+    }
+  ],
+  "created_at": "2026-10-31T19:59:32.851121+00:00",
+  "digest": "sha256:f8edaeb7f2833cb5d5576287a6bc55f7af3faffa1afb12b08d28c82f97282335",
+  "fingerprint": {
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "execution_config": {
+      "dialect": "duckdb",
+      "max_rows": 1000,
+      "timeout_seconds": 60,
+      "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+    },
+    "model_config": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question_digest": "sha256:8ad0bd1937fa74589d194a983a4fc95c5821f71b64e96f1474e27d10e95db642",
+    "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "trial": 1
+  },
+  "fingerprint_digest": "sha256:f86909cb3e523a092147ff1246231ee8b4f802957f0e2046ff61ec502a383cbb",
+  "id": "inf_f8edaeb7f2833cb5",
+  "outcome": {
+    "kind": "ambiguity",
+    "message": "Question rejected: The revenue basis is ambiguous. Name one field: booked_revenue, recognized_revenue",
+    "usage": {
+      "completion_tokens": 179,
+      "estimated_cost": null,
+      "latency_ms": 739.2042499268427,
+      "prompt_tokens": 1007,
+      "provider_errors": [],
+      "retry_count": 0
+    }
+  },
+  "schema_version": "tabletalk.inference/v2",
+  "trace": null
+}

@@ -46,7 +46,36 @@ Agent files may contain these TableTalk-specific fields:
 - `knowledge` references
 - `allow_sensitive` approvals
 - `reject_if_contains` for exact missing-data boundaries
-- row and timeout limits.
+- row and timeout limits: `max_rows` (default 1000) and `timeout_seconds`
+  (default 60)
+- `max_scan_bytes`, a Snowflake scan budget in bytes.
+
+### Snowflake cost and audit controls
+
+```yaml
+max_scan_bytes: 10_000_000_000  # 10 GB
+timeout_seconds: 60
+```
+
+Before TableTalk runs a query on Snowflake, it compiles the query with
+`EXPLAIN USING JSON`. If `GlobalStats.bytesAssigned` exceeds `max_scan_bytes`,
+TableTalk blocks the query. EXPLAIN uses no warehouse compute. If Snowflake
+cannot return an estimate, TableTalk blocks the query instead of guessing. DuckDB
+and SQLite return no estimate, so the budget does not apply to them, and the
+`scan_budget` check in the receipt says so.
+
+Every Snowflake query also sets two session parameters:
+
+- `STATEMENT_TIMEOUT_IN_SECONDS` equal to `timeout_seconds`. Snowflake cancels the
+  query on the server, so a client timeout does not leave it running.
+- `QUERY_TAG`, a JSON object with `app`, `agent`, and `inference_fingerprint`. It
+  joins `QUERY_HISTORY` to the receipt's `replay.inference_fingerprint`:
+
+```sql
+select query_text, bytes_scanned, total_elapsed_time
+from snowflake.account_usage.query_history
+where try_parse_json(query_tag):app = 'tabletalk';
+```
 
 Use `reject_if_contains` only for a known concept that the selected dbt scope
 cannot answer. Do not use it as a general intent classifier.

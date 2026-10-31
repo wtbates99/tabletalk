@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from tabletalk.inference import ReplayMissError
 from tabletalk.manifest import Manifest
 from tabletalk.runtime import AmbiguityError, RejectionError, Runtime
 from tabletalk.schemas import EVAL_RESULT_SCHEMA, EVAL_SCHEMA, require_schema_version
@@ -44,9 +45,7 @@ class BudgetLimits:
         token_names = ("prompt_tokens", "completion_tokens", "total_tokens")
         for name in token_names:
             value = values[name]
-            if value is not None and (
-                not isinstance(value, int) or isinstance(value, bool)
-            ):
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
                 raise EvalError(f"Eval budget {name} must be an integer")
         for name in ("latency_ms", "cost"):
             value = values[name]
@@ -88,8 +87,7 @@ class BudgetLimits:
                 Verification(
                     f"budget_{name}",
                     actual is not None and actual <= limit,
-                    f"Limit: {limit}. Actual: "
-                    f"{actual if actual is not None else 'not recorded'}.",
+                    f"Limit: {limit}. Actual: {actual if actual is not None else 'not recorded'}.",
                 )
             )
         return tuple(checks)
@@ -475,6 +473,8 @@ class EvalRunner:
     def _run_case(self, case: EvalCase, trial: int) -> CaseResult:
         try:
             trace = self.runtime.answer(case.question, trial=trial)
+        except ReplayMissError:
+            raise  # No recording is not an agent failure. Callers report it separately.
         except Exception as exc:
             expected_exception = (
                 case.expected_outcome == "ambiguity" and isinstance(exc, AmbiguityError)
@@ -688,10 +688,7 @@ def _result_difference(
             return f"Missing keys: {missing[:5]}. Unexpected keys: {unexpected[:5]}."
         for key in expected_by_key:
             if not _rows_equal((actual_by_key[key],), (expected_by_key[key],), config.tolerance):
-                return (
-                    f"Key {key}: expected {expected_by_key[key]!r}. "
-                    f"Got {actual_by_key[key]!r}."
-                )
+                return f"Key {key}: expected {expected_by_key[key]!r}. Got {actual_by_key[key]!r}."
     for index, (actual_row, expected_row) in enumerate(zip(actual, expected)):
         if not _rows_equal((actual_row,), (expected_row,), config.tolerance):
             return f"Row {index}: expected {expected_row!r}. Got {actual_row!r}."
@@ -708,7 +705,7 @@ def _equal(left: Any, right: Any, tolerance: float) -> bool:
         return math.isclose(float(left), float(right), abs_tol=tolerance, rel_tol=0)
     if isinstance(left, (date, datetime)) or isinstance(right, (date, datetime)):
         return str(left) == str(right)
-    return left == right
+    return bool(left == right)
 
 
 def _rows_equal(

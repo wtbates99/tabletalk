@@ -90,9 +90,7 @@ def _render_refs(sql: str, manifest: Manifest) -> str:
     def replace(match: re.Match[str]) -> str:
         nodes = tuple(node for node in manifest.queryable_nodes if node.name == match.group(1))
         if len(nodes) != 1:
-            raise EvidenceImportError(
-                f"dbt ref('{match.group(1)}') is missing or ambiguous"
-            )
+            raise EvidenceImportError(f"dbt ref('{match.group(1)}') is missing or ambiguous")
         node = nodes[0]
         return node.relation_name or f"{node.schema}.{node.alias}".strip(".")
 
@@ -134,9 +132,7 @@ def _extract_queries(path: Path, kind: ImportKind) -> list[tuple[str, str]]:
         try:
             return _extract_json_queries(json.loads(text))
         except json.JSONDecodeError as exc:
-            raise EvidenceImportError(
-                f"Imported {kind.value} JSON is invalid: {exc}"
-            ) from exc
+            raise EvidenceImportError(f"Imported {kind.value} JSON is invalid: {exc}") from exc
     if path.suffix.casefold() == ".csv":
         rows = list(csv.DictReader(io.StringIO(text)))
         result = []
@@ -211,9 +207,7 @@ def preview_import(
             )
             redacted, literal_count = _redact_literals(rendered, dialect)
         except (SQLValidationError, ParseError, ValueError) as exc:
-            raise EvidenceImportError(
-                f"Imported query at {locator} is not safe: {exc}"
-            ) from exc
+            raise EvidenceImportError(f"Imported query at {locator} is not safe: {exc}") from exc
         result.append(
             QueryImportPreview(
                 kind,

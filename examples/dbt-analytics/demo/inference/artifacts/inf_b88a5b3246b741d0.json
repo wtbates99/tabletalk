@@ -1,0 +1,70 @@
+{
+  "calls": [
+    {
+      "completion_tokens": 103,
+      "input_digest": "sha256:24bf512ee6621a50391d545a513fb376b6adf905150976a1576131e7ca256f5d",
+      "latency_ms": 562.4977920670062,
+      "output": {
+        "interpretation": {
+          "assumptions": [],
+          "dimensions": [
+            "customer_id"
+          ],
+          "end_date": null,
+          "intent": "List customer IDs and their total recognized revenue, excluding cancelled orders.",
+          "metrics": [
+            "recognized_revenue"
+          ],
+          "start_date": null
+        },
+        "rejection": null,
+        "rejection_kind": null,
+        "sql": "SELECT customer_id, sum(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_status != 'cancelled' GROUP BY 1"
+      },
+      "prompt_tokens": 1003,
+      "provider_errors": [],
+      "retry_count": 0,
+      "schema_digest": "sha256:31c30b9d53746cfa1df37bc51f7e0fba81ddc18fd41c6e491376b2866e0743c7",
+      "stage": "query"
+    }
+  ],
+  "created_at": "2026-10-31T19:59:33.417376+00:00",
+  "digest": "sha256:b88a5b3246b741d017ebc08cdaa68519c2ae47b5bb827430a650c7169c16a87e",
+  "fingerprint": {
+    "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "execution_config": {
+      "dialect": "duckdb",
+      "max_rows": 1000,
+      "timeout_seconds": 60,
+      "warehouse_identity": "duckdb;database_path=analytics.duckdb"
+    },
+    "model_config": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "model_identity": "ollama:gemma4:31b-cloud",
+    "prompt_version": "tabletalk.prompt/v2",
+    "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
+    "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:105d6c01c9ab11d08edceead4f2f4cd33ef4ee8767fea72cde77efdd648780a9",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "trial": 1
+  },
+  "fingerprint_digest": "sha256:fb2aa972be2497f6ee69e84eda72067cff0ba71b3f6114f90142e812efa0d889",
+  "id": "inf_b88a5b3246b741d0",
+  "outcome": {
+    "kind": "rejection",
+    "message": "Question rejected: Sensitive columns require explicit permission: customer_id",
+    "usage": {
+      "completion_tokens": 103,
+      "estimated_cost": null,
+      "latency_ms": 565.367457922548,
+      "prompt_tokens": 1003,
+      "provider_errors": [],
+      "retry_count": 0
+    }
+  },
+  "schema_version": "tabletalk.inference/v2",
+  "trace": null
+}

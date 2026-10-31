@@ -12,8 +12,8 @@ dbt docs generate
 tabletalk init
 ```
 
-Initialization finds `dbt_project.yml` and `manifest.json`. It selects a SQLite,
-DuckDB, or Snowflake target from the dbt profile. It writes a small
+Initialization finds `dbt_project.yml` and `manifest.json`. It selects a DuckDB
+or Snowflake target from the dbt profile. SQLite targets also work for tests. It writes a small
 `tabletalk.yaml` file. Credentials remain in the profile or environment.
 
 ## 2. Review semantic gaps and proposals

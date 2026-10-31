@@ -27,12 +27,22 @@ class Target:
     name: str
     adapter: str
     config: dict[str, Any]
+    project_dir: Path | None = None
 
     @property
     def identity(self) -> str:
+        """Return a credential-free warehouse identity that is stable across checkouts.
+
+        A local database file inside the dbt project is named by its project-relative
+        path, so replay artifacts recorded on one machine match on another.
+        """
         safe = [self.adapter]
         for field in ("account", "database", "warehouse", "schema", "database_path"):
             value = self.config.get(field)
+            if field == "database_path" and value and self.project_dir is not None:
+                path = Path(str(value))
+                if path.is_relative_to(self.project_dir):
+                    value = path.relative_to(self.project_dir).as_posix()
             if value:
                 safe.append(f"{field}={value}")
         return ";".join(safe)
@@ -72,7 +82,7 @@ def load_profile_target(
             f"Unsupported dbt adapter '{adapter}'. Supported: {', '.join(SUPPORTED_ADAPTERS)}"
         )
     config = _provider_config(adapter, raw, root)
-    return Target(profile_name, selected, adapter, config)
+    return Target(profile_name, selected, adapter, config, root)
 
 
 def available_targets(
@@ -150,9 +160,16 @@ class ReadOnlyConnection:
     def identity(self) -> str:
         return self.target.identity
 
-    def execute(self, sql: str, timeout_seconds: int) -> tuple[dict[str, Any], ...]:
+    def execute(
+        self, sql: str, timeout_seconds: int, *, query_tag: str | None = None
+    ) -> tuple[dict[str, Any], ...]:
         executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self.provider.execute_query, sql)
+        future = executor.submit(
+            self.provider.execute_query,
+            sql,
+            timeout_seconds=timeout_seconds,
+            query_tag=query_tag,
+        )
         try:
             rows = future.result(timeout=timeout_seconds)
         except TimeoutError as exc:
@@ -161,6 +178,10 @@ class ReadOnlyConnection:
             raise ConnectionError(f"Query exceeded the {timeout_seconds}s timeout") from exc
         executor.shutdown(wait=True)
         return tuple(dict(row) for row in rows)
+
+    def estimate_scan_bytes(self, sql: str) -> int | None:
+        """Return the warehouse's scan estimate for ``sql``, or None if it has none."""
+        return self.provider.estimate_scan_bytes(sql)
 
     def ping(self) -> None:
         self.execute("select 1 as tabletalk_health", 10)

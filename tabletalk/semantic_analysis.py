@@ -161,9 +161,7 @@ def _sensitive(node: Node) -> bool:
 
 def _suspected_sensitive(node: Node) -> tuple[str, ...]:
     result = []
-    description_is_sensitive = any(
-        term in node.description.casefold() for term in _SENSITIVE_TERMS
-    )
+    description_is_sensitive = any(term in node.description.casefold() for term in _SENSITIVE_TERMS)
     if not _sensitive(node) and description_is_sensitive:
         result.append(node.unique_id)
     for column in node.columns.values():

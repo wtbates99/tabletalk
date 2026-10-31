@@ -4,20 +4,24 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from tabletalk.agents import Agent, ResolvedAgent, load_agents
-from tabletalk.connections import ReadOnlyConnection, load_profile_target
+from tabletalk.connections import ReadOnlyConnection, Target, load_profile_target
 from tabletalk.factories import get_llm_provider
 from tabletalk.inference import CachePolicy, InferenceStore
 from tabletalk.interfaces import LLMProvider
 from tabletalk.manifest import Manifest
+from tabletalk.receipts import RECEIPTS_DIRECTORY, Receipt, build_receipt, write_receipt
 from tabletalk.runtime import Runtime
 from tabletalk.schemas import PROJECT_SCHEMA, content_digest, require_schema_version
 from tabletalk.semantics import SemanticKnowledge, SemanticStatement
 from tabletalk.traces import Trace, Verification
+
+if TYPE_CHECKING:
+    from tabletalk.evals import EvalSuite  # Imported lazily at runtime: evals imports runtime.
 
 
 class Project:
@@ -46,6 +50,7 @@ class Project:
             manifest_path,
             catalog_path=optional_artifact("catalog"),
             run_results_path=optional_artifact("run_results"),
+            sources_path=optional_artifact("sources"),
         )
 
     @classmethod
@@ -58,8 +63,7 @@ class Project:
             config_file = nested_config
         if not config_file.is_file():
             raise ValueError(
-                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}. "
-                "Run 'tabletalk init'."
+                f"tabletalk.yaml not found in {root} or {root / 'tabletalk'}. Run 'tabletalk init'."
             )
         try:
             config = yaml.safe_load(config_file.read_text())
@@ -102,10 +106,21 @@ class Project:
             raise ValueError(f"Agent name '{name}' is duplicated")
         return matches[0]
 
+    def eval_suites(self) -> list[EvalSuite]:
+        """Load every eval suite in the project's evals directory, sorted by path."""
+        from tabletalk.evals import load_eval_suite
+
+        paths = (*self.evals_directory.glob("*.yaml"), *self.evals_directory.glob("*.yml"))
+        return [load_eval_suite(path) for path in sorted(paths)]
+
+    def semantic_statements(self, agent: Agent) -> tuple[SemanticStatement, ...]:
+        """Return the semantic statements from the agent's knowledge files."""
+        return self._semantic_context(agent)[1]
+
     def resolve_agent(self, name: str) -> ResolvedAgent:
         return self.agent(name).resolve(self.manifest)
 
-    def target(self):
+    def target(self) -> Target:
         dbt = self.config["dbt"]
         profiles_dir = dbt.get("profiles_dir")
         if profiles_dir:
@@ -149,9 +164,7 @@ class Project:
         model = str(llm_config.get("model") or "unknown")
         provider = str(llm_config.get("provider") or "unknown")
         agent = self.agent(agent_name)
-        inference_config = self.config.get("inference") or {}
-        if not isinstance(inference_config, dict):
-            raise ValueError("tabletalk.yaml inference must be a mapping")
+        inference_config = self._inference_config()
         selected_policy = cache_policy or CachePolicy(
             str(inference_config.get("cache_policy") or CachePolicy.DISABLED.value)
         )
@@ -162,7 +175,7 @@ class Project:
             self.connection(),
             get_llm_provider(llm_config),
             model_identity=f"{provider}:{model}",
-            inference_store=InferenceStore(self.root / ".tabletalk" / "inference"),
+            inference_store=InferenceStore(self._inference_directory(inference_config)),
             cache_policy=selected_policy,
             model_config=dict(llm_config),
             semantic_digest=semantic_digest,
@@ -170,14 +183,45 @@ class Project:
             semantic_statements=semantic_statements,
         )
 
+    def _inference_config(self) -> dict[str, Any]:
+        inference_config = self.config.get("inference") or {}
+        if not isinstance(inference_config, dict):
+            raise ValueError("tabletalk.yaml inference must be a mapping")
+        return inference_config
+
+    def receipt(self, trace: Trace) -> Receipt:
+        """Build the answer receipt for a trace and store it under .tabletalk/receipts."""
+        store = InferenceStore(self._inference_directory(self._inference_config()))
+        fingerprint = trace.inference_fingerprint
+        receipt = build_receipt(
+            trace,
+            self.manifest,
+            recorded=bool(fingerprint) and store.contains(str(fingerprint)),
+            inherited_descriptions=self.resolve_agent(trace.agent).inherited_column_descriptions,
+        )
+        write_receipt(self.root / RECEIPTS_DIRECTORY, receipt)
+        return receipt
+
+    def _inference_directory(self, inference_config: dict[str, Any]) -> Path:
+        """Return the inference store directory; ``inference.store`` may commit it to git."""
+        configured = inference_config.get("store")
+        if not configured:
+            return self.root / ".tabletalk" / "inference"
+        path = (self.root / str(configured)).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError(f"inference.store must stay inside the project: {configured}")
+        return path
+
     def llm_provider(self) -> LLMProvider:
         llm_config = self.config.get("llm")
         if not isinstance(llm_config, dict):
             raise ValueError("tabletalk.yaml requires an llm mapping")
         return get_llm_provider(llm_config)
 
-    def answer(self, agent_name: str, question: str) -> Trace:
-        runtime = self.runtime(agent_name)
+    def answer(
+        self, agent_name: str, question: str, *, cache_policy: CachePolicy | None = None
+    ) -> Trace:
+        runtime = self.runtime(agent_name, cache_policy=cache_policy)
         trace = runtime.answer(question)
         checks: list[Verification] = []
         matched_digest: str | None = None

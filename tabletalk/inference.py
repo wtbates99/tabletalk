@@ -99,7 +99,9 @@ def redact_secrets(value: Any) -> Any:
 class InferenceFingerprint:
     question_digest: str
     agent_digest: str
-    manifest_digest: str
+    # What the model sees: the agent's prompt context and in-scope dbt nodes. Changes
+    # elsewhere in the manifest do not invalidate recorded inference.
+    scope_digest: str
     semantic_digest: str | None
     model_identity: str
     model_config: dict[str, Any]
@@ -118,7 +120,7 @@ class InferenceFingerprint:
         return {
             "question_digest": self.question_digest,
             "agent_digest": self.agent_digest,
-            "manifest_digest": self.manifest_digest,
+            "scope_digest": self.scope_digest,
             "semantic_digest": self.semantic_digest,
             "model_identity": self.model_identity,
             "model_config": self.model_config,
@@ -218,9 +220,7 @@ class InferenceArtifact:
 
     def __post_init__(self) -> None:
         if (self.trace is None) == (self.outcome is None):
-            raise InferenceError(
-                "Inference artifact must contain one trace or one typed outcome"
-            )
+            raise InferenceError("Inference artifact must contain one trace or one typed outcome")
 
     @classmethod
     def create(
@@ -298,7 +298,7 @@ class InferenceArtifact:
         fingerprint = InferenceFingerprint(
             question_digest=str(raw_fingerprint.get("question_digest") or ""),
             agent_digest=str(raw_fingerprint.get("agent_digest") or ""),
-            manifest_digest=str(raw_fingerprint.get("manifest_digest") or ""),
+            scope_digest=str(raw_fingerprint.get("scope_digest") or ""),
             semantic_digest=(
                 str(raw_fingerprint["semantic_digest"])
                 if raw_fingerprint.get("semantic_digest")
@@ -361,6 +361,11 @@ class InferenceStore:
     def _index_path(self, fingerprint: InferenceFingerprint) -> Path:
         name = fingerprint.digest.removeprefix("sha256:")
         return self.root / "cache" / f"{name}.json"
+
+    def contains(self, fingerprint_digest: str) -> bool:
+        """Return whether an artifact is recorded for this fingerprint digest."""
+        name = fingerprint_digest.removeprefix("sha256:")
+        return (self.root / "cache" / f"{name}.json").is_file()
 
     def get(self, fingerprint: InferenceFingerprint) -> InferenceArtifact | None:
         index_path = self._index_path(fingerprint)

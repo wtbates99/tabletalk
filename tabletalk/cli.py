@@ -41,10 +41,11 @@ from tabletalk.evals import (
 )
 from tabletalk.executors import LocalExecutor
 from tabletalk.imports import ImportKind, QueryImportPreview, preview_import
-from tabletalk.inference import CachePolicy
+from tabletalk.inference import CachePolicy, ReplayMissError
 from tabletalk.manifest import Manifest, Node
 from tabletalk.metrics import BaselineRecord, observations, summarize
 from tabletalk.migrations import migrate_project
+from tabletalk.plan import case_footprints, compute_plan, render_plan, render_plan_markdown
 from tabletalk.project import Project
 from tabletalk.proposal_service import (
     approve_proposal,
@@ -55,6 +56,13 @@ from tabletalk.proposal_service import (
     revise_proposal,
 )
 from tabletalk.proposals import ProposalRecord
+from tabletalk.receipts import (
+    RECEIPTS_DIRECTORY,
+    ReceiptError,
+    load_receipt,
+    receipt_json_schema,
+    render_receipt,
+)
 from tabletalk.reports import EvaluationReport
 from tabletalk.schemas import (
     EVAL_SCHEMA,
@@ -63,8 +71,17 @@ from tabletalk.schemas import (
     content_digest,
     require_schema_version,
 )
+from tabletalk.score import combine, render_score, score_agent, write_badge
 from tabletalk.semantic_analysis import analyze_semantics
 from tabletalk.semantic_inference import infer_semantic_answers
+from tabletalk.state import (
+    LOCK_FILENAME,
+    LockError,
+    load_lock,
+    refresh_agents,
+    snapshot,
+    write_lock,
+)
 from tabletalk.traces import Interpretation as TraceInterpretation
 from tabletalk.traces import Trace
 
@@ -72,6 +89,8 @@ console = Console()
 EXIT_OPERATIONAL_FAILURE = 1
 EXIT_EVAL_FAILURE = 3
 EXIT_VALIDATION_FAILURE = 4
+EXIT_DRIFT = 5
+EXIT_REPLAY_MISS = 6
 
 
 def _fail(error: Exception, code: int = EXIT_OPERATIONAL_FAILURE) -> None:
@@ -243,9 +262,7 @@ def _persist_eval_result(project: Project, result: SuiteResult) -> Path:
     result_dir = project.root / ".tabletalk" / "eval-results" / result.agent
     rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n"
     result_digest = content_digest(rendered).removeprefix("sha256:")[:12]
-    target = result_dir / (
-        f"{result.suite_digest[:12]}-trial-{result.trial}-{result_digest}.json"
-    )
+    target = result_dir / (f"{result.suite_digest[:12]}-trial-{result.trial}-{result_digest}.json")
     result_dir.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.read_text() != rendered:
         raise ValueError(f"Eval result path has different content: {target}")
@@ -293,9 +310,7 @@ def _print_proposal(project: Project, proposal: ProposalRecord) -> None:
     for item in proposal.files:
         console.print(Panel(Syntax(item.content, "yaml"), title=item.path))
         confidence = {field.confidence.value for field in item.fields}
-        references = {
-            evidence.reference for field in item.fields for evidence in field.evidence
-        }
+        references = {evidence.reference for field in item.fields for evidence in field.evidence}
         console.print(
             f"Evidence: {len(item.fields)} fields, "
             f"confidence {', '.join(sorted(confidence))}, "
@@ -535,9 +550,7 @@ def propose(
         if configured_imports:
             dialect = project.connection().dialect
             for path, kind in configured_imports:
-                imports.extend(
-                    preview_import(path, kind, project.manifest, dialect=dialect)
-                )
+                imports.extend(preview_import(path, kind, project.manifest, dialect=dialect))
         analysis = analyze_semantics(project.manifest)
         hypotheses = {}
         if use_inference:
@@ -545,8 +558,7 @@ def propose(
             if not isinstance(llm_config, dict):
                 raise ValueError("tabletalk.yaml requires an llm mapping")
             model_identity = (
-                f"{llm_config.get('provider') or 'unknown'}:"
-                f"{llm_config.get('model') or 'unknown'}"
+                f"{llm_config.get('provider') or 'unknown'}:{llm_config.get('model') or 'unknown'}"
             )
             hypotheses = infer_semantic_answers(
                 analysis,
@@ -587,9 +599,7 @@ def propose(
         f"Columns documented: {quality.documented_columns}/{quality.columns}."
     )
     for question in analysis.high_value_questions():
-        console.print(
-            f"[yellow]Question {question.id}:[/yellow] {question.question}"
-        )
+        console.print(f"[yellow]Question {question.id}:[/yellow] {question.question}")
         if question.options:
             console.print("Options: " + ", ".join(question.options))
     for item in imports:
@@ -600,8 +610,7 @@ def propose(
         console.print(Panel(Syntax(item.normalized_sql, "sql"), title="Imported query"))
     if use_inference:
         console.print(
-            f"Model hypotheses: {len(hypotheses)}. "
-            "All hypotheses remain inferred and untrusted."
+            f"Model hypotheses: {len(hypotheses)}. All hypotheses remain inferred and untrusted."
         )
     for proposal in proposals:
         _print_proposal(project, proposal)
@@ -699,6 +708,25 @@ def proposal_reject(
     console.print(f"Rejected {record.id}: {path}")
 
 
+def _lock_approved_agents(project: Project, written: tuple[Path, ...]) -> None:
+    """Record the approved agents' current scope in the lock file."""
+    agents_dir = project.agents_directory.resolve()
+    approved = tuple(
+        Agent.load(path)
+        for path in written
+        if path.suffix in {".yaml", ".yml"} and path.resolve().parent == agents_dir
+    )
+    if not approved:
+        return
+    path = project.root / LOCK_FILENAME
+    try:
+        write_lock(path, refresh_agents(load_lock(path), approved, project.manifest))
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    names = ", ".join(agent.name for agent in approved)
+    console.print(f"Locked {names} in {LOCK_FILENAME}")
+
+
 @cli.command()
 @click.argument("proposal_id", required=False)
 @click.option("--file", "selected_paths", multiple=True)
@@ -744,6 +772,7 @@ def approve(
     for path in result.written_files:
         console.print(f"Wrote {path.relative_to(project.root)}")
     console.print(f"Provenance: {result.provenance_path.relative_to(project.root)}")
+    _lock_approved_agents(project, result.written_files)
     if not _run_approved_evals(project, result.written_files):
         raise click.exceptions.Exit(EXIT_EVAL_FAILURE)
 
@@ -843,9 +872,7 @@ def agent_create(
     target = project.agents_directory / f"{name}.yaml"
     if target.exists():
         _fail(
-            ValueError(
-                f"Agent '{name}' already exists. Use 'tabletalk propose' for a change."
-            ),
+            ValueError(f"Agent '{name}' already exists. Use 'tabletalk propose' for a change."),
             EXIT_VALIDATION_FAILURE,
         )
     record = proposal_from_user_files(
@@ -857,9 +884,7 @@ def agent_create(
     _print_proposal(project, record)
     console.print(f"Created review-only proposal {record.id}: {proposal_path}")
     if create_eval:
-        console.print(
-            "Approve the agent proposal first. Then use 'tabletalk eval create'."
-        )
+        console.print("Approve the agent proposal first. Then use 'tabletalk eval create'.")
 
 
 @agent.command("list")
@@ -903,12 +928,12 @@ def agent_show(name: str, project_folder: str, output_format: str) -> None:
             )
 
 
-@cli.group()
-def eval() -> None:
+@cli.group("eval")
+def eval_group() -> None:
     """Author and run execution-based correctness evaluations."""
 
 
-@eval.command("create")
+@eval_group.command("create")
 @click.argument("agent_name")
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option("--question")
@@ -1075,7 +1100,7 @@ def eval_create(
     console.print("Approve the proposal to write and run the eval.")
 
 
-@eval.command("run")
+@eval_group.command("run")
 @click.argument("agent_name", required=False)
 @click.option("--case", "case_name")
 @click.option(
@@ -1091,6 +1116,11 @@ def eval_create(
 )
 @click.option("--workers", type=click.IntRange(1, 32), default=1, show_default=True)
 @click.option("--baseline", help="Compare with an approved baseline name or JSON path.")
+@click.option(
+    "--markdown-out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Also write the Markdown report to this path (for CI comments).",
+)
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option(
     "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
@@ -1102,9 +1132,11 @@ def eval_run(
     cache_policy: str,
     workers: int,
     baseline: str | None,
+    markdown_out: Path | None,
     project_folder: str,
     output_format: str,
 ) -> None:
+    """Run eval trials and write JSON, Markdown, and JUnit reports."""
     project = _project(project_folder)
     paths = sorted(
         (*project.evals_directory.glob("*.yaml"), *project.evals_directory.glob("*.yml"))
@@ -1150,6 +1182,8 @@ def eval_run(
             return result
 
         results.extend(LocalExecutor(workers).map(run_trial, tasks))
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
     except Exception as exc:
         _fail(exc)
     if not results:
@@ -1157,6 +1191,8 @@ def eval_run(
     try:
         report = EvaluationReport.create(tuple(results), suites, approved_baseline)
         report_paths = report.write(project.root / ".tabletalk" / "reports")
+        if markdown_out is not None:
+            markdown_out.write_text(report.markdown_text(), encoding="utf-8")
     except Exception as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     if output_format == "json":
@@ -1172,9 +1208,7 @@ def eval_run(
             f"The 95% CI is {interval[0]:.1%} to {interval[1]:.1%}."
         )
         cost_text = (
-            "not recorded"
-            if summary.estimated_cost is None
-            else f"${summary.estimated_cost:.6f}"
+            "not recorded" if summary.estimated_cost is None else f"${summary.estimated_cost:.6f}"
         )
         console.print(
             f"Latency mean: {summary.latency_mean_ms or 0:.0f} ms. "
@@ -1184,10 +1218,7 @@ def eval_run(
         for result in results:
             for case in result.cases:
                 label = "PASS" if case.passed else "FAIL"
-                console.print(
-                    f"{label} {case.name} "
-                    f"(trial {result.trial}/{result.trials})"
-                )
+                console.print(f"{label} {case.name} (trial {result.trial}/{result.trials})")
         if report.comparison:
             comparison = report.comparison
             console.print(
@@ -1266,9 +1297,7 @@ def baseline_approve(
         declared = set(known_failure)
         unknown = declared - failing
         if unknown:
-            raise ValueError(
-                "Known-failure entries did not fail: " + ", ".join(sorted(unknown))
-            )
+            raise ValueError("Known-failure entries did not fail: " + ", ".join(sorted(unknown)))
         unapproved = failing - declared
         if unapproved:
             raise ValueError(
@@ -1321,9 +1350,7 @@ def baseline_show(name: str, project_folder: str, output_format: str) -> None:
         summary = summarize(record.observations)
         console.print(f"Baseline: {record.name}")
         console.print(f"Source report: {record.source_digest}")
-        console.print(
-            f"Pass rate: {summary.passed}/{summary.trials} ({summary.pass_rate:.1%})."
-        )
+        console.print(f"Pass rate: {summary.passed}/{summary.trials} ({summary.pass_rate:.1%}).")
 
 
 @cli.command()
@@ -1333,22 +1360,63 @@ def baseline_show(name: str, project_folder: str, output_format: str) -> None:
 @click.option(
     "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
 )
+@click.option(
+    "--cache-policy",
+    type=click.Choice([item.value for item in CachePolicy]),
+    help="Override inference.cache_policy; 'replay' answers from recorded inference only.",
+)
 def ask(
-    agent_name: str, question: tuple[str, ...], project_folder: str, output_format: str
+    agent_name: str,
+    question: tuple[str, ...],
+    project_folder: str,
+    output_format: str,
+    cache_policy: str | None,
 ) -> None:
-    """Ask through the same inspected runtime used by eval cases."""
+    """Ask an agent and print the answer receipt (tabletalk.receipt/v1)."""
     project = _project(project_folder)
     question_text = " ".join(question)
+    policy = CachePolicy(cache_policy) if cache_policy else None
     try:
-        trace = project.answer(agent_name, question_text)
+        trace = project.answer(agent_name, question_text, cache_policy=policy)
+        receipt = project.receipt(trace)
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
     except Exception as exc:
         _fail(exc)
     if output_format == "json":
-        click.echo(json.dumps(trace.to_dict(), indent=2, sort_keys=True))
+        click.echo(receipt.model_dump_json(indent=2))
     else:
-        _print_trace(trace)
+        console.print(render_receipt(receipt))
     if not trace.passed:
         raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--cache-policy",
+    type=click.Choice([item.value for item in CachePolicy]),
+    help="Override inference.cache_policy for every answer this server gives.",
+)
+def mcp(project_folder: str, cache_policy: str | None) -> None:
+    """Serve locked agents to MCP clients over stdio (needs tabletalk[mcp])."""
+    try:
+        from tabletalk.mcp_server import build_server
+    except ImportError:
+        _fail(ImportError("Install MCP support with: pip install 'tabletalk[mcp]'"))
+    from tabletalk.agent_service import AgentService
+
+    project = _project(project_folder)
+    try:
+        service = AgentService(
+            project, cache_policy=CachePolicy(cache_policy) if cache_policy else None
+        )
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    # stdout carries the protocol; status goes to stderr.
+    served = [agent.name for agent in service.agents() if agent.status == "served"]
+    click.echo(f"tabletalk mcp: serving {', '.join(served) or 'no agents'}", err=True)
+    build_server(service).run("stdio")
 
 
 @cli.command()
@@ -1454,6 +1522,160 @@ def doctor(project_folder: str, connect: bool) -> None:
         console.print(f"[yellow]WARN[/yellow] {name}: {detail}")
     if any(not passed for _, passed, _ in checks):
         raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def lock(project_folder: str) -> None:
+    """Record exactly what each agent is approved to see in tabletalk.lock.yaml."""
+    project = _project(project_folder)
+    try:
+        current = snapshot(project.agents(), project.manifest)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    path = project.root / LOCK_FILENAME
+    write_lock(path, current)
+    resources = sum(len(agent.resources) for agent in current.agents.values())
+    console.print(
+        f"[green]Locked[/green] {len(current.agents)} agent"
+        f"{'' if len(current.agents) == 1 else 's'} over {resources} dbt resource"
+        f"{'' if resources == 1 else 's'} → {path.name}"
+    )
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["terminal", "json", "markdown"]),
+    default="terminal",
+)
+@click.option(
+    "--check", is_flag=True, help=f"Exit {EXIT_DRIFT} when any agent differs from the lock (CI)."
+)
+def plan(project_folder: str, output_format: str, check: bool) -> None:
+    """Show how the current dbt manifest changes each agent and which evals it puts at risk."""
+    project = _project(project_folder)
+    path = project.root / LOCK_FILENAME
+    try:
+        locked = load_lock(path)
+        current = snapshot(project.agents(), project.manifest)
+        suites = project.eval_suites()
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if locked is None:
+        if output_format == "markdown":
+            click.echo(render_plan_markdown(None), nl=False)
+            raise click.exceptions.Exit(EXIT_DRIFT if check else 0)
+        console.print(
+            f"No {LOCK_FILENAME} yet. Run [bold]tabletalk lock[/bold] to record what "
+            "each agent is approved to see."
+        )
+        raise click.exceptions.Exit(EXIT_DRIFT if check else 0)
+    result = compute_plan(locked, current, case_footprints(suites, project.manifest, project.root))
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    elif output_format == "markdown":
+        click.echo(render_plan_markdown(result), nl=False)
+    else:
+        console.print(render_plan(result), soft_wrap=True)
+    if check and result.has_changes:
+        raise click.exceptions.Exit(EXIT_DRIFT)
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+@click.option(
+    "--badge",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Also write a shields.io endpoint JSON file for a README badge.",
+)
+def score(project_folder: str, output_format: str, badge: Path | None) -> None:
+    """Score how ready each agent's dbt scope is for a data agent (0–100)."""
+    project = _project(project_folder)
+    try:
+        lock = load_lock(project.root / LOCK_FILENAME)
+        suites = project.eval_suites()
+        result = combine(
+            [
+                score_agent(
+                    agent, project.manifest, project.semantic_statements(agent), suites, lock
+                )
+                for agent in sorted(project.agents(), key=lambda item: item.name)
+            ]
+        )
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if badge:
+        write_badge(badge, result)
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        console.print(render_score(result))
+
+
+@cli.group()
+def receipt() -> None:
+    """Inspect, export, and replay answer receipts."""
+
+
+@receipt.command("show")
+@click.argument("run_id")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+def receipt_show(run_id: str, project_folder: str, output_format: str) -> None:
+    """Show a stored receipt by run ID or unique prefix."""
+    try:
+        found = load_receipt(Path(project_folder) / RECEIPTS_DIRECTORY, run_id)
+    except ReceiptError as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if output_format == "json":
+        click.echo(found.model_dump_json(indent=2))
+    else:
+        console.print(render_receipt(found))
+
+
+@receipt.command("schema")
+def receipt_schema() -> None:
+    """Print the JSON Schema of tabletalk.receipt/v1."""
+    click.echo(json.dumps(receipt_json_schema(), indent=2))
+
+
+@receipt.command("replay")
+@click.argument("run_id")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def receipt_replay(run_id: str, project_folder: str) -> None:
+    """Re-answer from the recorded inference, with no model call, and compare."""
+    project = _project(project_folder)
+    try:
+        found = load_receipt(project.root / RECEIPTS_DIRECTORY, run_id)
+        runtime = project.runtime(found.identity.agent, cache_policy=CachePolicy.REPLAY)
+        replayed = runtime.answer(found.question)
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    differences = []
+    if replayed.sql.executed != found.query.executed:
+        differences.append("executed SQL differs")
+    rows = replayed.to_dict()["result"]["rows"]
+    if rows != found.result.rows:
+        differences.append(
+            f"result rows differ ({len(rows)} now, {found.result.row_count} recorded)"
+        )
+    if differences:
+        console.print(f"[red]Not reproduced[/red] {found.run_id}: " + "; ".join(differences))
+        raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
+    console.print(
+        f"[green]Reproduced[/green] {found.run_id} with no model call: same SQL and "
+        f"{found.result.row_count} identical row{'' if found.result.row_count == 1 else 's'}."
+    )
 
 
 if __name__ == "__main__":

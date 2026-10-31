@@ -38,8 +38,8 @@ pip install "tabletalk[duckdb]"
 pip install "tabletalk[snowflake]"
 ```
 
-TableTalk requires Python 3.11 or newer. SQLite uses the Python standard
-library. The initial warehouse adapters are SQLite, DuckDB, and Snowflake.
+TableTalk requires Python 3.11 or newer. The supported warehouses are DuckDB
+and Snowflake. SQLite works for tests and local experiments only.
 
 ## Start from an existing dbt project
 
@@ -114,12 +114,65 @@ runtime, warehouse, and inference fingerprint. It reports pass rate, a Wilson
 confidence interval, latency, tokens, configured cost, flaky outcomes, and
 deterministic failure diagnoses.
 
+## Answer receipts
+
+`tabletalk ask` prints a receipt for each answer and stores it as JSON. A receipt
+shows the trust level, the executed SQL, the evidence rows, and the dbt models
+and column descriptions the agent used. It also shows their tests, lineage,
+source freshness, and dependent dashboards, plus a replay command.
+
+```console
+tabletalk ask revenue "What was recognized revenue in July 2026?"
+tabletalk receipt replay run_5c0b6a582ba84c14
+```
+
+`verified` means that an approved eval matched the question and passed.
+`grounded` means that every hard check passed but no eval covers the question.
+`unverified` means that a check failed. The format is an open specification:
+[`tabletalk.receipt/v1`](docs/spec/receipt-v1.md).
+
+## Score readiness
+
+```console
+tabletalk score --badge .github/badges/agent-ready.json
+```
+
+The score is a fixed rubric over descriptions, tests, sensitive-data flags,
+resolved semantics, the lock, and eval coverage. Each missing point lists its
+fix. See [the rubric](docs/score.md).
+
+## Use agents from Claude, Cursor, or any MCP client
+
+```console
+pip install "tabletalk[mcp]"
+tabletalk mcp --project-folder .
+```
+
+The MCP server serves only agents that match `tabletalk.lock.yaml`, and every
+answer includes its receipt. If a dbt change alters an agent's scope, that agent
+stops answering until the change is reviewed and locked. See
+[MCP server](docs/mcp.md).
+
+## Check every dbt pull request
+
+```yaml
+- uses: wtbates99/tabletalk@main
+  with:
+    evals: replay
+```
+
+The action posts one comment with the agent plan and a model-free eval replay.
+See [pull-request checks](docs/ci.md).
+
 ## Security and retention
 
 - Use a warehouse identity with physical read-only permissions.
 - Treat connector permissions as the final security boundary.
 - TableTalk rejects writes, unsafe reads, unknown resources, unknown columns,
   unsafe joins, excessive limits, and unapproved sensitive data.
+- On Snowflake, `max_scan_bytes` blocks a query whose estimated scan is over
+  budget. Every query is tagged and has a server-side timeout. See
+  [Snowflake controls](docs/configuration.md#snowflake-cost-and-audit-controls).
 - TableTalk never treats lineage as proof that a join is correct.
 - TableTalk does not store credentials in traces, reports, or fingerprints.
 - Inference artifacts hash prompts by default. Set `persist_prompts: true` only
@@ -138,8 +191,9 @@ See the [commerce example](examples/dbt-analytics/README.md), the
 ```console
 uv sync --locked --all-groups
 uv run pytest -q
-uv run ruff check tabletalk
-uv run mypy tabletalk
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy tabletalk  # strict mode, from pyproject.toml
 uv build
 ```
 

@@ -186,9 +186,7 @@ class SemanticStatement:
                 status=SemanticStatus(str(payload["status"])),
                 definition=str(payload.get("definition") or ""),
                 expression=str(payload["expression"]) if payload.get("expression") else None,
-                time_column=(
-                    str(payload["time_column"]) if payload.get("time_column") else None
-                ),
+                time_column=(str(payload["time_column"]) if payload.get("time_column") else None),
                 filters=tuple(filters),
                 approval=ApprovalRef.from_value(payload.get("approval")),
                 evidence=tuple(EvidenceRef.from_dict(item) for item in evidence),

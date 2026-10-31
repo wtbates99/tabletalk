@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 def _json_value(value: Any) -> Any:
@@ -127,7 +127,7 @@ class Trace:
         return bool(checks) and all(check.passed for check in checks) and self.passed
 
     def to_dict(self) -> dict[str, Any]:
-        return _json_value(self)
+        return cast(dict[str, Any], _json_value(self))
 
     def write(self, directory: str | Path, name: str | None = None) -> Path:
         root = Path(directory)
@@ -173,8 +173,7 @@ def trace_from_dict(payload: dict[str, Any]) -> Trace:
             columns=tuple(str(item) for item in context.get("columns") or ()),
             relevant_tests=tuple(str(item) for item in context.get("relevant_tests") or ()),
             test_health={
-                str(key): str(value)
-                for key, value in (context.get("test_health") or {}).items()
+                str(key): str(value) for key, value in (context.get("test_health") or {}).items()
             },
         ),
         sql=SQLTrace(
@@ -223,17 +222,13 @@ def trace_from_dict(payload: dict[str, Any]) -> Trace:
             str(payload["eval_suite_digest"]) if payload.get("eval_suite_digest") else None
         ),
         inference_fingerprint=(
-            str(payload["inference_fingerprint"])
-            if payload.get("inference_fingerprint")
-            else None
+            str(payload["inference_fingerprint"]) if payload.get("inference_fingerprint") else None
         ),
         cache_hit=bool(payload.get("cache_hit", False)),
         semantic_digest=(
             str(payload["semantic_digest"]) if payload.get("semantic_digest") else None
         ),
-        prompt_version=(
-            str(payload["prompt_version"]) if payload.get("prompt_version") else None
-        ),
+        prompt_version=(str(payload["prompt_version"]) if payload.get("prompt_version") else None),
         runtime_version=(
             str(payload["runtime_version"]) if payload.get("runtime_version") else None
         ),

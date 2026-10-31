@@ -45,6 +45,7 @@ class Agent:
     reject_if_contains: tuple[str, ...] = ()
     max_rows: int = 1000
     timeout_seconds: int = 60
+    max_scan_bytes: int | None = None
     source_path: Path | None = None
 
     def __post_init__(self) -> None:
@@ -93,6 +94,16 @@ class Agent:
             or timeout_seconds < 1
         ):
             raise AgentError("Agent timeout_seconds must be a positive integer")
+        max_scan_bytes = payload.get("max_scan_bytes")
+        if max_scan_bytes is not None and (
+            not isinstance(max_scan_bytes, int)
+            or isinstance(max_scan_bytes, bool)
+            or max_scan_bytes < 1
+        ):
+            raise AgentError(
+                "Agent max_scan_bytes must be a positive integer number of bytes, "
+                "for example 10_000_000_000 for 10 GB"
+            )
         return cls(
             name=name.strip(),
             description=" ".join(description.split()),
@@ -100,9 +111,7 @@ class Agent:
             exclude=_strings(payload.get("exclude"), "exclude"),
             instructions=_strings(payload.get("instructions"), "instructions"),
             sample_questions=_strings(payload.get("sample_questions"), "sample_questions"),
-            supported_questions=_strings(
-                payload.get("supported_questions"), "supported_questions"
-            ),
+            supported_questions=_strings(payload.get("supported_questions"), "supported_questions"),
             unsupported_questions=_strings(
                 payload.get("unsupported_questions"), "unsupported_questions"
             ),
@@ -113,6 +122,7 @@ class Agent:
             reject_if_contains=_strings(payload.get("reject_if_contains"), "reject_if_contains"),
             max_rows=max_rows,
             timeout_seconds=timeout_seconds,
+            max_scan_bytes=max_scan_bytes,
             source_path=source,
         )
 
@@ -147,6 +157,8 @@ class Agent:
             payload["max_rows"] = self.max_rows
         if self.timeout_seconds != 60:
             payload["timeout_seconds"] = self.timeout_seconds
+        if self.max_scan_bytes is not None:
+            payload["max_scan_bytes"] = self.max_scan_bytes
         return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
     @property

@@ -352,9 +352,7 @@ def _import_semantic_statement(
         expression=expression.sql(),
         time_column=date_columns[0] if len(date_columns) == 1 else None,
         filters=(where.this.sql(),) if isinstance(where, exp.Where) else (),
-        approval=ApprovalRef(
-            "imp_" + preview.source_digest.removeprefix("sha256:")[:12]
-        ),
+        approval=ApprovalRef("imp_" + preview.source_digest.removeprefix("sha256:")[:12]),
         evidence=(preview.evidence(),),
     )
 
@@ -366,9 +364,7 @@ def _proposed_semantic_file(
     knowledge = SemanticKnowledge(statements)
     content = knowledge.dump()
     payload = knowledge.to_dict()
-    evidence_by_id = {
-        statement.id: statement.evidence for statement in statements
-    }
+    evidence_by_id = {statement.id: statement.evidence for statement in statements}
     fields = []
     for pointer in sorted(leaf_pointers(payload)):
         parts = pointer.split("/")
@@ -380,8 +376,7 @@ def _proposed_semantic_file(
             Confidence.LOW
             if statement_id
             and any(
-                statement.id == statement_id
-                and statement.status is SemanticStatus.INFERRED
+                statement.id == statement_id and statement.status is SemanticStatus.INFERRED
                 for statement in statements
             )
             else Confidence.HIGH
@@ -413,9 +408,7 @@ def _import_question(preview: QueryImportPreview) -> str:
         if expression.alias_or_name and expression.alias_or_name != "*"
     )
     columns = tuple(column for column in preview.columns if column != "*")
-    label = (outputs[0] if outputs else columns[0] if columns else "result").replace(
-        "_", " "
-    )
+    label = (outputs[0] if outputs else columns[0] if columns else "result").replace("_", " ")
     date_values = tuple(
         datetime.strptime(value, "%Y-%m-%d").date()
         for value in re.findall(r"\b\d{4}-\d{2}-\d{2}\b", preview.normalized_sql)
@@ -497,9 +490,7 @@ def _proposed_eval_file(
                 "warehouse_data": True,
                 "failure": "The answer uses the wrong resource, column, or aggregation.",
                 "expect": {
-                    "models": {
-                        "required": [measure_node.unique_id]
-                    },
+                    "models": {"required": [measure_node.unique_id]},
                     "columns": {"required": [measure]},
                 },
             }
@@ -524,9 +515,7 @@ def _proposed_eval_file(
         if approved_time or len(time_columns) == 1:
             time_column = approved_time or time_columns[0]
             time_evidence = (
-                (evidence, *approved_statement.evidence)
-                if approved_statement
-                else (evidence,)
+                (evidence, *approved_statement.evidence) if approved_statement else (evidence,)
             )
             cases.append(
                 {
@@ -670,11 +659,7 @@ def _proposed_eval_file(
                 "failure": "The answer does not match the approved reference query.",
                 "expect": {
                     "reference": _reference_path(preview),
-                    **(
-                        {"result": {"comparison": "scalar"}}
-                        if _import_is_scalar(preview)
-                        else {}
-                    ),
+                    **({"result": {"comparison": "scalar"}} if _import_is_scalar(preview) else {}),
                     "models": {"required": list(preview.resource_ids)},
                     "columns": {"required": list(preview.columns)},
                 },
@@ -731,9 +716,7 @@ def generate_agent_proposals(
     for candidate in agent_candidates(manifest):
         candidate_ids = {node.unique_id for node in candidate.nodes}
         candidate_imports = tuple(
-            preview
-            for preview in imports
-            if set(preview.resource_ids) <= candidate_ids
+            preview for preview in imports if set(preview.resource_ids) <= candidate_ids
         )
         answered_gaps = tuple(
             gap
@@ -758,13 +741,9 @@ def generate_agent_proposals(
             and statement.id not in answered_ids
         )
         statements = answered_statements + imported_statements
-        semantic_file = (
-            _proposed_semantic_file(candidate, statements) if statements else None
-        )
+        semantic_file = _proposed_semantic_file(candidate, statements) if statements else None
         answer_evidence = tuple(
-            evidence
-            for statement in statements
-            for evidence in statement.evidence
+            evidence for statement in statements for evidence in statement.evidence
         )
         files = (
             _proposed_agent_file(
@@ -904,9 +883,7 @@ def revise_proposal(
         ),
         available[resource_path].base_sha256,
     )
-    files = tuple(
-        replacement if item.path == resource_path else item for item in proposal.files
-    )
+    files = tuple(replacement if item.path == resource_path else item for item in proposal.files)
     return ProposalRecord(files, proposal.manifest_digest, proposal.semantic_digest)
 
 
@@ -981,17 +958,14 @@ def approve_proposal(
         raise ProposalError("The dbt manifest changed after TableTalk created the proposal")
     approval = ApprovalRecord.from_proposal(
         proposal,
-        recorded_at=recorded_at
-        or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        recorded_at=recorded_at or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         actor=actor,
         selected_paths=selected_paths,
     )
     selected = {item.path for item in approval.files}
     proposed = {item.path: item for item in proposal.files}
     dependencies = {
-        dependency
-        for path in selected
-        for dependency in _required_paths(proposed[path])
+        dependency for path in selected for dependency in _required_paths(proposed[path])
     }
     dependency_targets: dict[str, Path] = {}
     for dependency in dependencies - selected:
@@ -999,14 +973,10 @@ def approve_proposal(
         try:
             target.relative_to(root)
         except ValueError as exc:
-            raise ProposalError(
-                f"Required path escapes the project: {dependency}"
-            ) from exc
+            raise ProposalError(f"Required path escapes the project: {dependency}") from exc
         dependency_targets[dependency] = target
     missing_dependencies = {
-        dependency
-        for dependency, target in dependency_targets.items()
-        if not target.is_file()
+        dependency for dependency, target in dependency_targets.items() if not target.is_file()
     }
     if missing_dependencies:
         raise ProposalError(
@@ -1025,9 +995,7 @@ def approve_proposal(
             continue
         if item.base_sha256:
             if current is None or content_digest(current) != item.base_sha256:
-                raise ProposalError(
-                    f"Approval base content changed after proposal: {item.path}"
-                )
+                raise ProposalError(f"Approval base content changed after proposal: {item.path}")
             continue
         if current is not None:
             raise ProposalError(f"Approval would overwrite different content: {item.path}")

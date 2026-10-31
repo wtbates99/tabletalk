@@ -258,6 +258,11 @@ def manifest() -> Manifest:
 
 @pytest.fixture
 def runtime(manifest: Manifest) -> Runtime:
+    return make_runtime(manifest)
+
+
+def make_runtime(manifest: Manifest) -> Runtime:
+    """Build the example revenue runtime on in-memory DuckDB with a stub model."""
     provider = DuckDBProvider()
     provider.connection.execute("ATTACH ':memory:' AS analytics")
     provider.connection.execute(
@@ -814,9 +819,7 @@ def test_eval_budgets_are_enforceable_hard_checks(runtime: Runtime) -> None:
         ),
     )
     result = EvalRunner(suite, runtime).evaluate_trace(case, trace)
-    budget_checks = tuple(
-        check for check in result.checks if check.name.startswith("budget_")
-    )
+    budget_checks = tuple(check for check in result.checks if check.name.startswith("budget_"))
     assert len(budget_checks) == 5
     assert not result.passed
     assert not next(check for check in budget_checks if check.name == "budget_latency_ms").passed

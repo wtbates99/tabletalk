@@ -24,7 +24,8 @@ def _mentions(question: str, value: str) -> bool:
     return bool(wanted) and wanted <= _words(question)
 
 
-def _suspected_sensitive(node: Node, column_name: str) -> bool:
+def is_sensitive(node: Node, column_name: str) -> bool:
+    """Return whether dbt metadata or wording marks a column as sensitive."""
     column = node.columns[column_name]
     text = f"{column.name} {column.description}".replace("_", " ").casefold()
     terms = (
@@ -129,7 +130,7 @@ class SemanticGuard:
                     f"Column '{reference}' has no trusted business description"
                 )
             if (
-                _suspected_sensitive(node, column_name)
+                is_sensitive(node, column_name)
                 and column_name not in allowed_sensitive
                 and reference not in allowed_sensitive
                 and node.unique_id not in allowed_sensitive

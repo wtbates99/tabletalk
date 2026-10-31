@@ -64,7 +64,7 @@ class OpenAIProvider(LLMProvider):
         self.temperature = temperature
         self.request_timeout_seconds = request_timeout_seconds
         self.reasoning_effort = reasoning_effort
-        client_kwargs: dict = {
+        client_kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": request_timeout_seconds,
         }
@@ -73,7 +73,7 @@ class OpenAIProvider(LLMProvider):
         self.client = OpenAI(**client_kwargs)
 
     def generate_response(self, prompt: str) -> str:
-        request: dict = {
+        request: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": self.max_tokens,
@@ -112,7 +112,7 @@ class OpenAIProvider(LLMProvider):
             {"role": "system", "content": schema_instruction},
             *messages,
         ]
-        request: dict = {
+        request: dict[str, Any] = {
             "model": self.model,
             "messages": schema_messages,
             "max_tokens": self.max_tokens,
@@ -173,7 +173,7 @@ class OpenAIProvider(LLMProvider):
         ) from last_error
 
     def generate_chat_stream(self, messages: list[dict[str, str]]) -> Generator[str, None, None]:
-        request: dict = {
+        request: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "max_tokens": self.max_tokens,

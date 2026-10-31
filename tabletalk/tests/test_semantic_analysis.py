@@ -147,15 +147,16 @@ def test_bi_and_query_history_imports_require_explicit_files(
             }
         )
     )
-    assert preview_import(bi, ImportKind.BI_QUERY, manifest, dialect="duckdb")[0].kind is ImportKind.BI_QUERY
+    assert (
+        preview_import(bi, ImportKind.BI_QUERY, manifest, dialect="duckdb")[0].kind
+        is ImportKind.BI_QUERY
+    )
 
     history = tmp_path / "history.csv"
     with history.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["query_text"])
         writer.writeheader()
-        writer.writerow(
-            {"query_text": "select order_date from analytics.main.fct_orders"}
-        )
+        writer.writerow({"query_text": "select order_date from analytics.main.fct_orders"})
     previews = preview_import(history, ImportKind.QUERY_HISTORY, manifest, dialect="duckdb")
     assert len(previews) == 1
     assert previews[0].locator == "/0/query_text"

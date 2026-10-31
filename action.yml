@@ -1,0 +1,152 @@
+name: TableTalk
+description: >-
+  Show how a dbt change alters what each data agent can see, replay agent evals
+  without a model, and post the result as one pull-request comment.
+author: William Bates
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  project-folder:
+    description: Folder that contains tabletalk.yaml.
+    default: "."
+  evals:
+    description: "`replay` runs eval suites from committed inference artifacts; `none` skips evals."
+    default: none
+  fail-on-drift:
+    description: Fail the job when any agent differs from tabletalk.lock.yaml.
+    default: "true"
+  comment:
+    description: Post or update one pull-request comment. Needs `pull-requests write` permission.
+    default: "true"
+  python-version:
+    description: Python used to run TableTalk.
+    default: "3.12"
+  github-token:
+    description: Token used to post the comment.
+    default: ${{ github.token }}
+
+outputs:
+  drift:
+    description: "`true` when an agent differs from the lock."
+    value: ${{ steps.plan.outputs.drift }}
+  evals-passed:
+    description: "`true`, `false`, `missing` (no recording for this change), or empty when skipped."
+    value: ${{ steps.evals.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install TableTalk
+      shell: bash
+      run: python -m pip install --quiet "${GITHUB_ACTION_PATH}[duckdb,snowflake]"
+
+    - name: tabletalk plan
+      id: plan
+      shell: bash
+      working-directory: ${{ inputs.project-folder }}
+      run: |
+        set +e
+        tabletalk plan --format markdown --check > "$RUNNER_TEMP/tabletalk-plan.md"
+        code=$?
+        set -e
+        if [ "$code" -ne 0 ] && [ "$code" -ne 5 ]; then
+          cat "$RUNNER_TEMP/tabletalk-plan.md"
+          exit "$code"
+        fi
+        echo "drift=$([ "$code" -eq 5 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        cat "$RUNNER_TEMP/tabletalk-plan.md"
+
+    - name: tabletalk eval run --cache-policy replay
+      id: evals
+      if: inputs.evals == 'replay'
+      shell: bash
+      working-directory: ${{ inputs.project-folder }}
+      run: |
+        report="$RUNNER_TEMP/tabletalk-evals.md"
+        set +e
+        tabletalk eval run --cache-policy replay --markdown-out "$report" 2>&1 | tee "$RUNNER_TEMP/tabletalk-evals.log"
+        code=${PIPESTATUS[0]}
+        set -e
+        case "$code" in
+          0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
+          3) echo "passed=false" >> "$GITHUB_OUTPUT" ;;
+          6)
+            echo "passed=missing" >> "$GITHUB_OUTPUT"
+            {
+              echo "Result: NO RECORDING"
+              echo
+              echo "Strict replay has no recording for the current agent configuration, so no"
+              echo "eval ran. Review the plan above, then re-record with"
+              # shellcheck disable=SC2016  # Literal Markdown backticks.
+              echo '`tabletalk eval run --cache-policy write-only` and commit the inference store.'
+            } > "$report"
+            ;;
+          *) exit "$code" ;;
+        esac
+
+    - name: Publish summary and comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        POST_COMMENT: ${{ inputs.comment }}
+      run: |
+        body="$RUNNER_TEMP/tabletalk-comment.md"
+        cp "$RUNNER_TEMP/tabletalk-plan.md" "$body"
+        if [ -f "$RUNNER_TEMP/tabletalk-evals.md" ]; then
+          # <summary> does not render Markdown, so strip the bold markers.
+          # GitHub runs bash with pipefail, and a report may lack rows, so a grep miss is not fatal.
+          result=$(grep -m1 '^Result:' "$RUNNER_TEMP/tabletalk-evals.md" | sed -e 's/^Result: //' -e 's/\*//g' || true)
+          trials=$(grep -m1 '^| Passed |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}' || true)
+          total=$(grep -m1 '^| Eval trials |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}' || true)
+          if [ -n "$trials" ] && [ -n "$total" ]; then result="$result · $trials/$total trials"; fi
+          {
+            printf '\n<details><summary>Eval replay: %s</summary>\n\n' "$result"
+            cat "$RUNNER_TEMP/tabletalk-evals.md"
+            printf '\n</details>\n'
+          } >> "$body"
+        fi
+        cat "$body" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$POST_COMMENT" != "true" ] || [ -z "$PR_NUMBER" ]; then
+          exit 0
+        fi
+        marker='<!-- tabletalk:plan -->'
+        existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n1 || true)
+        payload=$(python -c 'import json,sys; print(json.dumps({"body": open(sys.argv[1]).read()}))' "$body")
+        if [ -n "$existing" ]; then
+          echo "$payload" | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --input - >/dev/null \
+            || echo "::warning::TableTalk could not update the PR comment. Fork PRs get a read-only token."
+        else
+          echo "$payload" | gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - >/dev/null \
+            || echo "::warning::TableTalk could not post a PR comment. Fork PRs get a read-only token."
+        fi
+
+    - name: Enforce result
+      shell: bash
+      env:
+        DRIFT: ${{ steps.plan.outputs.drift }}
+        EVALS_PASSED: ${{ steps.evals.outputs.passed }}
+        FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
+      run: |
+        # Report every problem; exit with the most useful code (evals, then drift, then replay).
+        code=0
+        if [ "$EVALS_PASSED" = "missing" ]; then
+          echo "::error::No eval recording matches this change. Re-record with tabletalk eval run --cache-policy write-only and commit the inference store."
+          code=6
+        fi
+        if [ "$DRIFT" = "true" ] && [ "$FAIL_ON_DRIFT" = "true" ]; then
+          echo "::error::Agent scope changed. Review the plan, then run tabletalk lock and commit tabletalk.lock.yaml."
+          code=5
+        fi
+        if [ "$EVALS_PASSED" = "false" ]; then
+          echo "::error::TableTalk eval replay failed. See the job summary."
+          code=3
+        fi
+        exit "$code"

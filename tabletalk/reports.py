@@ -74,10 +74,7 @@ class EvaluationReport:
 
     def identities(self) -> dict[str, list[str]]:
         traces = tuple(
-            case.trace
-            for result in self.results
-            for case in result.cases
-            if case.trace is not None
+            case.trace for result in self.results for case in result.cases if case.trace is not None
         )
         values = {
             "models": {trace.model_identity for trace in traces},
@@ -91,9 +88,7 @@ class EvaluationReport:
             "runtimes": {trace.runtime_version for trace in traces if trace.runtime_version},
             "warehouses": {trace.warehouse_identity for trace in traces},
             "inference_fingerprints": {
-                trace.inference_fingerprint
-                for trace in traces
-                if trace.inference_fingerprint
+                trace.inference_fingerprint for trace in traces if trace.inference_fingerprint
             },
         }
         return {key: sorted(value) for key, value in values.items()}
@@ -175,10 +170,8 @@ class EvaluationReport:
                 f"- `{item.code.value}` in `{item.suite}/{item.case}`. "
                 f"Owner: `{item.owner.value}`. {item.corrective_action}"
                 + (
-                    f" Baseline: `{item.baseline_value}`. "
-                    f"Candidate: `{item.candidate_value}`."
-                    if item.baseline_value is not None
-                    and item.candidate_value is not None
+                    f" Baseline: `{item.baseline_value}`. Candidate: `{item.candidate_value}`."
+                    if item.baseline_value is not None and item.candidate_value is not None
                     else ""
                 )
                 for item in self.diagnoses
@@ -201,9 +194,9 @@ class EvaluationReport:
         )
         diagnosis_map: dict[tuple[str, str, int], list[FailureDiagnosis]] = {}
         for diagnosis in self.diagnoses:
-            diagnosis_map.setdefault(
-                (diagnosis.suite, diagnosis.case, diagnosis.trial), []
-            ).append(diagnosis)
+            diagnosis_map.setdefault((diagnosis.suite, diagnosis.case, diagnosis.trial), []).append(
+                diagnosis
+            )
         for result, case in cases:
             element = ET.SubElement(
                 root,

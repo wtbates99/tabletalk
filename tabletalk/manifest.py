@@ -9,6 +9,44 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+# dbt rewrites these on every invocation. They say nothing about the project, so they
+# are excluded from digests: re-running `dbt parse` must not change identity.
+_VOLATILE_METADATA = frozenset(
+    {
+        "generated_at",
+        "invocation_id",
+        "invocation_started_at",
+        "run_started_at",
+        "user_id",
+        "env",
+        "send_anonymous_usage_stats",
+    }
+)
+
+
+def stable_digest(artifact: dict[str, Any]) -> str:
+    """Return a SHA-256 of a dbt artifact without per-invocation metadata.
+
+    ``Any`` is justified here: dbt artifacts are untyped JSON documents.
+    """
+    stable: dict[str, Any] = {}
+    for key, value in artifact.items():
+        if key == "metadata" and isinstance(value, dict):
+            stable[key] = {k: v for k, v in value.items() if k not in _VOLATILE_METADATA}
+        elif isinstance(value, dict):
+            stable[key] = {
+                name: (
+                    {k: v for k, v in item.items() if k != "created_at"}
+                    if isinstance(item, dict)
+                    else item
+                )
+                for name, item in value.items()
+            }
+        else:
+            stable[key] = value
+    canonical = json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
 
 class ManifestError(ValueError):
     """Raised when a dbt artifact cannot define an unambiguous query scope."""
@@ -78,6 +116,16 @@ class DbtSemanticModel:
 
 
 @dataclass(frozen=True)
+class SourceFreshness:
+    """One `dbt source freshness` result from sources.json."""
+
+    unique_id: str
+    status: str
+    max_loaded_at: str | None = None
+    snapshotted_at: str | None = None
+
+
+@dataclass(frozen=True)
 class DbtExposure:
     unique_id: str
     name: str
@@ -87,6 +135,8 @@ class DbtExposure:
     owner: str | None
     parents: tuple[str, ...]
     meta: dict[str, Any]
+    label: str | None = None
+    url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,18 +211,12 @@ class Manifest:
         payload: dict[str, Any],
         catalog: dict[str, Any] | None = None,
         run_results: dict[str, Any] | None = None,
+        sources: dict[str, Any] | None = None,
     ) -> None:
         self.path = path
         self.payload = payload
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        self.digest = hashlib.sha256(canonical).hexdigest()
-        self.catalog_digest = (
-            hashlib.sha256(
-                json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
-            if catalog
-            else None
-        )
+        self.digest = stable_digest(payload)
+        self.catalog_digest = stable_digest(catalog) if catalog else None
         metadata = payload.get("metadata") or {}
         self.manifest_version = str(metadata.get("dbt_schema_version") or "")
         self.dbt_version = str(metadata.get("dbt_version") or "")
@@ -180,6 +224,20 @@ class Manifest:
         self.metrics = self._normalize_metrics()
         self.semantic_models = self._normalize_semantic_models()
         self.exposures = self._normalize_exposures()
+        # Freshness stays outside the nodes: the model never sees it, so it must not
+        # change inference fingerprints. Receipts report it.
+        self.freshness = {
+            str(item["unique_id"]): SourceFreshness(
+                unique_id=str(item["unique_id"]),
+                status=str(item.get("status") or "unknown"),
+                max_loaded_at=str(item["max_loaded_at"]) if item.get("max_loaded_at") else None,
+                snapshotted_at=(
+                    str(item["snapshotted_at"]) if item.get("snapshotted_at") else None
+                ),
+            )
+            for item in (sources or {}).get("results") or ()
+            if isinstance(item, dict) and item.get("unique_id")
+        }
         self._enrich_catalog(catalog or {})
         self._enrich_run_results(run_results or {})
         self._queryable = {uid: node for uid, node in self.nodes.items() if node.queryable}
@@ -255,6 +313,8 @@ class Manifest:
                     owner=str(owner_name) if owner_name else None,
                     parents=tuple(str(item) for item in parents),
                     meta=dict(raw.get("meta") or {}),
+                    label=str(raw["label"]) if raw.get("label") else None,
+                    url=str(raw["url"]) if raw.get("url") else None,
                 )
             )
         return tuple(sorted(result, key=lambda item: item.unique_id))
@@ -266,6 +326,7 @@ class Manifest:
         *,
         catalog_path: str | Path | None = None,
         run_results_path: str | Path | None = None,
+        sources_path: str | Path | None = None,
     ) -> Manifest:
         artifact = Path(path).expanduser().resolve()
         if not artifact.is_file():
@@ -296,6 +357,7 @@ class Manifest:
             payload,
             optional_payload(catalog_path, "catalog.json"),
             optional_payload(run_results_path, "run_results.json"),
+            optional_payload(sources_path, "sources.json"),
         )
 
     def _enrich_catalog(self, catalog: dict[str, Any]) -> None:

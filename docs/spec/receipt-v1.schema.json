@@ -1,0 +1,671 @@
+{
+  "$defs": {
+    "Check": {
+      "additionalProperties": false,
+      "description": "One deterministic verification.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "passed",
+        "detail"
+      ],
+      "title": "Check",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "description": "One factual statement in the answer and the cells that support it.",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "evidence"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "ColumnUse": {
+      "additionalProperties": false,
+      "description": "A column the query read, with the description the agent saw.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "data_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Type"
+        },
+        "sensitive": {
+          "title": "Sensitive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "data_type",
+        "sensitive"
+      ],
+      "title": "ColumnUse",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "description": "One result cell that supports a claim.",
+      "properties": {
+        "row": {
+          "title": "Row",
+          "type": "integer"
+        },
+        "column": {
+          "title": "Column",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "column"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Exposure": {
+      "additionalProperties": false,
+      "description": "A dbt exposure, such as a dashboard, that depends on a used resource.",
+      "properties": {
+        "unique_id": {
+          "title": "Unique Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner"
+        },
+        "maturity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maturity"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Url"
+        }
+      },
+      "required": [
+        "unique_id",
+        "name",
+        "type",
+        "owner",
+        "maturity",
+        "url"
+      ],
+      "title": "Exposure",
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "description": "`dbt source freshness` for an upstream source.",
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "max_loaded_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Loaded At"
+        },
+        "snapshotted_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshotted At"
+        }
+      },
+      "required": [
+        "source",
+        "status",
+        "max_loaded_at",
+        "snapshotted_at"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "Identity": {
+      "additionalProperties": false,
+      "description": "Everything needed to reproduce the run.",
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "agent_digest": {
+          "title": "Agent Digest",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "warehouse": {
+          "title": "Warehouse",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "catalog_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Catalog Digest"
+        },
+        "semantic_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Semantic Digest"
+        },
+        "prompt_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prompt Version"
+        },
+        "runtime_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Runtime Version"
+        }
+      },
+      "required": [
+        "agent",
+        "agent_digest",
+        "model",
+        "warehouse",
+        "manifest_digest",
+        "catalog_digest",
+        "semantic_digest",
+        "prompt_version",
+        "runtime_version"
+      ],
+      "title": "Identity",
+      "type": "object"
+    },
+    "Interpretation": {
+      "additionalProperties": false,
+      "description": "How the agent read the question.",
+      "properties": {
+        "intent": {
+          "title": "Intent",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "start_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Start Date"
+        },
+        "end_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Date"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "intent",
+        "metrics",
+        "dimensions",
+        "start_date",
+        "end_date",
+        "assumptions"
+      ],
+      "title": "Interpretation",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Query": {
+      "additionalProperties": false,
+      "description": "The SQL the model wrote and the SQL TableTalk executed after validation.",
+      "properties": {
+        "dialect": {
+          "title": "Dialect",
+          "type": "string"
+        },
+        "generated": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generated"
+        },
+        "executed": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Executed"
+        }
+      },
+      "required": [
+        "dialect",
+        "generated",
+        "executed"
+      ],
+      "title": "Query",
+      "type": "object"
+    },
+    "Replay": {
+      "additionalProperties": false,
+      "description": "Whether the run can be replayed without a model, and how.",
+      "properties": {
+        "inference_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Inference Fingerprint"
+        },
+        "recorded": {
+          "title": "Recorded",
+          "type": "boolean"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Command"
+        }
+      },
+      "required": [
+        "inference_fingerprint",
+        "recorded",
+        "command"
+      ],
+      "title": "Replay",
+      "type": "object"
+    },
+    "Resource": {
+      "additionalProperties": false,
+      "description": "One dbt resource the answer read.",
+      "properties": {
+        "unique_id": {
+          "title": "Unique Id",
+          "type": "string"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnUse"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/TestStatus"
+          },
+          "title": "Tests",
+          "type": "array"
+        },
+        "upstream": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Upstream",
+          "type": "array"
+        },
+        "freshness": {
+          "items": {
+            "$ref": "#/$defs/Freshness"
+          },
+          "title": "Freshness",
+          "type": "array"
+        },
+        "exposures": {
+          "items": {
+            "$ref": "#/$defs/Exposure"
+          },
+          "title": "Exposures",
+          "type": "array"
+        }
+      },
+      "required": [
+        "unique_id",
+        "relation",
+        "description",
+        "columns",
+        "tests",
+        "upstream",
+        "freshness",
+        "exposures"
+      ],
+      "title": "Resource",
+      "type": "object"
+    },
+    "Result": {
+      "additionalProperties": false,
+      "description": "The bounded evidence rows the answer was formed from.",
+      "properties": {
+        "row_count": {
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "row_count",
+        "rows"
+      ],
+      "title": "Result",
+      "type": "object"
+    },
+    "TestStatus": {
+      "additionalProperties": false,
+      "description": "A dbt test on a used resource. ``status`` is null when run_results.json was absent.",
+      "properties": {
+        "unique_id": {
+          "title": "Unique Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Column"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        }
+      },
+      "required": [
+        "unique_id",
+        "name",
+        "column",
+        "status"
+      ],
+      "title": "TestStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A ``tabletalk.receipt/v1`` answer receipt.",
+  "properties": {
+    "schema_version": {
+      "const": "tabletalk.receipt/v1",
+      "default": "tabletalk.receipt/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "answer": {
+      "title": "Answer",
+      "type": "string"
+    },
+    "trust": {
+      "enum": [
+        "verified",
+        "grounded",
+        "unverified"
+      ],
+      "title": "Trust",
+      "type": "string"
+    },
+    "trust_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trust Reasons",
+      "type": "array"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "interpretation": {
+      "$ref": "#/$defs/Interpretation"
+    },
+    "query": {
+      "$ref": "#/$defs/Query"
+    },
+    "result": {
+      "$ref": "#/$defs/Result"
+    },
+    "resources": {
+      "items": {
+        "$ref": "#/$defs/Resource"
+      },
+      "title": "Resources",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/Check"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "identity": {
+      "$ref": "#/$defs/Identity"
+    },
+    "replay": {
+      "$ref": "#/$defs/Replay"
+    }
+  },
+  "required": [
+    "run_id",
+    "created_at",
+    "question",
+    "answer",
+    "trust",
+    "trust_reasons",
+    "claims",
+    "interpretation",
+    "query",
+    "result",
+    "resources",
+    "checks",
+    "identity",
+    "replay"
+  ],
+  "title": "tabletalk.receipt/v1",
+  "type": "object",
+  "$id": "https://github.com/wtbates99/tabletalk/blob/main/docs/spec/receipt-v1.schema.json"
+}

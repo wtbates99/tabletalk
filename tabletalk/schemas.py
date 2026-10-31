@@ -16,10 +16,11 @@ PROPOSAL_SCHEMA = "tabletalk.proposal/v1"
 PROPOSAL_REJECTION_SCHEMA = "tabletalk.proposal-rejection/v1"
 APPROVAL_SCHEMA = "tabletalk.approval/v1"
 PROVENANCE_SCHEMA = "tabletalk.provenance/v1"
-INFERENCE_SCHEMA = "tabletalk.inference/v1"
+INFERENCE_SCHEMA = "tabletalk.inference/v2"
 RUNTIME_SCHEMA = "tabletalk.runtime/v1"
 REPORT_SCHEMA = "tabletalk.report/v1"
 BASELINE_SCHEMA = "tabletalk.baseline/v1"
+LOCK_SCHEMA = "tabletalk.lock/v1"
 
 
 class SchemaVersionError(ValueError):
