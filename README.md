@@ -141,6 +141,15 @@ The score is a fixed rubric over descriptions, tests, sensitive-data flags,
 resolved semantics, the lock, and eval coverage. Each missing point lists its
 fix. See [the rubric](docs/score.md).
 
+`tabletalk fix` turns the fixes it can make with certainty into a patch for your
+dbt project: it flags columns that look sensitive but have no flag, and copies a
+column description from upstream when every upstream description agrees. It
+never invents a description and never edits dbt files itself.
+
+```console
+tabletalk fix --write fix.patch && git apply fix.patch
+```
+
 ## Use agents from Claude, Cursor, or any MCP client
 
 ```console
