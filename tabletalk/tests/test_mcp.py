@@ -15,19 +15,16 @@ from tabletalk.inference import CachePolicy
 from tabletalk.mcp_server import build_server
 from tabletalk.project import Project
 from tabletalk.runtime import Runtime
-from tabletalk.state import LOCK_FILENAME
+from tabletalk.state import LOCK_FILENAME, snapshot, write_lock
 from tabletalk.tests.test_dbt_native import EXAMPLE, make_runtime
+from tabletalk.tests.test_plan import _add_customer_model, _mutate
 
 # Not an approved eval question, so the receipt is "grounded" rather than eval-checked.
 QUESTION = "How much revenue was recognized in July 2026?"
 
 
-@pytest.fixture
-def project(tmp_path: Path) -> Project:
-    root = tmp_path / "dbt-analytics"
-    shutil.copytree(
-        EXAMPLE, root, ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json")
-    )
+def _stubbed(root: Path) -> Project:
+    """Load the project with an offline stub runtime; also used as the reload loader."""
     loaded = Project.load(root)
     reject = loaded.agent("revenue").reject_if_contains
 
@@ -40,6 +37,15 @@ def project(tmp_path: Path) -> Project:
 
     loaded.runtime = runtime  # type: ignore[method-assign]
     return loaded
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> Project:
+    root = tmp_path / "dbt-analytics"
+    shutil.copytree(
+        EXAMPLE, root, ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json")
+    )
+    return _stubbed(root)
 
 
 def _drift(project: Project) -> None:
@@ -100,6 +106,39 @@ def test_policy_refusals_are_results_not_errors(project: Project) -> None:
     assert result.outcome == "rejected"
     assert result.receipt is None
     assert "forecast revenue" in (result.message or "")
+
+
+def test_a_dbt_rebuild_while_serving_is_caught_on_the_next_call(project: Project) -> None:
+    service = AgentService(project, loader=_stubbed)
+    assert service.ask("revenue", QUESTION).outcome == "answered"
+
+    _mutate(project.root, _add_customer_model)  # dbt rebuilt: group:finance gained a model.
+
+    [summary] = service.agents()
+    assert summary.status == "drifted"
+    with pytest.raises(AgentUnavailableError, match="not served"):
+        service.ask("revenue", QUESTION)
+
+    reviewed = Project.load(project.root)  # Someone reviews the plan and re-locks.
+    write_lock(project.root / LOCK_FILENAME, snapshot(reviewed.agents(), reviewed.manifest))
+
+    assert service.ask("revenue", QUESTION).outcome == "answered"
+    assert "model.analytics.dim_customers" in {
+        resource.unique_id for resource in service.scope("revenue").resources
+    }
+
+
+def test_a_half_written_manifest_is_refused_then_retried(project: Project) -> None:
+    service = AgentService(project, loader=_stubbed)
+    manifest = project.root / "target" / "manifest.json"
+    complete = manifest.read_text()
+
+    manifest.write_text(complete[: len(complete) // 2])
+    with pytest.raises(AgentUnavailableError, match="could not be reloaded"):
+        service.ask("revenue", QUESTION)
+
+    manifest.write_text(complete + "\n")  # The dbt run finishes.
+    assert service.ask("revenue", QUESTION).outcome == "answered"
 
 
 @pytest.mark.anyio
