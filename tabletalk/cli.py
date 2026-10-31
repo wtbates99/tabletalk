@@ -1392,6 +1392,34 @@ def ask(
 
 @cli.command()
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--cache-policy",
+    type=click.Choice([item.value for item in CachePolicy]),
+    help="Override inference.cache_policy for every answer this server gives.",
+)
+def mcp(project_folder: str, cache_policy: str | None) -> None:
+    """Serve locked agents to MCP clients over stdio (needs tabletalk[mcp])."""
+    try:
+        from tabletalk.mcp_server import build_server
+    except ImportError:
+        _fail(ImportError("Install MCP support with: pip install 'tabletalk[mcp]'"))
+    from tabletalk.agent_service import AgentService
+
+    project = _project(project_folder)
+    try:
+        service = AgentService(
+            project, cache_policy=CachePolicy(cache_policy) if cache_policy else None
+        )
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    # stdout carries the protocol; status goes to stderr.
+    served = [agent.name for agent in service.agents() if agent.status == "served"]
+    click.echo(f"tabletalk mcp: serving {', '.join(served) or 'no agents'}", err=True)
+    build_server(service).run("stdio")
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option("--connect/--no-connect", default=True)
 def doctor(project_folder: str, connect: bool) -> None:
     """Validate artifacts, adapter connectivity, selectors, metadata, and eval coverage."""

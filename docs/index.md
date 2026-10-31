@@ -11,6 +11,7 @@ getting-started
 configuration
 evals
 ci
+mcp
 architecture
 commands
 spec/receipt-v1

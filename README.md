@@ -131,6 +131,18 @@ tabletalk receipt replay run_5c0b6a582ba84c14
 `unverified` means that a check failed. The format is an open specification:
 [`tabletalk.receipt/v1`](docs/spec/receipt-v1.md).
 
+## Use agents from Claude, Cursor, or any MCP client
+
+```console
+pip install "tabletalk[mcp]"
+tabletalk mcp --project-folder .
+```
+
+The MCP server serves only agents that match `tabletalk.lock.yaml`, and every
+answer includes its receipt. If a dbt change alters an agent's scope, that agent
+stops answering until the change is reviewed and locked. See
+[MCP server](docs/mcp.md).
+
 ## Check every dbt pull request
 
 ```yaml

@@ -32,9 +32,11 @@ dependencies = [
 [project.optional-dependencies]
 snowflake = ["snowflake-connector-python>=3.0"]
 duckdb    = ["duckdb>=0.9"]
+mcp       = ["mcp>=2,<3"]
 all = [
     "snowflake-connector-python>=3.0",
     "duckdb>=0.9",
+    "mcp>=2,<3",
 ]
 
 [project.scripts]
@@ -56,6 +58,7 @@ dev = [
     "sphinx>=7.0",
     "myst-parser>=3.0",
     "dbt-duckdb>=1.9,<2",
+    "mcp>=2,<3",
 ]
 
 [tool.pytest.ini_options]
