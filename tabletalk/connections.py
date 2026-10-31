@@ -27,12 +27,22 @@ class Target:
     name: str
     adapter: str
     config: dict[str, Any]
+    project_dir: Path | None = None
 
     @property
     def identity(self) -> str:
+        """Return a credential-free warehouse identity that is stable across checkouts.
+
+        A local database file inside the dbt project is named by its project-relative
+        path, so replay artifacts recorded on one machine match on another.
+        """
         safe = [self.adapter]
         for field in ("account", "database", "warehouse", "schema", "database_path"):
             value = self.config.get(field)
+            if field == "database_path" and value and self.project_dir is not None:
+                path = Path(str(value))
+                if path.is_relative_to(self.project_dir):
+                    value = path.relative_to(self.project_dir).as_posix()
             if value:
                 safe.append(f"{field}={value}")
         return ";".join(safe)
@@ -72,7 +82,7 @@ def load_profile_target(
             f"Unsupported dbt adapter '{adapter}'. Supported: {', '.join(SUPPORTED_ADAPTERS)}"
         )
     config = _provider_config(adapter, raw, root)
-    return Target(profile_name, selected, adapter, config)
+    return Target(profile_name, selected, adapter, config, root)
 
 
 def available_targets(

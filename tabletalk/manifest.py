@@ -10,6 +10,45 @@ from pathlib import Path
 from typing import Any
 
 
+# dbt rewrites these on every invocation. They say nothing about the project, so they
+# are excluded from digests: re-running `dbt parse` must not change identity.
+_VOLATILE_METADATA = frozenset(
+    {
+        "generated_at",
+        "invocation_id",
+        "invocation_started_at",
+        "run_started_at",
+        "user_id",
+        "env",
+        "send_anonymous_usage_stats",
+    }
+)
+
+
+def stable_digest(artifact: dict[str, Any]) -> str:
+    """Return a SHA-256 of a dbt artifact without per-invocation metadata.
+
+    ``Any`` is justified here: dbt artifacts are untyped JSON documents.
+    """
+    stable: dict[str, Any] = {}
+    for key, value in artifact.items():
+        if key == "metadata" and isinstance(value, dict):
+            stable[key] = {k: v for k, v in value.items() if k not in _VOLATILE_METADATA}
+        elif isinstance(value, dict):
+            stable[key] = {
+                name: (
+                    {k: v for k, v in item.items() if k != "created_at"}
+                    if isinstance(item, dict)
+                    else item
+                )
+                for name, item in value.items()
+            }
+        else:
+            stable[key] = value
+    canonical = json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
 class ManifestError(ValueError):
     """Raised when a dbt artifact cannot define an unambiguous query scope."""
 
@@ -164,15 +203,8 @@ class Manifest:
     ) -> None:
         self.path = path
         self.payload = payload
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        self.digest = hashlib.sha256(canonical).hexdigest()
-        self.catalog_digest = (
-            hashlib.sha256(
-                json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
-            if catalog
-            else None
-        )
+        self.digest = stable_digest(payload)
+        self.catalog_digest = stable_digest(catalog) if catalog else None
         metadata = payload.get("metadata") or {}
         self.manifest_version = str(metadata.get("dbt_schema_version") or "")
         self.dbt_version = str(metadata.get("dbt_version") or "")

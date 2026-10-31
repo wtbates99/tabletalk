@@ -162,13 +162,23 @@ class Project:
             self.connection(),
             get_llm_provider(llm_config),
             model_identity=f"{provider}:{model}",
-            inference_store=InferenceStore(self.root / ".tabletalk" / "inference"),
+            inference_store=InferenceStore(self._inference_directory(inference_config)),
             cache_policy=selected_policy,
             model_config=dict(llm_config),
             semantic_digest=semantic_digest,
             persist_prompts=bool(inference_config.get("persist_prompts", False)),
             semantic_statements=semantic_statements,
         )
+
+    def _inference_directory(self, inference_config: dict[str, Any]) -> Path:
+        """Return the inference store directory; ``inference.store`` may commit it to git."""
+        configured = inference_config.get("store")
+        if not configured:
+            return self.root / ".tabletalk" / "inference"
+        path = (self.root / str(configured)).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError(f"inference.store must stay inside the project: {configured}")
+        return path
 
     def llm_provider(self) -> LLMProvider:
         llm_config = self.config.get("llm")
