@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from difflib import unified_diff
 from pathlib import Path
@@ -1320,7 +1320,7 @@ def baseline_approve(
             name,
             observations(results),
             actor,
-            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             source_digest,
             tuple(sorted(declared)),
         )

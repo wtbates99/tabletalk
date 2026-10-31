@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -923,7 +923,7 @@ def reject_proposal(
         raise ProposalError("A proposal rejection requires an actor")
     if not reason.strip():
         raise ProposalError("A proposal rejection requires a reason")
-    timestamp = recorded_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = recorded_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     payload = {
         "schema_version": PROPOSAL_REJECTION_SCHEMA,
         "proposal_id": proposal.id,
@@ -982,7 +982,7 @@ def approve_proposal(
     approval = ApprovalRecord.from_proposal(
         proposal,
         recorded_at=recorded_at
-        or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         actor=actor,
         selected_paths=selected_paths,
     )

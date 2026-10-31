@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from tabletalk.manifest import Manifest, Node
@@ -18,7 +18,7 @@ from tabletalk.semantics import (
 )
 
 
-class FindingCode(str, Enum):
+class FindingCode(StrEnum):
     MISSING_MODEL_DESCRIPTION = "missing_model_description"
     MISSING_COLUMN_DESCRIPTION = "missing_column_description"
     MISSING_RELATIONSHIP_EVIDENCE = "missing_relationship_evidence"

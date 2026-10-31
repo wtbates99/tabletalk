@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -26,13 +26,13 @@ class ProposalError(ValueError):
     """A proposal or approval violates an immutable-content rule."""
 
 
-class Confidence(str, Enum):
+class Confidence(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
 
-class ApprovalAction(str, Enum):
+class ApprovalAction(StrEnum):
     APPROVE_ALL = "approve_all"
     APPROVE_SELECTED = "approve_selected"
 

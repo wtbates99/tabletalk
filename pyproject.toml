@@ -7,7 +7,7 @@ name = "tabletalk"
 version = "0.6.0"
 description = "dbt-native development, evaluation, and observability for trusted data agents"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "PolyForm-Noncommercial-1.0.0"
 license-files = ["LICENSE", "LICENSE_HISTORY.md", "COMMERCIAL-LICENSE.md"]
 authors = [{ name = "William Bates", email = "wbates@palanbates.com" }]
@@ -15,9 +15,9 @@ keywords = ["sql", "llm", "dbt", "evaluation", "data-agents", "observability"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: Other/Proprietary License",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -78,7 +78,7 @@ exclude = ["/tabletalk/tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -87,7 +87,7 @@ select = ["E", "F", "I", "UP"]
 "tabletalk/tests/**" = ["E501"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true

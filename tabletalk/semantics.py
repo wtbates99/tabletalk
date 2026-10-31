@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ class SemanticError(ValueError):
     """A semantic statement violates a trust or serialization rule."""
 
 
-class SemanticStatus(str, Enum):
+class SemanticStatus(StrEnum):
     TRUSTED = "trusted"
     CONFIRMED = "confirmed"
     INFERRED = "inferred"
@@ -25,7 +25,7 @@ class SemanticStatus(str, Enum):
     CONFLICTING = "conflicting"
 
 
-class EvidenceKind(str, Enum):
+class EvidenceKind(StrEnum):
     DBT_ARTIFACT = "dbt_artifact"
     SQL_IMPORT = "sql_import"
     BI_QUERY_IMPORT = "bi_query_import"
