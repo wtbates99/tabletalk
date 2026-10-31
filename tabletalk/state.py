@@ -72,6 +72,9 @@ def _digest(text: str) -> str:
     return content_digest(text.strip())[:23]
 
 
+EMPTY_DESCRIPTION = _digest("")
+
+
 def resource_state(node: Node) -> ResourceState:
     """Snapshot one manifest node as the agent sees it."""
     return ResourceState(

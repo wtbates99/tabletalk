@@ -1540,7 +1540,7 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
     if output_format == "json":
         click.echo(result.model_dump_json(indent=2))
     else:
-        console.print(render_plan(result))
+        console.print(render_plan(result), soft_wrap=True)
     if check and result.has_changes:
         raise click.exceptions.Exit(EXIT_DRIFT)
 

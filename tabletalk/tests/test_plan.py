@@ -110,6 +110,48 @@ def test_dropped_column_breaks_the_eval_case_that_reads_it(project_dir: Path) ->
     assert case.reasons == ["fct_orders.recognized_revenue: column removed"]
 
 
+def _rename_column(new_name: str, description: str | None = None) -> Mutation:
+    def mutation(manifest: dict[str, Any], catalog: dict[str, Any]) -> None:
+        columns = manifest["nodes"][FCT]["columns"]
+        column = columns.pop("recognized_revenue")
+        column["name"] = new_name
+        if description is not None:
+            column["description"] = description
+        columns[new_name] = column
+        catalog_columns = catalog["nodes"][FCT]["columns"]
+        [key] = [key for key in catalog_columns if key.lower() == "recognized_revenue"]
+        physical = catalog_columns.pop(key)
+        physical["name"] = new_name.upper() if key.isupper() else new_name
+        catalog_columns[physical["name"]] = physical
+
+    return mutation
+
+
+def test_renamed_column_is_one_breaking_change(project_dir: Path) -> None:
+    locked = _lock(project_dir)
+    _mutate(project_dir, _rename_column("revenue_recognized"))
+
+    plan = _plan(project_dir, locked)
+
+    [change] = plan.changes
+    assert (change.kind, change.impact, change.target, change.detail) == (
+        "column_renamed",
+        "breaks",
+        "fct_orders.recognized_revenue",
+        "renamed to revenue_recognized",
+    )
+    assert [case.case for case in plan.affected_cases] == ["july-recognized-revenue"]
+
+
+def test_rename_with_new_meaning_stays_a_removal_and_an_addition(project_dir: Path) -> None:
+    locked = _lock(project_dir)
+    _mutate(project_dir, _rename_column("net_revenue", "Revenue net of returns in USD."))
+
+    kinds = sorted(change.kind for change in _plan(project_dir, locked).changes)
+
+    assert kinds == ["column_added", "column_removed"]
+
+
 def test_selector_expansion_flags_new_resource_and_sensitive_columns(project_dir: Path) -> None:
     locked = _lock(project_dir)
     _mutate(project_dir, _add_customer_model)
@@ -225,8 +267,9 @@ def test_offline_drift_demo_blocks_the_pr() -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "fct_orders.recognized_revenue" in result.stdout
-    assert "column removed" in result.stdout
-    assert "model.analytics.dim_customers" in result.stdout
+    assert "renamed to revenue_recognized" in result.stdout
+    # Non-terminal output (CI logs) must keep each change on one line.
+    assert "scope expands · 2 columns · sensitive: customer_id, email" in result.stdout
     assert "revenue-capability › july-recognized-revenue" in result.stdout
 
 

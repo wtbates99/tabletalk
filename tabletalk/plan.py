@@ -18,7 +18,14 @@ from sqlglot.errors import SqlglotError
 
 from tabletalk.evals import EvalError, EvalSuite, render_reference_sql
 from tabletalk.manifest import Manifest, ManifestError
-from tabletalk.state import LOCK_FILENAME, AgentState, LockFile, ResourceState
+from tabletalk.state import (
+    EMPTY_DESCRIPTION,
+    LOCK_FILENAME,
+    AgentState,
+    ColumnState,
+    LockFile,
+    ResourceState,
+)
 
 ChangeKind = Literal[
     "agent_added",
@@ -29,6 +36,7 @@ ChangeKind = Literal[
     "resource_logic_changed",
     "column_added",
     "column_removed",
+    "column_renamed",
     "column_type_changed",
     "description_changed",
     "sensitivity_changed",
@@ -53,6 +61,7 @@ _AT_RISK_KINDS = {
     "resource_removed",
     "resource_logic_changed",
     "column_removed",
+    "column_renamed",
     "column_type_changed",
     "description_changed",
     "sensitivity_changed",
@@ -262,7 +271,12 @@ def _resource_changes(
         changes.append(change("resource_logic_changed", "changes", "model SQL changed"))
     if old.description_digest != new.description_digest:
         changes.append(change("description_changed", "changes", "description changed"))
+    renames = _renames(old.columns, new.columns)
+    for previous, renamed in sorted(renames.items()):
+        changes.append(change("column_renamed", "breaks", f"renamed to {renamed}", previous))
     for column in sorted(set(old.columns) | set(new.columns)):
+        if column in renames or column in renames.values():
+            continue
         before, after = old.columns.get(column), new.columns.get(column)
         if before is None and after is not None:
             note = " · sensitive" if after.sensitive else ""
@@ -311,6 +325,31 @@ def _resource_changes(
         detail = " ".join(part for part in parts if part) + " dbt tests"
         changes.append(change("tests_changed", "changes", detail))
     return changes
+
+
+def _renames(old: dict[str, ColumnState], new: dict[str, ColumnState]) -> dict[str, str]:
+    """Pair removed with added columns that keep their type and documented meaning.
+
+    A pair counts only when the match is one-to-one and the description is non-empty,
+    so two undocumented integer columns are never mistaken for a rename.
+    """
+
+    def signature(column: ColumnState) -> tuple[str | None, str]:
+        return column.data_type, column.description_digest
+
+    removed = {name: old[name] for name in old.keys() - new.keys()}
+    added = {name: new[name] for name in new.keys() - old.keys()}
+    pairs: dict[str, str] = {}
+    for name, column in removed.items():
+        if column.description_digest == EMPTY_DESCRIPTION:
+            continue
+        candidates = [
+            other for other, item in added.items() if signature(item) == signature(column)
+        ]
+        rivals = [other for other, item in removed.items() if signature(item) == signature(column)]
+        if len(candidates) == 1 and len(rivals) == 1:
+            pairs[name] = candidates[0]
+    return pairs
 
 
 def _affected(changes: Sequence[Change], footprints: Sequence[CaseFootprint]) -> list[AffectedCase]:
