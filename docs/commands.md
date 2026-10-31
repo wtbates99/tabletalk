@@ -22,6 +22,7 @@
 | `tabletalk receipt schema` | Print the receipt JSON Schema. |
 | `tabletalk lock` | Record each agent's resolved dbt scope in `tabletalk.lock.yaml`. |
 | `tabletalk plan` | Diff the current manifest against the lock and list eval cases at risk. |
+| `tabletalk fix` | Print certain dbt YAML fixes as a patch for `git apply`. Never edits dbt files. |
 | `tabletalk score` | Score each agent's readiness (0–100) with the fixes worth the most points. |
 | `tabletalk mcp` | Serve locked agents to MCP clients over stdio. Needs `tabletalk[mcp]`. |
 | `tabletalk doctor` | Validate artifacts, target access, selectors, and eval coverage. |

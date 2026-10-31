@@ -150,7 +150,7 @@ def score_agent(
                 else "No unflagged sensitive-looking columns"
             ),
             fix=(
-                "Set meta: {sensitive: true} on "
+                "Run 'tabletalk fix' to flag "
                 + _examples([reference.split(".", 2)[-1] for reference in suspected])
                 if suspected
                 else None

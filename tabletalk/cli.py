@@ -40,6 +40,7 @@ from tabletalk.evals import (
     suite_result_from_dict,
 )
 from tabletalk.executors import LocalExecutor
+from tabletalk.fixes import plan_fixes
 from tabletalk.imports import ImportKind, QueryImportPreview, preview_import
 from tabletalk.inference import CachePolicy, ReplayMissError
 from tabletalk.manifest import Manifest, Node
@@ -1616,6 +1617,58 @@ def score(project_folder: str, output_format: str, badge: Path | None) -> None:
         click.echo(result.model_dump_json(indent=2))
     else:
         console.print(render_score(result))
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option("--agent", "agent_names", multiple=True, help="Limit fixes to these agents.")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["terminal", "json", "patch"]),
+    default="terminal",
+    help="'patch' prints only the diff, for piping into 'git apply'.",
+)
+@click.option(
+    "--write",
+    "patch_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Also write the patch to this file.",
+)
+def fix(
+    project_folder: str, agent_names: tuple[str, ...], output_format: str, patch_path: Path | None
+) -> None:
+    """Suggest certain dbt YAML fixes as a patch. TableTalk never edits dbt files."""
+    project = _project(project_folder)
+    try:
+        agents = (
+            tuple(project.agent(name) for name in agent_names) if agent_names else project.agents()
+        )
+        result = plan_fixes(agents, project.manifest, project.dbt_project_dir)
+    except (OSError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if patch_path and result.patch:
+        patch_path.write_text(result.patch)
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+        return
+    if output_format == "patch":
+        click.echo(result.patch, nl=False)
+        return
+    if not result.fixes and not result.manual:
+        console.print("No certain dbt fixes. Run [bold]tabletalk score[/bold] for the rest.")
+        return
+    for item in result.fixes:
+        console.print(f"[green]fix[/green]    {item.model}.{item.column}: {item.detail}")
+    for manual in result.manual:
+        console.print(f"[yellow]manual[/yellow] {manual.model}.{manual.column}: {manual.reason}")
+    if result.patch:
+        console.print()
+        console.print(result.patch, highlight=False, markup=False, soft_wrap=True)
+        target = (
+            f"git apply {patch_path}" if patch_path else "tabletalk fix --format patch | git apply"
+        )
+        console.print(f"Review the diff, then apply it in the dbt project: [bold]{target}[/bold]")
 
 
 @cli.group()
