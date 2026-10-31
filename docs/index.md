@@ -20,5 +20,4 @@ spec/receipt-v1
 research
 release
 contributing
-notes/metricflow-spike
 ```
