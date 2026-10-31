@@ -32,7 +32,11 @@ Mutation = Callable[[dict[str, Any], dict[str, Any]], None]
 @pytest.fixture
 def project_dir(tmp_path: Path) -> Path:
     target = tmp_path / "dbt-analytics"
-    shutil.copytree(EXAMPLE, target, ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json"))
+    shutil.copytree(
+        EXAMPLE,
+        target,
+        ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json"),
+    )
     return target
 
 

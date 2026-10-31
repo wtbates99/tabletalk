@@ -19,7 +19,11 @@ QUESTION = "What was recognized revenue in July 2026?"
 
 def _checkout(tmp_path: Path, name: str) -> Path:
     target = tmp_path / name / "dbt-analytics"
-    shutil.copytree(EXAMPLE, target, ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json"))
+    shutil.copytree(
+        EXAMPLE,
+        target,
+        ignore=shutil.ignore_patterns(".tabletalk", "*.duckdb*", "run_results.json"),
+    )
     duckdb.connect(str(target / "analytics.duckdb")).close()  # The runtime opens it read-only.
     return target
 
