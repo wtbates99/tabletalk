@@ -1,12 +1,34 @@
 # Contributing
 
+## Maintenance mode
+
+TableTalk is in maintenance mode. There is no active feature development, and
+responses are slow: expect days to weeks.
+
+Pull requests that will be reviewed:
+
+- Security fixes, especially to the SQL guard. A failing test that reproduces
+  the bypass is the most useful part. Private vulnerability reporting is not
+  enabled on the repository, so open an issue that describes the class of
+  bypass without a working query, and ask for a private channel.
+- Bug fixes with a test that fails before the fix.
+- Compatibility fixes for new versions of dbt, sqlglot, DuckDB, or the
+  Snowflake connector.
+- Corrections to the documentation.
+
+New features, new adapters, and large refactors will probably not be reviewed.
+Open an issue first if you are unsure.
+
+## Development
+
 TableTalk requires Python 3.11+ and uses `uv`:
 
 ```console
 uv sync --locked --all-groups
 uv run pytest -q
 uv run ruff check .
-uv run mypy tabletalk
+uv run mypy --strict tabletalk scripts
+uv run ruff format --check .
 ```
 
 The acceptance fixture is a real dbt project under `examples/dbt-analytics`. When its dbt resources

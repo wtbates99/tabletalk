@@ -30,16 +30,18 @@ question -> resolved agent -> trusted meaning -> model inference
 
 ## Safety rules
 
-Validation rejects multiple statements, writes, commands, external-read
-functions, unknown or ambiguous relations, unknown columns, joins without a
-condition, excessive limits, and unapproved sensitive data.
+Validation rejects multiple statements, writes, commands, a denylist of
+functions, table functions, unknown or ambiguous relations, unknown columns,
+joins without a condition, and unapproved sensitive data. It lowers integer
+limits above `max_rows`. The [security model](security-model.md) lists what it
+does not catch.
 
 Lineage proves dependency. It does not prove join correctness. Join evidence
 must come from constraints, relationship tests, explicit metadata, or approved
 eval behavior.
 
-The connector permission is the final security boundary. SQL validation adds a
-second deterministic boundary.
+The warehouse identity's permissions are the security boundary. SQL validation
+is a second, deterministic check in front of it.
 
 ## Reproducibility
 
