@@ -131,6 +131,16 @@ tabletalk receipt replay run_5c0b6a582ba84c14
 `unverified` means that a check failed. The format is an open specification:
 [`tabletalk.receipt/v1`](docs/spec/receipt-v1.md).
 
+## Score readiness
+
+```console
+tabletalk score --badge .github/badges/agent-ready.json
+```
+
+The score is a fixed rubric over descriptions, tests, sensitive-data flags,
+resolved semantics, the lock, and eval coverage. Each missing point lists its
+fix. See [the rubric](docs/score.md).
+
 ## Use agents from Claude, Cursor, or any MCP client
 
 ```console

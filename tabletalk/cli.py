@@ -71,6 +71,7 @@ from tabletalk.schemas import (
     content_digest,
     require_schema_version,
 )
+from tabletalk.score import combine, render_score, score_agent, write_badge
 from tabletalk.semantic_analysis import analyze_semantics
 from tabletalk.semantic_inference import infer_semantic_answers
 from tabletalk.state import (
@@ -1560,12 +1561,7 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
     try:
         locked = load_lock(path)
         current = snapshot(project.agents(), project.manifest)
-        suites = [
-            load_eval_suite(item)
-            for item in sorted(
-                (*project.evals_directory.glob("*.yaml"), *project.evals_directory.glob("*.yml"))
-            )
-        ]
+        suites = project.eval_suites()
     except (LockError, ValueError) as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     if locked is None:
@@ -1586,6 +1582,40 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
         console.print(render_plan(result), soft_wrap=True)
     if check and result.has_changes:
         raise click.exceptions.Exit(EXIT_DRIFT)
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+@click.option(
+    "--badge",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Also write a shields.io endpoint JSON file for a README badge.",
+)
+def score(project_folder: str, output_format: str, badge: Path | None) -> None:
+    """Score how ready each agent's dbt scope is for a data agent (0–100)."""
+    project = _project(project_folder)
+    try:
+        lock = load_lock(project.root / LOCK_FILENAME)
+        suites = project.eval_suites()
+        result = combine(
+            [
+                score_agent(
+                    agent, project.manifest, project.semantic_statements(agent), suites, lock
+                )
+                for agent in sorted(project.agents(), key=lambda item: item.name)
+            ]
+        )
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if badge:
+        write_badge(badge, result)
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        console.print(render_score(result))
 
 
 @cli.group()

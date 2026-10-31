@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -19,6 +19,9 @@ from tabletalk.runtime import Runtime
 from tabletalk.schemas import PROJECT_SCHEMA, content_digest, require_schema_version
 from tabletalk.semantics import SemanticKnowledge, SemanticStatement
 from tabletalk.traces import Trace, Verification
+
+if TYPE_CHECKING:
+    from tabletalk.evals import EvalSuite  # Imported lazily at runtime: evals imports runtime.
 
 
 class Project:
@@ -102,6 +105,17 @@ class Project:
         if len(matches) > 1:
             raise ValueError(f"Agent name '{name}' is duplicated")
         return matches[0]
+
+    def eval_suites(self) -> list[EvalSuite]:
+        """Load every eval suite in the project's evals directory, sorted by path."""
+        from tabletalk.evals import load_eval_suite
+
+        paths = (*self.evals_directory.glob("*.yaml"), *self.evals_directory.glob("*.yml"))
+        return [load_eval_suite(path) for path in sorted(paths)]
+
+    def semantic_statements(self, agent: Agent) -> tuple[SemanticStatement, ...]:
+        """Return the semantic statements from the agent's knowledge files."""
+        return self._semantic_context(agent)[1]
 
     def resolve_agent(self, name: str) -> ResolvedAgent:
         return self.agent(name).resolve(self.manifest)
