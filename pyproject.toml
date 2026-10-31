@@ -24,7 +24,7 @@ dependencies = [
     "click>=8.0",
     "openai>=1.0.0",
     "rich>=13.0",
-    "sqlglot>=25.0",
+    "sqlglot>=30.14",
     "pydantic>=2.6",
 ]
 

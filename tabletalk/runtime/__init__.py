@@ -38,7 +38,7 @@ from tabletalk.traces import (
     Usage,
     Verification,
 )
-from tabletalk.validation import SQLValidationError, validate_sql
+from tabletalk.validation import SQLValidationError, check_result_columns, validate_sql
 
 _QUERY_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -331,6 +331,15 @@ class Runtime:
         except Exception as exc:
             raise RuntimeError(f"Read-only query execution failed: {exc}") from exc
         try:
+            # Backstop: check what the warehouse returned before rows reach the model or trace.
+            result_columns = check_result_columns(
+                validated, tuple(dict.fromkeys(key for row in rows for key in row))
+            )
+        except SQLValidationError as exc:
+            error = RejectionError(f"Question rejected: {exc}")
+            self._store_outcome(fingerprint, recorder, error, started)
+            raise error from exc
+        try:
             answer_payload = recorder.generate_structured(
                 [
                     {
@@ -399,7 +408,7 @@ class Runtime:
             answer=Answer(str(answer_payload["text"]), claims),
             verification=validated.checks
             + budget_checks
-            + (execution,)
+            + (execution, result_columns)
             + claim_checks
             + disclosure_checks,
             agent=self.agent.source.name,
