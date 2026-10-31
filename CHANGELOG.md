@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (unreleased)
+## 0.7.0 (2026-10-31)
 
 TableTalk is alpha software in maintenance mode. See the README's Status
 section for what is and is not verified.
