@@ -1,23 +1,25 @@
 {
   "calls": [
     {
-      "completion_tokens": 92,
-      "input_digest": "sha256:91af530cd6f30970319bfa1a9ab8ca148ed4c29907887f8b1b0013b1fb340d08",
-      "latency_ms": 657.0172080537304,
+      "completion_tokens": 103,
+      "input_digest": "sha256:485a11ac49b14a3da962d9150beeb90658294d5c1fd3d8538f6bb45caece1fa8",
+      "latency_ms": 2522.044665995054,
       "output": {
         "interpretation": {
           "assumptions": [],
-          "dimensions": [],
+          "dimensions": [
+            "customer_id"
+          ],
           "end_date": null,
-          "intent": "Count the total number of orders marked as late.",
+          "intent": "List customer IDs and their total recognized revenue, excluding cancelled orders.",
           "metrics": [
-            "count(order_id)"
+            "recognized_revenue"
           ],
           "start_date": null
         },
         "rejection": null,
         "rejection_kind": null,
-        "sql": "SELECT count(order_id) AS late_order_count FROM \"analytics\".\"main\".\"fct_orders\" WHERE late_order = true"
+        "sql": "SELECT customer_id, SUM(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_status != 'cancelled' GROUP BY 1"
       },
       "prompt_tokens": 995,
       "provider_errors": [],
@@ -26,8 +28,8 @@
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:27:56.725318+00:00",
-  "digest": "sha256:466b2e75d414bd2d701ee053eea0c79f2507244c844d498b9d2b75418adbb836",
+  "created_at": "2026-10-31T19:44:26.192714+00:00",
+  "digest": "sha256:4e2213b2db0ff4ed3b72bb53aacd9dd984c7e0b15b0b6e44506265f25b015f1b",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -36,7 +38,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -44,25 +45,26 @@
     },
     "model_identity": "ollama:gemma4:31b-cloud",
     "prompt_version": "tabletalk.prompt/v2",
-    "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
+    "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 3
+    "trial": 2
   },
-  "fingerprint_digest": "sha256:06b51562fa88802630d2f51ab5e6533eb04ce4cec88856dc4cd2b0adc239cce6",
-  "id": "inf_466b2e75d414bd2d",
+  "fingerprint_digest": "sha256:0b3f8988cfd45552b5c74d72b0e1f916ed11d7833f3859356271f4a517452381",
+  "id": "inf_4e2213b2db0ff4ed",
   "outcome": {
     "kind": "rejection",
-    "message": "Question rejected: Semantic statement 'late_order' is inferred and untrusted",
+    "message": "Question rejected: Sensitive columns require explicit permission: customer_id",
     "usage": {
-      "completion_tokens": 92,
+      "completion_tokens": 103,
       "estimated_cost": null,
-      "latency_ms": 659.0793340001255,
+      "latency_ms": 2524.984708055854,
       "prompt_tokens": 995,
       "provider_errors": [],
       "retry_count": 0
     }
   },
-  "schema_version": "tabletalk.inference/v1",
+  "schema_version": "tabletalk.inference/v2",
   "trace": null
 }

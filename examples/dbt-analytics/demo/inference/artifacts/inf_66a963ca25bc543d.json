@@ -3,7 +3,7 @@
     {
       "completion_tokens": 103,
       "input_digest": "sha256:485a11ac49b14a3da962d9150beeb90658294d5c1fd3d8538f6bb45caece1fa8",
-      "latency_ms": 1278.8710410241038,
+      "latency_ms": 559.8593750037253,
       "output": {
         "interpretation": {
           "assumptions": [],
@@ -28,8 +28,8 @@
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:27:48.912835+00:00",
-  "digest": "sha256:fd7d0d6238b4e1bdff650469ab6f62270fc617ad1d83eb228ec60465b7338c9a",
+  "created_at": "2026-10-31T19:44:21.272071+00:00",
+  "digest": "sha256:66a963ca25bc543d743acac66c874404d08df69aec7a7f0a1b3f34adf3c68c2e",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -38,7 +38,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -48,23 +47,24 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
     "trial": 1
   },
-  "fingerprint_digest": "sha256:ea511b11c97d59581b3997716e3722e839c8c2633be33f2a36bd68686f2420de",
-  "id": "inf_fd7d0d6238b4e1bd",
+  "fingerprint_digest": "sha256:c5d01e22f4e6e8b666f0c57515fd162466df61f8c478c71b61191b95a4bf4193",
+  "id": "inf_66a963ca25bc543d",
   "outcome": {
     "kind": "rejection",
     "message": "Question rejected: Sensitive columns require explicit permission: customer_id",
     "usage": {
       "completion_tokens": 103,
       "estimated_cost": null,
-      "latency_ms": 1281.3370829680935,
+      "latency_ms": 560.9314580215141,
       "prompt_tokens": 995,
       "provider_errors": [],
       "retry_count": 0
     }
   },
-  "schema_version": "tabletalk.inference/v1",
+  "schema_version": "tabletalk.inference/v2",
   "trace": null
 }

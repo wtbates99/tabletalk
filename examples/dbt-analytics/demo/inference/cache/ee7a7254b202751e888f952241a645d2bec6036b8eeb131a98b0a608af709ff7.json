@@ -1,6 +1,6 @@
 {
-  "artifact_digest": "sha256:3c9869481b5998dcf9df61d5b7d9ce0f574d191fcb7b873e5b321414784eb77e",
-  "artifact_id": "inf_3c9869481b5998dc",
+  "artifact_digest": "sha256:40fd026b98d179cfbc4a75d0cb8d7a072bfd1e54a094f6427d944b6eda5fea74",
+  "artifact_id": "inf_40fd026b98d179cf",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -9,7 +9,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -17,8 +16,9 @@
     },
     "model_identity": "ollama:gemma4:31b-cloud",
     "prompt_version": "tabletalk.prompt/v2",
-    "question_digest": "sha256:80dfb012ab10384ca926831310779db3984fed7c79d04986550e41066418ded3",
+    "question_digest": "sha256:a601444a450436b7559a325a0f259c6721edb9e5dcfb2e92715f161d021ef5fe",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
     "trial": 3
   }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Any
@@ -157,11 +157,21 @@ class Runtime:
         self.persist_prompts = persist_prompts
         self.semantic_statements = semantic_statements
 
+    @property
+    def scope_digest(self) -> str:
+        """Digest the agent's prompt context and the normalized dbt nodes in its scope."""
+        return content_digest(
+            {
+                "prompt_context": self.agent.prompt_context(),
+                "nodes": [asdict(node) for node in self.agent.nodes],
+            }
+        )
+
     def fingerprint(self, question: str, *, trial: int = 1) -> InferenceFingerprint:
         return InferenceFingerprint(
             question_digest=content_digest(" ".join(question.split())),
             agent_digest=self.agent.source.digest,
-            manifest_digest=self.manifest.digest,
+            scope_digest=self.scope_digest,
             semantic_digest=self.semantic_digest,
             model_identity=self.model_identity,
             model_config=self.model_config,
@@ -210,7 +220,12 @@ class Runtime:
                     raise ValueError("Cached inference artifact has no trace")
                 return replace(cached.trace, question=question, cache_hit=True)
             if self.cache_policy is CachePolicy.REPLAY:
-                raise ReplayMissError(f"Strict replay found no artifact for {fingerprint.digest}")
+                raise ReplayMissError(
+                    f"Strict replay found no artifact for agent '{self.agent.source.name}' "
+                    f"({fingerprint.digest}). The agent's dbt scope, semantics, prompt, model, "
+                    "or warehouse changed since the recording. Run 'tabletalk plan' to see "
+                    "agent changes, then re-record with '--cache-policy write-only'."
+                )
         recorder = RecordingLLM(self.llm, persist_prompts=self.persist_prompts)
         normalized_question = question.casefold()
         blocked_term = next(

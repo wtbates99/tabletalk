@@ -81,3 +81,31 @@ def test_inference_store_can_live_in_the_repository(tmp_path: Path) -> None:
     config_path.write_text(yaml.safe_dump(config))
     with pytest.raises(ValueError, match="must stay inside the project"):
         Project.load(root).runtime("revenue")
+
+
+def _rewrite_node(root: Path, unique_id: str, **fields: str) -> None:
+    path = root / "target" / "manifest.json"
+    payload = json.loads(path.read_text())
+    payload["nodes"][unique_id].update(fields)
+    path.write_text(json.dumps(payload))
+
+
+def test_fingerprint_survives_dbt_changes_outside_agent_scope(tmp_path: Path) -> None:
+    root = _checkout(tmp_path, "a")
+    before = Project.load(root).runtime("revenue").fingerprint(QUESTION).digest
+
+    # shared_calendar is not in group:finance, so the revenue agent never sees it.
+    _rewrite_node(root, "model.shared_models.shared_calendar", description="Reworded.")
+
+    after = Project.load(root)
+    assert after.manifest.digest != Manifest.load(EXAMPLE / "target" / "manifest.json").digest
+    assert after.runtime("revenue").fingerprint(QUESTION).digest == before
+
+
+def test_fingerprint_changes_when_agent_scope_changes(tmp_path: Path) -> None:
+    root = _checkout(tmp_path, "a")
+    before = Project.load(root).runtime("revenue").fingerprint(QUESTION).digest
+
+    _rewrite_node(root, "model.analytics.fct_orders", description="One row per shipment.")
+
+    assert Project.load(root).runtime("revenue").fingerprint(QUESTION).digest != before

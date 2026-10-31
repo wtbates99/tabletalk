@@ -1,13 +1,13 @@
 {
   "calls": [
     {
-      "completion_tokens": 162,
+      "completion_tokens": 174,
       "input_digest": "sha256:2f48a2d2d2939ef60a008824975c93bd08673693ea495ae3418daf3dfe4fa148",
-      "latency_ms": 685.7313750078902,
+      "latency_ms": 695.4247079556808,
       "output": {
         "interpretation": {
           "assumptions": [
-            "Revenue is interpreted as recognized_revenue based on the trusted semantic statements provided."
+            "Revenue is interpreted as recognized_revenue based on the trusted semantic statement, which excludes cancelled orders and uses the order_date for timing."
           ],
           "dimensions": [],
           "end_date": "2026-07-31",
@@ -28,8 +28,8 @@
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:27:51.829844+00:00",
-  "digest": "sha256:325d5859d2697f5546534382d80d24bd321558dfae3be01d7caea444929eeb4b",
+  "created_at": "2026-10-31T19:44:23.665692+00:00",
+  "digest": "sha256:55a831e4b1bcd1243e6f193cd402532e6350c373b732ac6fe0767649bf446df8",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -38,7 +38,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -48,23 +47,24 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:8ad0bd1937fa74589d194a983a4fc95c5821f71b64e96f1474e27d10e95db642",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
     "trial": 2
   },
-  "fingerprint_digest": "sha256:78fefc3ce35014de2eeffaaea865f92230b3308b9927ef6fd9a1e4991d97fdef",
-  "id": "inf_325d5859d2697f55",
+  "fingerprint_digest": "sha256:8052badec99786689cb5a47c299260e467dddfea61ce81835c0bd1b9ad754002",
+  "id": "inf_55a831e4b1bcd124",
   "outcome": {
     "kind": "ambiguity",
     "message": "Question rejected: The revenue basis is ambiguous. Name one field: booked_revenue, recognized_revenue",
     "usage": {
-      "completion_tokens": 162,
+      "completion_tokens": 174,
       "estimated_cost": null,
-      "latency_ms": 689.0941249439493,
+      "latency_ms": 698.6639579990879,
       "prompt_tokens": 999,
       "provider_errors": [],
       "retry_count": 0
     }
   },
-  "schema_version": "tabletalk.inference/v1",
+  "schema_version": "tabletalk.inference/v2",
   "trace": null
 }

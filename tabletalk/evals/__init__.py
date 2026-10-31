@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from tabletalk.inference import ReplayMissError
 from tabletalk.manifest import Manifest
 from tabletalk.runtime import AmbiguityError, RejectionError, Runtime
 from tabletalk.schemas import EVAL_RESULT_SCHEMA, EVAL_SCHEMA, require_schema_version
@@ -472,6 +473,8 @@ class EvalRunner:
     def _run_case(self, case: EvalCase, trial: int) -> CaseResult:
         try:
             trace = self.runtime.answer(case.question, trial=trial)
+        except ReplayMissError:
+            raise  # No recording is not an agent failure. Callers report it separately.
         except Exception as exc:
             expected_exception = (
                 case.expected_outcome == "ambiguity" and isinstance(exc, AmbiguityError)

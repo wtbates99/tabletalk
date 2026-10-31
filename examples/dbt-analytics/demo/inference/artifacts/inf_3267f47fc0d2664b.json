@@ -3,7 +3,7 @@
     {
       "completion_tokens": 190,
       "input_digest": "sha256:2f48a2d2d2939ef60a008824975c93bd08673693ea495ae3418daf3dfe4fa148",
-      "latency_ms": 2334.9507090169936,
+      "latency_ms": 994.9784999480471,
       "output": {
         "interpretation": {
           "assumptions": [
@@ -29,8 +29,8 @@
       "stage": "query"
     }
   ],
-  "created_at": "2026-10-31T19:27:47.629819+00:00",
-  "digest": "sha256:09d9e373625793bf5e12716cf9dc109777064b65b60c06a10e48f9a04b5a412f",
+  "created_at": "2026-10-31T19:44:29.290251+00:00",
+  "digest": "sha256:3267f47fc0d2664b2a4fd151cb3ee4ddaa5676d6ecc2509b2963888167d68eb3",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -39,7 +39,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -49,23 +48,24 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:8ad0bd1937fa74589d194a983a4fc95c5821f71b64e96f1474e27d10e95db642",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 1
+    "trial": 3
   },
-  "fingerprint_digest": "sha256:fd704364c122226b5d61775c01e9f5d3048afb2a096fd9b181d9a016bb195481",
-  "id": "inf_09d9e373625793bf",
+  "fingerprint_digest": "sha256:03e7e0f19a05e24387149a622c5bd857bbbc96978ead0f8b65546bd365077a01",
+  "id": "inf_3267f47fc0d2664b",
   "outcome": {
     "kind": "ambiguity",
     "message": "Question rejected: The revenue basis is ambiguous. Name one field: booked_revenue, recognized_revenue",
     "usage": {
       "completion_tokens": 190,
       "estimated_cost": null,
-      "latency_ms": 2338.2389170583338,
+      "latency_ms": 996.2873751064762,
       "prompt_tokens": 999,
       "provider_errors": [],
       "retry_count": 0
     }
   },
-  "schema_version": "tabletalk.inference/v1",
+  "schema_version": "tabletalk.inference/v2",
   "trace": null
 }

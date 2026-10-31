@@ -1,17 +1,15 @@
 {
   "calls": [
     {
-      "completion_tokens": 172,
+      "completion_tokens": 152,
       "input_digest": "sha256:53a2265f81895f06f1759b1d1e1048ab50e076028896018e528b156364f4e839",
-      "latency_ms": 740.1162089081481,
+      "latency_ms": 670.2737080631778,
       "output": {
         "interpretation": {
-          "assumptions": [
-            "Recognized revenue is calculated as the sum of recognized_revenue where order_status is not 'cancelled'."
-          ],
+          "assumptions": [],
           "dimensions": [],
           "end_date": "2026-07-31",
-          "intent": "Calculate the total recognized revenue for the month of July 2026.",
+          "intent": "Calculate the total recognized revenue for July 2026.",
           "metrics": [
             "recognized_revenue"
           ],
@@ -19,7 +17,7 @@
         },
         "rejection": null,
         "rejection_kind": null,
-        "sql": "SELECT sum(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
+        "sql": "SELECT sum(recognized_revenue) AS recognized_revenue\nFROM \"analytics\".\"main\".\"fct_orders\"\nWHERE order_date >= '2026-07-01'\n  AND order_date <= '2026-07-31'\n  AND order_status != 'cancelled'"
       },
       "prompt_tokens": 1000,
       "provider_errors": [],
@@ -28,15 +26,15 @@
       "stage": "query"
     },
     {
-      "completion_tokens": 63,
-      "input_digest": "sha256:31b42e4428ed5e62ca532760275055d724e946c82b7e1b961b4745cf67f590a5",
-      "latency_ms": 408.32370799034834,
+      "completion_tokens": 61,
+      "input_digest": "sha256:c9c57772237eba52691e1e4399517d116c18804f5e883894eeefb7173066a09a",
+      "latency_ms": 494.94775000493973,
       "output": {
         "claims": [
           {
             "evidence": [
               {
-                "column": "total_recognized_revenue",
+                "column": "recognized_revenue",
                 "row": 0
               }
             ],
@@ -45,15 +43,15 @@
         ],
         "text": "The recognized revenue in July 2026 was 184.25."
       },
-      "prompt_tokens": 360,
+      "prompt_tokens": 356,
       "provider_errors": [],
       "retry_count": 0,
       "schema_digest": "sha256:870aba82a2959d21d354b1c210e2af6a667c2ff69c5f47a1a2e6da1216e72a72",
       "stage": "answer"
     }
   ],
-  "created_at": "2026-10-31T19:27:54.497960+00:00",
-  "digest": "sha256:8e4081830bed1a1673600f968409d5bcc1e8e8b9f97db088aae85ae66220502f",
+  "created_at": "2026-10-31T19:44:22.964491+00:00",
+  "digest": "sha256:06d74d313a386522c34d3ac88c2f8201a80cb534aa396b9582078bb8295e1fd6",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -62,7 +60,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -72,12 +69,13 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:6929e33ad1a68d9efdf00ba52da0efa154ae04d64dea5c27c616f055a8846195",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 3
+    "trial": 2
   },
-  "fingerprint_digest": "sha256:9f6864a5171f4fa73728c7d032a66d923befdc70f2c359e17a2e6ab8ab58fbde",
-  "id": "inf_8e4081830bed1a16",
-  "schema_version": "tabletalk.inference/v1",
+  "fingerprint_digest": "sha256:1d6c073c73a3e23b5a579cc7656f406af4294f04ca45b50ad7cb7a1d28acfa54",
+  "id": "inf_06d74d313a386522",
+  "schema_version": "tabletalk.inference/v2",
   "trace": {
     "agent": "revenue",
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
@@ -86,7 +84,7 @@
         {
           "evidence": [
             {
-              "column": "total_recognized_revenue",
+              "column": "recognized_revenue",
               "row": 0
             }
           ],
@@ -96,7 +94,7 @@
       "text": "The recognized revenue in July 2026 was 184.25."
     },
     "cache_hit": false,
-    "created_at": "2026-10-31T19:27:54.497923+00:00",
+    "created_at": "2026-10-31T19:44:22.964480+00:00",
     "dbt_context": {
       "catalog_digest": "a19973232d974f7a7dcaf5065b33b43d496e3e935b2b5b9cdea572e459e55708",
       "columns": [
@@ -120,14 +118,12 @@
       }
     },
     "eval_suite_digest": null,
-    "inference_fingerprint": "sha256:9f6864a5171f4fa73728c7d032a66d923befdc70f2c359e17a2e6ab8ab58fbde",
+    "inference_fingerprint": "sha256:1d6c073c73a3e23b5a579cc7656f406af4294f04ca45b50ad7cb7a1d28acfa54",
     "interpretation": {
-      "assumptions": [
-        "Recognized revenue is calculated as the sum of recognized_revenue where order_status is not 'cancelled'."
-      ],
+      "assumptions": [],
       "dimensions": [],
       "end_date": "2026-07-31",
-      "intent": "Calculate the total recognized revenue for the month of July 2026.",
+      "intent": "Calculate the total recognized revenue for July 2026.",
       "metrics": [
         "recognized_revenue"
       ],
@@ -140,7 +136,7 @@
       "row_count": 1,
       "rows": [
         {
-          "total_recognized_revenue": {
+          "recognized_revenue": {
             "__tabletalk_type__": "decimal",
             "value": "184.25"
           }
@@ -151,14 +147,14 @@
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
     "sql": {
       "dialect": "duckdb",
-      "executed": "SELECT SUM(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status <> 'cancelled' LIMIT 1000",
-      "generated": "SELECT sum(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
+      "executed": "SELECT SUM(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status <> 'cancelled' LIMIT 1000",
+      "generated": "SELECT sum(recognized_revenue) AS recognized_revenue\nFROM \"analytics\".\"main\".\"fct_orders\"\nWHERE order_date >= '2026-07-01'\n  AND order_date <= '2026-07-31'\n  AND order_status != 'cancelled'"
     },
     "usage": {
-      "completion_tokens": 235,
+      "completion_tokens": 213,
       "estimated_cost": null,
-      "latency_ms": 1153.562332969159,
-      "prompt_tokens": 1360,
+      "latency_ms": 1167.361875064671,
+      "prompt_tokens": 1356,
       "provider_errors": [],
       "retry_count": 0
     },

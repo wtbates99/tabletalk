@@ -1,19 +1,19 @@
 {
   "calls": [
     {
-      "completion_tokens": 179,
+      "completion_tokens": 169,
       "input_digest": "sha256:53a2265f81895f06f1759b1d1e1048ab50e076028896018e528b156364f4e839",
-      "latency_ms": 1623.372417059727,
+      "latency_ms": 929.2383750434965,
       "output": {
         "interpretation": {
           "assumptions": [
-            "Recognized revenue is calculated as the sum of recognized_revenue for orders that are not cancelled, filtered by the order_date."
+            "Recognized revenue is calculated as the sum of recognized_revenue where order_status is not 'cancelled'."
           ],
           "dimensions": [],
           "end_date": "2026-07-31",
-          "intent": "Calculate the total recognized revenue for the month of July 2026.",
+          "intent": "Calculate the total recognized revenue for July 2026.",
           "metrics": [
-            "sum(recognized_revenue)"
+            "recognized_revenue"
           ],
           "start_date": "2026-07-01"
         },
@@ -30,7 +30,7 @@
     {
       "completion_tokens": 63,
       "input_digest": "sha256:31b42e4428ed5e62ca532760275055d724e946c82b7e1b961b4745cf67f590a5",
-      "latency_ms": 446.82466599624604,
+      "latency_ms": 437.5210839789361,
       "output": {
         "claims": [
           {
@@ -52,8 +52,8 @@
       "stage": "answer"
     }
   ],
-  "created_at": "2026-10-31T19:27:45.283539+00:00",
-  "digest": "sha256:ab7a56a39aa21b27d1b994fc04a61457a3103f217b6f7ec73221cf701eea55e6",
+  "created_at": "2026-10-31T19:44:28.291610+00:00",
+  "digest": "sha256:6742a24c9f78eb1c65a58bd94152e7f5199e41b121d716f7b7335ad6abf0aad0",
   "fingerprint": {
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
     "execution_config": {
@@ -62,7 +62,6 @@
       "timeout_seconds": 60,
       "warehouse_identity": "duckdb;database_path=analytics.duckdb"
     },
-    "manifest_digest": "074f75c4c9882ade4aa7e81954b4c5839cee1b982afa884787d2d4a7e4396a23",
     "model_config": {
       "base_url": "http://localhost:11434/v1",
       "model": "gemma4:31b-cloud",
@@ -72,12 +71,13 @@
     "prompt_version": "tabletalk.prompt/v2",
     "question_digest": "sha256:6929e33ad1a68d9efdf00ba52da0efa154ae04d64dea5c27c616f055a8846195",
     "runtime_version": "tabletalk.runtime/v1",
+    "scope_digest": "sha256:527a81dc46cfa885cfd3ec6495eb4cbc3b5f332458e14f4928ada48cfbdce507",
     "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
-    "trial": 1
+    "trial": 3
   },
-  "fingerprint_digest": "sha256:2b237705b43f45ac330ed4526c979e1b27612267f6d2abe435ccd5cd953c005f",
-  "id": "inf_ab7a56a39aa21b27",
-  "schema_version": "tabletalk.inference/v1",
+  "fingerprint_digest": "sha256:e05781ef377ec432028ecc33e1f70bcdd28c0c0d7cebfd35f1a8c026934d3afc",
+  "id": "inf_6742a24c9f78eb1c",
+  "schema_version": "tabletalk.inference/v2",
   "trace": {
     "agent": "revenue",
     "agent_digest": "8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
@@ -96,7 +96,7 @@
       "text": "The recognized revenue in July 2026 was 184.25."
     },
     "cache_hit": false,
-    "created_at": "2026-10-31T19:27:45.282925+00:00",
+    "created_at": "2026-10-31T19:44:28.291598+00:00",
     "dbt_context": {
       "catalog_digest": "a19973232d974f7a7dcaf5065b33b43d496e3e935b2b5b9cdea572e459e55708",
       "columns": [
@@ -120,16 +120,16 @@
       }
     },
     "eval_suite_digest": null,
-    "inference_fingerprint": "sha256:2b237705b43f45ac330ed4526c979e1b27612267f6d2abe435ccd5cd953c005f",
+    "inference_fingerprint": "sha256:e05781ef377ec432028ecc33e1f70bcdd28c0c0d7cebfd35f1a8c026934d3afc",
     "interpretation": {
       "assumptions": [
-        "Recognized revenue is calculated as the sum of recognized_revenue for orders that are not cancelled, filtered by the order_date."
+        "Recognized revenue is calculated as the sum of recognized_revenue where order_status is not 'cancelled'."
       ],
       "dimensions": [],
       "end_date": "2026-07-31",
-      "intent": "Calculate the total recognized revenue for the month of July 2026.",
+      "intent": "Calculate the total recognized revenue for July 2026.",
       "metrics": [
-        "sum(recognized_revenue)"
+        "recognized_revenue"
       ],
       "start_date": "2026-07-01"
     },
@@ -155,9 +155,9 @@
       "generated": "SELECT sum(recognized_revenue) AS total_recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status != 'cancelled'"
     },
     "usage": {
-      "completion_tokens": 242,
+      "completion_tokens": 232,
       "estimated_cost": null,
-      "latency_ms": 2142.142374999821,
+      "latency_ms": 1368.8413749914616,
       "prompt_tokens": 1360,
       "provider_errors": [],
       "retry_count": 0
