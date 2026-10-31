@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -67,13 +69,60 @@ class AgentUnavailableError(ValueError):
 class AgentService:
     """Answer questions only with agents whose dbt scope matches the lock.
 
-    Drift is decided once, when the service starts. A dbt change takes effect after
-    someone reviews ``tabletalk plan``, runs ``tabletalk lock``, and restarts.
+    Every call first checks the dbt artifacts, the lock, and the agent files. If any
+    changed, for example because dbt rebuilt while the server ran, the project is
+    reloaded and drift is decided again, so a scope change can never be served from
+    a stale manifest. If the reload fails, for example on a half-written manifest,
+    the call is refused and the next call retries.
     """
 
-    def __init__(self, project: Project, *, cache_policy: CachePolicy | None = None) -> None:
-        self.project = project
+    def __init__(
+        self,
+        project: Project,
+        *,
+        cache_policy: CachePolicy | None = None,
+        loader: Callable[[Path], Project] = Project.load,
+    ) -> None:
         self.cache_policy = cache_policy
+        self._loader = loader
+        self._root = project.root
+        self._stamp = self._watched(project)
+        self._load(project)
+
+    @staticmethod
+    def _watched(project: Project) -> tuple[tuple[str, int, int], ...]:
+        """Fingerprint every file that can change an agent's scope or status."""
+        paths = [
+            *project.manifest.path.parent.glob("*.json"),
+            project.root / LOCK_FILENAME,
+            project.root / "tabletalk.yaml",
+            *project.agents_directory.glob("*.yaml"),
+            *project.agents_directory.glob("*.yml"),
+        ]
+        stamps = []
+        for path in paths:
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            stamps.append((str(path), stat.st_mtime_ns, stat.st_size))
+        return tuple(sorted(stamps))
+
+    def _refresh(self) -> None:
+        if self._watched(self.project) == self._stamp:
+            return
+        try:
+            project = self._loader(self._root)
+            stamp = self._watched(project)
+            self._load(project)
+        except Exception as exc:
+            raise AgentUnavailableError(
+                f"The dbt project changed and could not be reloaded: {exc}"
+            ) from exc
+        self._stamp = stamp
+
+    def _load(self, project: Project) -> None:
+        self.project = project
         locked = load_lock(project.root / LOCK_FILENAME)
         current = snapshot(project.agents(), project.manifest)
         self._summaries: dict[str, AgentSummary] = {}
@@ -95,11 +144,13 @@ class AgentService:
 
     def agents(self) -> list[AgentSummary]:
         """List every agent with its serving status, served agents first."""
+        self._refresh()
         return sorted(
             self._summaries.values(), key=lambda item: (item.status != "served", item.name)
         )
 
     def _served(self, name: str) -> None:
+        self._refresh()
         summary = self._summaries.get(name)
         if summary is None:
             raise AgentUnavailableError(f"Unknown agent '{name}'. Call list_agents.")
@@ -145,4 +196,5 @@ class AgentService:
 
     def receipt(self, run_id: str) -> Receipt:
         """Return a stored receipt by run ID or unique prefix."""
+        self._refresh()
         return load_receipt(self.project.root / RECEIPTS_DIRECTORY, run_id)

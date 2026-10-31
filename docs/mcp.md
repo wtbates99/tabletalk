@@ -26,13 +26,18 @@ as `tabletalk ask`.
 
 ## Locked agents only
 
-The server compares each agent's current scope with `tabletalk.lock.yaml` when
-it starts:
+On every call, the server checks whether the dbt artifacts, `tabletalk.lock.yaml`,
+`tabletalk.yaml`, or the agent files changed, for example because dbt rebuilt
+while the server ran. If they did, it reloads the project and compares each
+agent's scope with the lock again:
 
 - `served`: the scope matches the lock. The agent answers.
 - `drifted`: a dbt change altered the scope. The agent refuses until someone
-  reviews `tabletalk plan`, runs `tabletalk lock`, and restarts the server.
+  reviews `tabletalk plan` and runs `tabletalk lock`. No restart is needed.
 - `unlocked`: the agent is not in the lock.
+
+If the reload fails, for example while dbt is still writing `manifest.json`, the
+call is refused and the next call retries.
 
 A dbt change never reaches a chat client without review.
 
