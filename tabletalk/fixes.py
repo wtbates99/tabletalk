@@ -28,11 +28,36 @@ from tabletalk.agents import Agent
 from tabletalk.manifest import Manifest
 from tabletalk.semantic_analysis import FindingCode, analyze_semantics
 
-FixKind = Literal["flag_sensitive", "inherit_description"]
+FixKind = Literal["flag_sensitive", "inherit_description", "write_description"]
+_FORBIDDEN_COLUMN = "unsafe_or_out_of_scope_access"
+_MISSED_COLUMN = "wrong_column_selection"
+_METADATA = "dbt metadata"
 
 
 class _Model(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class ReportedFailure(BaseModel):
+    """A column-level failure diagnosis from an eval report's ``diagnoses``."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    suite: str
+    case: str
+    code: str
+    models: list[str] = []
+    columns: list[str] = []
+
+
+def load_failures(path: Path) -> list[ReportedFailure]:
+    """Read the column-level diagnoses from an eval report JSON file."""
+    payload = json.loads(path.read_text())
+    return [
+        failure
+        for failure in (ReportedFailure.model_validate(item) for item in payload["diagnoses"])
+        if failure.columns
+    ]
 
 
 class Fix(_Model):
@@ -43,6 +68,7 @@ class Fix(_Model):
     column: str
     path: str
     detail: str
+    because: str = _METADATA
 
 
 class ManualFix(_Model):
@@ -52,6 +78,7 @@ class ManualFix(_Model):
     model: str
     column: str
     reason: str
+    because: str = _METADATA
 
 
 class FixPlan(_Model):
@@ -68,6 +95,7 @@ class _Wanted:
     column: str
     path: str | None
     description: str = ""
+    because: str = _METADATA
 
 
 def _yaml_path(manifest: Manifest, unique_id: str) -> str | None:
@@ -79,10 +107,78 @@ def _yaml_path(manifest: Manifest, unique_id: str) -> str | None:
     return patch_path.split("://", 1)[1]
 
 
-def _wanted(agents: Sequence[Agent], manifest: Manifest) -> list[_Wanted]:
+def _from_failures(
+    failures: Sequence[ReportedFailure],
+    manifest: Manifest,
+    inherited: dict[str, str],
+    found: dict[tuple[str, str, str], _Wanted],
+) -> list[ManualFix]:
+    """Turn eval column failures into wanted fixes, or into precise manual work."""
+    manual: dict[tuple[str, str, str], ManualFix] = {}
+    for failure in failures:
+        because = f"eval {failure.suite}/{failure.case}"
+        for column in failure.columns:
+            node = next(
+                (
+                    manifest.nodes[uid]
+                    for uid in failure.models
+                    if uid in manifest.nodes and column in manifest.nodes[uid].columns
+                ),
+                None,
+            )
+            if node is None:
+                continue
+            path = _yaml_path(manifest, node.unique_id)
+            if failure.code == _FORBIDDEN_COLUMN:
+                key = ("flag_sensitive", node.unique_id, column)
+                if node.columns[column].meta.get("sensitive") is True:
+                    manual[key] = ManualFix(
+                        kind="flag_sensitive",
+                        model=node.name,
+                        column=column,
+                        reason="already flagged in dbt; check the agent's allow_sensitive",
+                        because=because + " read this forbidden column",
+                    )
+                else:
+                    found[key] = _Wanted(
+                        "flag_sensitive",
+                        node.unique_id,
+                        node.name,
+                        column,
+                        path,
+                        because=because + " read this forbidden column",
+                    )
+            elif failure.code == _MISSED_COLUMN:
+                reference = f"{node.unique_id}.{column}"
+                if reference in inherited:
+                    found[("inherit_description", node.unique_id, column)] = _Wanted(
+                        "inherit_description",
+                        node.unique_id,
+                        node.name,
+                        column,
+                        path,
+                        inherited[reference],
+                        because=because + " needed this column",
+                    )
+                elif not node.columns[column].description:
+                    manual[("write_description", node.unique_id, column)] = ManualFix(
+                        kind="write_description",
+                        model=node.name,
+                        column=column,
+                        reason="no description to inherit; write one in dbt",
+                        because=because + " needed this column",
+                    )
+    return [manual[key] for key in sorted(manual)]
+
+
+def _wanted(
+    agents: Sequence[Agent], manifest: Manifest, failures: Sequence[ReportedFailure]
+) -> tuple[list[_Wanted], list[ManualFix]]:
     found: dict[tuple[str, str, str], _Wanted] = {}
+    inherited: dict[str, str] = {}
     for agent in agents:
         resolved = agent.resolve(manifest)
+        inherited.update(resolved.inherited_column_descriptions)
         names = {node.unique_id: node.name for node in resolved.nodes}
         for gap in analyze_semantics(manifest, resolved.nodes).gaps:
             if gap.code is not FindingCode.SUSPECTED_SENSITIVE_DATA:
@@ -104,7 +200,8 @@ def _wanted(agents: Sequence[Agent], manifest: Manifest) -> list[_Wanted]:
                 _yaml_path(manifest, unique_id),
                 description,
             )
-    return [found[key] for key in sorted(found)]
+    manual = _from_failures(failures, manifest, inherited, found)
+    return [found[key] for key in sorted(found)], manual
 
 
 _ITEM = re.compile(r"^(?P<indent> *)- +name: *['\"]?(?P<name>[^'\"#\s]+)['\"]? *(#.*)?$")
@@ -198,13 +295,22 @@ def _verified(before: str, after: str, wanted: _Wanted) -> bool:
     return bool(old == new)
 
 
-def plan_fixes(agents: Sequence[Agent], manifest: Manifest, dbt_project_dir: Path) -> FixPlan:
-    """Compute every certain fix for the agents' scopes and the patch that applies them."""
+def plan_fixes(
+    agents: Sequence[Agent],
+    manifest: Manifest,
+    dbt_project_dir: Path,
+    failures: Sequence[ReportedFailure] = (),
+) -> FixPlan:
+    """Compute every certain fix and the patch that applies them.
+
+    Fixes come from the agents' dbt metadata, and from ``failures``: column-level
+    eval diagnoses, which name exactly which column an eval read or missed.
+    """
     originals: dict[str, str] = {}
     edited: dict[str, list[str]] = {}
     fixes: list[Fix] = []
-    manual: list[ManualFix] = []
-    for wanted in _wanted(agents, manifest):
+    wanted_fixes, manual = _wanted(agents, manifest, failures)
+    for wanted in wanted_fixes:
         if wanted.path is None:
             manual.append(
                 ManualFix(
@@ -212,6 +318,7 @@ def plan_fixes(agents: Sequence[Agent], manifest: Manifest, dbt_project_dir: Pat
                     model=wanted.model,
                     column=wanted.column,
                     reason=f"{wanted.model} has no schema YAML file in the manifest",
+                    because=wanted.because,
                 )
             )
             continue
@@ -238,6 +345,7 @@ def plan_fixes(agents: Sequence[Agent], manifest: Manifest, dbt_project_dir: Pat
                     if wanted.kind == "inherit_description"
                     else "set config.meta.sensitive: true"
                 ),
+                because=wanted.because,
             )
         )
     patch = "".join(

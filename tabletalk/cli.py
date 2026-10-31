@@ -40,7 +40,7 @@ from tabletalk.evals import (
     suite_result_from_dict,
 )
 from tabletalk.executors import LocalExecutor
-from tabletalk.fixes import plan_fixes
+from tabletalk.fixes import load_failures, plan_fixes
 from tabletalk.imports import ImportKind, QueryImportPreview, preview_import
 from tabletalk.inference import CachePolicy, ReplayMissError
 from tabletalk.manifest import Manifest, Node
@@ -1236,6 +1236,11 @@ def eval_run(
         console.print(f"Report: {report_paths.markdown}")
         console.print(f"JSON: {report_paths.json}")
         console.print(f"JUnit: {report_paths.junit}")
+        if any(diagnosis.columns for diagnosis in report.diagnoses):
+            console.print(
+                "Column failures can become dbt fixes: "
+                f"[bold]tabletalk fix --report {report_paths.json}[/bold]"
+            )
     if any(not result.passed for result in results):
         raise click.exceptions.Exit(EXIT_EVAL_FAILURE)
 
@@ -1635,8 +1640,18 @@ def score(project_folder: str, output_format: str, badge: Path | None) -> None:
     type=click.Path(dir_okay=False, path_type=Path),
     help="Also write the patch to this file.",
 )
+@click.option(
+    "--report",
+    "report_path",
+    type=click.Path(dir_okay=False, exists=True, path_type=Path),
+    help="Also fix what an eval report's column failures point at (report.json).",
+)
 def fix(
-    project_folder: str, agent_names: tuple[str, ...], output_format: str, patch_path: Path | None
+    project_folder: str,
+    agent_names: tuple[str, ...],
+    output_format: str,
+    patch_path: Path | None,
+    report_path: Path | None,
 ) -> None:
     """Suggest certain dbt YAML fixes as a patch. TableTalk never edits dbt files."""
     project = _project(project_folder)
@@ -1644,8 +1659,9 @@ def fix(
         agents = (
             tuple(project.agent(name) for name in agent_names) if agent_names else project.agents()
         )
-        result = plan_fixes(agents, project.manifest, project.dbt_project_dir)
-    except (OSError, ValueError) as exc:
+        failures = load_failures(report_path) if report_path else []
+        result = plan_fixes(agents, project.manifest, project.dbt_project_dir, failures)
+    except (OSError, KeyError, ValueError) as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     if patch_path and result.patch:
         patch_path.write_text(result.patch)
@@ -1659,9 +1675,14 @@ def fix(
         console.print("No certain dbt fixes. Run [bold]tabletalk score[/bold] for the rest.")
         return
     for item in result.fixes:
-        console.print(f"[green]fix[/green]    {item.model}.{item.column}: {item.detail}")
+        console.print(
+            f"[green]fix[/green]    {item.model}.{item.column}: {item.detail} ({item.because})"
+        )
     for manual in result.manual:
-        console.print(f"[yellow]manual[/yellow] {manual.model}.{manual.column}: {manual.reason}")
+        console.print(
+            f"[yellow]manual[/yellow] {manual.model}.{manual.column}: {manual.reason} "
+            f"({manual.because})"
+        )
     if result.patch:
         console.print()
         console.print(result.patch, highlight=False, markup=False, soft_wrap=True)
