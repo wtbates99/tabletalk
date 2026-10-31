@@ -97,18 +97,25 @@ def _build_db_provider(provider: str, config: dict[str, Any]) -> DatabaseProvide
     from tabletalk.providers.snowflake_provider import SnowflakeProvider
 
     missing = [
-        name
-        for name in ("account", "user", "password", "database", "warehouse")
-        if not config.get(name)
+        name for name in ("account", "user", "database", "warehouse") if not config.get(name)
     ]
+    if not any(config.get(name) for name in ("password", "authenticator", "private_key_path")):
+        missing.append("password, authenticator, or private_key_path")
     if missing:
         raise ValueError("snowflake requires: " + ", ".join(missing))
+
+    def optional(name: str) -> str | None:
+        return str(config[name]) if config.get(name) else None
+
     return SnowflakeProvider(
         account=str(config["account"]),
         user=str(config["user"]),
-        password=str(config["password"]),
+        password=optional("password"),
         database=str(config["database"]),
         warehouse=str(config["warehouse"]),
         schema=str(config.get("schema") or "PUBLIC"),
-        role=str(config["role"]) if config.get("role") else None,
+        role=optional("role"),
+        authenticator=optional("authenticator"),
+        private_key_path=optional("private_key_path"),
+        private_key_passphrase=optional("private_key_passphrase"),
     )

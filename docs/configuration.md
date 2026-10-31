@@ -50,6 +50,29 @@ Agent files may contain these TableTalk-specific fields:
   (default 60)
 - `max_scan_bytes`, a Snowflake scan budget in bytes.
 
+### Snowflake authentication
+
+TableTalk reads Snowflake credentials from the dbt profile target, with the
+same field names as dbt-snowflake. It never stores credentials in traces,
+receipts, or fingerprints. Use `{{ env_var('...') }}` for secrets.
+
+| Method | Profile fields | Use for |
+|---|---|---|
+| Password | `password` | Local development |
+| SSO | `authenticator: externalbrowser` | A person at a workstation. Opens a browser. |
+| Key pair | `private_key_path`, optional `private_key_passphrase` | CI and long-running servers such as `tabletalk mcp` |
+
+Any other `authenticator` value is passed to the Snowflake connector unchanged.
+OAuth tokens (`token`) are not supported yet.
+
+To check a real account, run the read-only check script. It confirms the
+connection, the EXPLAIN estimate that the scan budget reads, the server-side
+timeout, and the query tag:
+
+```console
+uv run --extra snowflake python scripts/snowflake_check.py --project-folder path/to/project
+```
+
 ### Snowflake cost and audit controls
 
 ```yaml
