@@ -257,8 +257,9 @@ class _Resolver:
 
     def outputs(self, current: Scope) -> set[str]:
         """Return the normalized column names a scope produces."""
-        if current.union_scopes:
-            return self.outputs(current.union_scopes[0])
+        branches = _set_operation_scopes(current)
+        if branches:
+            return self.outputs(branches[0])
         select = current.expression
         if not isinstance(select, exp.Select):
             return set()
@@ -303,8 +304,9 @@ class _Resolver:
         }
 
     def projects_star(self, current: Scope) -> bool:
-        if current.union_scopes:
-            return any(self.projects_star(item) for item in current.union_scopes)
+        branches = _set_operation_scopes(current)
+        if branches:
+            return any(self.projects_star(item) for item in branches)
         select = current.expression
         return isinstance(select, exp.Select) and any(
             _star(projection) is not None for projection in select.expressions
@@ -387,6 +389,17 @@ class _Resolver:
         if node is None:
             raise SQLValidationError(f"Column '{column.sql()}' refers to an unresolved relation")
         self._use(node, name)
+
+
+def _set_operation_scopes(current: Scope) -> list[Scope]:
+    """Return the branch scopes of a UNION/INTERSECT/EXCEPT.
+
+    sqlglot renamed ``Scope.union_scopes`` to ``set_operation_scopes`` in 30.x.
+    """
+    branches = getattr(current, "set_operation_scopes", None)
+    if branches is None:
+        branches = getattr(current, "union_scopes", [])
+    return list(branches)
 
 
 def _star(projection: exp.Expression) -> exp.Star | None:
