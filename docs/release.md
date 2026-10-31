@@ -43,7 +43,7 @@ baselines, failure diagnosis, and three report formats.
 - [ ] Run the opt-in `gemma4:31b-cloud` Ollama smoke test.
 - [ ] Build source and wheel distributions from a clean checkout.
 - [ ] Inspect wheel and source contents.
-- [ ] Confirm `LICENSE`, `LICENSE_HISTORY.md`, and the commercial notice agree.
+- [ ] Confirm `LICENSE` and `LICENSE_HISTORY.md` agree.
 - [ ] Confirm the wheel metadata uses version 0.6.0 and the current description.
 - [ ] Install the wheel in a new virtual environment.
 - [ ] Run `tabletalk --version` and `tabletalk --help` from that environment.
@@ -53,4 +53,4 @@ baselines, failure diagnosis, and three report formats.
 - [ ] Ask the repository owner for publish approval.
 
 Unresolved legal questions must go to an attorney. Engineering checks must not
-reinterpret the PolyForm license.
+reinterpret a license.

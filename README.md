@@ -5,7 +5,7 @@
 [![Tests](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml/badge.svg)](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyPI](https://img.shields.io/pypi/v/tabletalk)](https://pypi.org/project/tabletalk/)
-[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-c9a84c)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 TableTalk is the dbt-native development, evaluation, and observability layer for
 trusted data agents. It uses the analytical knowledge that a company already
@@ -205,11 +205,10 @@ TABLETALK_LIVE_OLLAMA=1 uv run pytest -m live_ollama
 
 ## License and services
 
-TableTalk is source-available under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). The license permits the uses
-that its text defines. Commercial use requires separate written permission.
+TableTalk is open source under the [Apache License 2.0](LICENSE), including
+for commercial use. Earlier releases keep their earlier license grants. See
+[LICENSE_HISTORY.md](LICENSE_HISTORY.md).
 
 William Bates offers implementation, integration, semantic onboarding, and
-custom eval-suite development. See the
-[commercial notice](COMMERCIAL-LICENSE.md). Earlier releases keep their earlier
-license grants. See [LICENSE_HISTORY.md](LICENSE_HISTORY.md).
+custom eval-suite development for teams adopting data agents on dbt. Contact
+[William Bates](mailto:wbates@palanbates.com).

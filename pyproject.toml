@@ -8,13 +8,12 @@ version = "0.6.0"
 description = "dbt-native development, evaluation, and observability for trusted data agents"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE", "LICENSE_HISTORY.md", "COMMERCIAL-LICENSE.md"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "LICENSE_HISTORY.md"]
 authors = [{ name = "William Bates", email = "wbates@palanbates.com" }]
 keywords = ["sql", "llm", "dbt", "evaluation", "data-agents", "observability"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -45,7 +44,6 @@ tabletalk = "tabletalk.cli:cli"
 [project.urls]
 Homepage   = "https://github.com/wtbates99/tabletalk"
 Repository = "https://github.com/wtbates99/tabletalk"
-"Commercial License" = "https://github.com/wtbates99/tabletalk/blob/main/COMMERCIAL-LICENSE.md"
 
 [dependency-groups]
 dev = [

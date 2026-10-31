@@ -57,7 +57,7 @@ jobs:
               "tabletalk/validation.py",
           ):
               assert required in names, f"missing wheel module: {required}"
-          for license_name in ("LICENSE", "LICENSE_HISTORY.md", "COMMERCIAL-LICENSE.md"):
+          for license_name in ("LICENSE", "LICENSE_HISTORY.md"):
               assert any(name.endswith("licenses/" + license_name) for name in names), (
                   f"missing wheel license file: {license_name}"
               )
