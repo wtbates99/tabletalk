@@ -207,7 +207,7 @@ def _mcnemar_exact(baseline_only: int, candidate_only: int) -> float:
         return 1.0
     smaller = min(baseline_only, candidate_only)
     probability = sum(math.comb(discordant, value) for value in range(smaller + 1))
-    return min(1.0, 2 * probability / (2**discordant))
+    return min(1.0, float(2 * probability / (2**discordant)))
 
 
 def _paired_interval(

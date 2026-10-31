@@ -17,6 +17,8 @@
 | `tabletalk baseline approve NAME --from REPORT` | Approve exact prior trial results as a baseline. |
 | `tabletalk baseline show NAME` | Show an approved baseline. |
 | `tabletalk ask NAME QUESTION` | Run the shared runtime and show answer provenance. |
+| `tabletalk lock` | Record each agent's resolved dbt scope in `tabletalk.lock.yaml`. |
+| `tabletalk plan` | Diff the current manifest against the lock and list eval cases at risk. |
 | `tabletalk doctor` | Validate artifacts, target access, selectors, and eval coverage. |
 
 `tabletalk propose` accepts `--sql-import`, `--bi-import`, `--history-import`,
@@ -29,5 +31,6 @@
 `replay` fails on a cache miss. It never calls a model.
 
 Exit code 3 means that one or more eval hard checks failed. Exit code 4 means
-that a resource or approval failed validation. Exit code 1 means that an
-operational step failed.
+that a resource or approval failed validation. Exit code 5 means that
+`tabletalk plan --check` found drift from `tabletalk.lock.yaml`, or that no lock
+exists. Exit code 1 means that an operational step failed.

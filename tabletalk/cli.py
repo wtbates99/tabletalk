@@ -45,6 +45,7 @@ from tabletalk.inference import CachePolicy
 from tabletalk.manifest import Manifest, Node
 from tabletalk.metrics import BaselineRecord, observations, summarize
 from tabletalk.migrations import migrate_project
+from tabletalk.plan import case_footprints, compute_plan, render_plan
 from tabletalk.project import Project
 from tabletalk.proposal_service import (
     approve_proposal,
@@ -65,6 +66,7 @@ from tabletalk.schemas import (
 )
 from tabletalk.semantic_analysis import analyze_semantics
 from tabletalk.semantic_inference import infer_semantic_answers
+from tabletalk.state import LOCK_FILENAME, LockError, load_lock, snapshot, write_lock
 from tabletalk.traces import Interpretation as TraceInterpretation
 from tabletalk.traces import Trace
 
@@ -72,6 +74,7 @@ console = Console()
 EXIT_OPERATIONAL_FAILURE = 1
 EXIT_EVAL_FAILURE = 3
 EXIT_VALIDATION_FAILURE = 4
+EXIT_DRIFT = 5
 
 
 def _fail(error: Exception, code: int = EXIT_OPERATIONAL_FAILURE) -> None:
@@ -1454,6 +1457,65 @@ def doctor(project_folder: str, connect: bool) -> None:
         console.print(f"[yellow]WARN[/yellow] {name}: {detail}")
     if any(not passed for _, passed, _ in checks):
         raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def lock(project_folder: str) -> None:
+    """Record exactly what each agent is approved to see in tabletalk.lock.yaml."""
+    project = _project(project_folder)
+    try:
+        current = snapshot(project.agents(), project.manifest)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    path = project.root / LOCK_FILENAME
+    write_lock(path, current)
+    resources = sum(len(agent.resources) for agent in current.agents.values())
+    console.print(
+        f"[green]Locked[/green] {len(current.agents)} agent"
+        f"{'' if len(current.agents) == 1 else 's'} over {resources} dbt resource"
+        f"{'' if resources == 1 else 's'} → {path.name}"
+    )
+
+
+@cli.command()
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+@click.option(
+    "--check", is_flag=True, help=f"Exit {EXIT_DRIFT} when any agent differs from the lock (CI)."
+)
+def plan(project_folder: str, output_format: str, check: bool) -> None:
+    """Show how the current dbt manifest changes each agent and which evals it puts at risk."""
+    project = _project(project_folder)
+    path = project.root / LOCK_FILENAME
+    try:
+        locked = load_lock(path)
+        current = snapshot(project.agents(), project.manifest)
+        suites = [
+            load_eval_suite(item)
+            for item in sorted(
+                (*project.evals_directory.glob("*.yaml"), *project.evals_directory.glob("*.yml"))
+            )
+        ]
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if locked is None:
+        console.print(
+            f"No {LOCK_FILENAME} yet. Run [bold]tabletalk lock[/bold] to record what "
+            "each agent is approved to see."
+        )
+        raise click.exceptions.Exit(EXIT_DRIFT if check else 0)
+    result = compute_plan(
+        locked, current, case_footprints(suites, project.manifest, project.root)
+    )
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        console.print(render_plan(result))
+    if check and result.has_changes:
+        raise click.exceptions.Exit(EXIT_DRIFT)
 
 
 if __name__ == "__main__":

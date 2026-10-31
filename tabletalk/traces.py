@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 def _json_value(value: Any) -> Any:
@@ -127,7 +127,7 @@ class Trace:
         return bool(checks) and all(check.passed for check in checks) and self.passed
 
     def to_dict(self) -> dict[str, Any]:
-        return _json_value(self)
+        return cast(dict[str, Any], _json_value(self))
 
     def write(self, directory: str | Path, name: str | None = None) -> Path:
         root = Path(directory)

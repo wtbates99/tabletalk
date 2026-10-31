@@ -20,6 +20,7 @@ INFERENCE_SCHEMA = "tabletalk.inference/v1"
 RUNTIME_SCHEMA = "tabletalk.runtime/v1"
 REPORT_SCHEMA = "tabletalk.report/v1"
 BASELINE_SCHEMA = "tabletalk.baseline/v1"
+LOCK_SCHEMA = "tabletalk.lock/v1"
 
 
 class SchemaVersionError(ValueError):

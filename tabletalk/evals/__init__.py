@@ -708,7 +708,7 @@ def _equal(left: Any, right: Any, tolerance: float) -> bool:
         return math.isclose(float(left), float(right), abs_tol=tolerance, rel_tol=0)
     if isinstance(left, (date, datetime)) or isinstance(right, (date, datetime)):
         return str(left) == str(right)
-    return left == right
+    return bool(left == right)
 
 
 def _rows_equal(

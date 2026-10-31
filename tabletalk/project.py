@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from tabletalk.agents import Agent, ResolvedAgent, load_agents
-from tabletalk.connections import ReadOnlyConnection, load_profile_target
+from tabletalk.connections import ReadOnlyConnection, Target, load_profile_target
 from tabletalk.factories import get_llm_provider
 from tabletalk.inference import CachePolicy, InferenceStore
 from tabletalk.interfaces import LLMProvider
@@ -105,7 +105,7 @@ class Project:
     def resolve_agent(self, name: str) -> ResolvedAgent:
         return self.agent(name).resolve(self.manifest)
 
-    def target(self):
+    def target(self) -> Target:
         dbt = self.config["dbt"]
         profiles_dir = dbt.get("profiles_dir")
         if profiles_dir:
