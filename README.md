@@ -251,6 +251,12 @@ See the [commerce example](examples/dbt-analytics/README.md), the
 [getting-started guide](docs/getting-started.md), and the
 [research evidence](docs/research.md).
 
+## Ideas, not built
+
+- [MetricFlow spike](docs/notes/metricflow-spike.md): the model picks dbt
+  metrics, MetricFlow compiles the SQL, and the guard re-validates it. An
+  unmerged experiment.
+
 ## Development
 
 ```console
