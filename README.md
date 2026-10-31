@@ -3,7 +3,7 @@
 **Mount a dbt project. Review proposed agents and evaluations. Prove that your data agents are safe, grounded, and correct.**
 
 [![Tests](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml/badge.svg)](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyPI](https://img.shields.io/pypi/v/tabletalk)](https://pypi.org/project/tabletalk/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-c9a84c)](LICENSE)
 
@@ -38,8 +38,8 @@ pip install "tabletalk[duckdb]"
 pip install "tabletalk[snowflake]"
 ```
 
-TableTalk requires Python 3.10 or newer. SQLite uses the Python standard
-library. The initial warehouse adapters are SQLite, DuckDB, and Snowflake.
+TableTalk requires Python 3.11 or newer. The supported warehouses are DuckDB
+and Snowflake. SQLite works for tests and local experiments only.
 
 ## Start from an existing dbt project
 
@@ -138,8 +138,9 @@ See the [commerce example](examples/dbt-analytics/README.md), the
 ```console
 uv sync --locked --all-groups
 uv run pytest -q
-uv run ruff check tabletalk
-uv run mypy tabletalk
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy tabletalk  # strict mode, from pyproject.toml
 uv build
 ```
 

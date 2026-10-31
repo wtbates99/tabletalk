@@ -919,12 +919,12 @@ def agent_show(name: str, project_folder: str, output_format: str) -> None:
             )
 
 
-@cli.group()
-def eval() -> None:
+@cli.group("eval")
+def eval_group() -> None:
     """Author and run execution-based correctness evaluations."""
 
 
-@eval.command("create")
+@eval_group.command("create")
 @click.argument("agent_name")
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option("--question")
@@ -1091,7 +1091,7 @@ def eval_create(
     console.print("Approve the proposal to write and run the eval.")
 
 
-@eval.command("run")
+@eval_group.command("run")
 @click.argument("agent_name", required=False)
 @click.option("--case", "case_name")
 @click.option(
