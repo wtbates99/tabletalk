@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 # The TableTalk demo: a routine dbt PR silently changes what a data agent can see.
 # Runs offline on DuckDB. No model and no network. Works on a scratch copy, never
 # on the checked-in example. Expects `dbt` (dbt-duckdb) and `tabletalk` on PATH.
@@ -16,8 +17,8 @@ build() {
   quiet dbt docs generate --profiles-dir .
 }
 
-cp -R "$example" "$work/project"
-rm -rf "$work/project/.tabletalk" "$work/project"/*.duckdb*
+source "$here/_copy.sh"
+copy_example "$example" "$work"
 cd "$work/project"
 
 step "Build the dbt project on DuckDB"

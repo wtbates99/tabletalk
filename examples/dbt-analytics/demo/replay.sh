@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 # Replay a recorded eval run with no model call. demo/inference holds real
 # gemma4:31b-cloud artifacts; strict replay fails on any fingerprint miss, so a
 # pass proves the agent, manifest, semantics, prompt, and warehouse identity are
@@ -13,8 +14,8 @@ trap 'rm -rf "$work"' EXIT
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
 quiet() { "$@" >"$work/log" 2>&1 || { cat "$work/log"; exit 1; }; }
 
-cp -R "$example" "$work/project"
-rm -rf "$work/project/.tabletalk" "$work/project"/*.duckdb*
+source "$here/_copy.sh"
+copy_example "$example" "$work"
 cd "$work/project"
 
 step "Load the example data into DuckDB (keeps the committed dbt artifacts)"

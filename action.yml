@@ -101,9 +101,10 @@ runs:
         cp "$RUNNER_TEMP/tabletalk-plan.md" "$body"
         if [ -f "$RUNNER_TEMP/tabletalk-evals.md" ]; then
           # <summary> does not render Markdown, so strip the bold markers.
-          result=$(grep -m1 '^Result:' "$RUNNER_TEMP/tabletalk-evals.md" | sed -e 's/^Result: //' -e 's/\*//g')
-          trials=$(grep -m1 '^| Passed |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}')
-          total=$(grep -m1 '^| Eval trials |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}')
+          # GitHub runs bash with pipefail, and a report may lack rows, so a grep miss is not fatal.
+          result=$(grep -m1 '^Result:' "$RUNNER_TEMP/tabletalk-evals.md" | sed -e 's/^Result: //' -e 's/\*//g' || true)
+          trials=$(grep -m1 '^| Passed |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}' || true)
+          total=$(grep -m1 '^| Eval trials |' "$RUNNER_TEMP/tabletalk-evals.md" | awk -F'|' '{gsub(/ /,"",$3); print $3}' || true)
           if [ -n "$trials" ] && [ -n "$total" ]; then result="$result · $trials/$total trials"; fi
           {
             printf '\n<details><summary>Eval replay: %s</summary>\n\n' "$result"
