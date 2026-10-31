@@ -440,3 +440,52 @@ def render_plan(plan: Plan) -> RenderableType:
         Text(f"Review the diff, then run `tabletalk lock` to accept it into {LOCK_FILENAME}.")
     )
     return Group(*lines)
+
+
+_MD_SYMBOL: dict[Impact, str] = {"expands": "+", "breaks": "−", "changes": "~"}
+COMMENT_MARKER = "<!-- tabletalk:plan -->"
+
+
+def render_plan_markdown(plan: Plan | None) -> str:
+    """Render the plan for a pull-request comment or a CI job summary.
+
+    ``None`` means the project has no lock yet.
+    """
+    lines = [COMMENT_MARKER, "## TableTalk plan", ""]
+    if plan is None:
+        lines.append(
+            f"No `{LOCK_FILENAME}` yet. Run `tabletalk lock` and commit the file to record "
+            "what each agent is approved to see."
+        )
+        return "\n".join(lines) + "\n"
+    if not plan.has_changes:
+        lines.append(f"**No changes.** Every agent matches `{LOCK_FILENAME}`.")
+        return "\n".join(lines) + "\n"
+    agents = sorted({change.agent for change in plan.changes})
+    counts = " · ".join(
+        f"{plan.count(impact)} {label}" for impact, label in _SUMMARY_LABELS if plan.count(impact)
+    )
+    lines.append(
+        f"**{counts}** across {_count(len(agents), 'agent')} · "
+        f"{_count(len(plan.affected_cases), 'eval case')} at risk"
+    )
+    for agent in agents:
+        lines.extend(("", f"### Agent `{agent}`", "", "| | Target | Change |", "|---|---|---|"))
+        for item in plan.changes:
+            if item.agent != agent:
+                continue
+            detail = f"**{item.detail}**" if item.sensitive else item.detail
+            lines.append(f"| {_MD_SYMBOL[item.impact]} | `{item.target}` | {detail} |")
+    if plan.affected_cases:
+        lines.extend(("", "### Evals at risk", ""))
+        for case in plan.affected_cases:
+            reasons = "; ".join(case.reasons)
+            lines.append(f"- `{case.suite}` › `{case.case}`: {reasons}")
+    lines.extend(
+        (
+            "",
+            f"Review the change, then run `tabletalk lock` and commit `{LOCK_FILENAME}` "
+            "to accept it.",
+        )
+    )
+    return "\n".join(lines) + "\n"

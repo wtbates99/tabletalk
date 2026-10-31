@@ -1,0 +1,31 @@
+# Dogfood the TableTalk action on the reference dbt project. Copy this file into a
+# dbt repository: build your dbt artifacts and warehouse data, then run the action.
+name: TableTalk
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Load example data into DuckDB
+        working-directory: examples/dbt-analytics
+        run: |
+          uv run --all-groups dbt deps --profiles-dir .
+          uv run --all-groups dbt seed --profiles-dir . --target-path .build-target
+          uv run --all-groups dbt build --profiles-dir . --target-path .build-target
+
+      - uses: ./
+        with:
+          project-folder: examples/dbt-analytics
+          evals: replay

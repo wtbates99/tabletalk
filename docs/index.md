@@ -10,6 +10,7 @@ correct.
 getting-started
 configuration
 evals
+ci
 architecture
 commands
 research

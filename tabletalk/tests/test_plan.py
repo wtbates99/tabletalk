@@ -18,7 +18,7 @@ from click.testing import CliRunner
 
 from tabletalk.cli import EXIT_DRIFT, cli
 from tabletalk.evals import load_eval_suite
-from tabletalk.plan import Plan, case_footprints, compute_plan
+from tabletalk.plan import COMMENT_MARKER, Plan, case_footprints, compute_plan
 from tabletalk.project import Project
 from tabletalk.proposals import ProposalRecord
 from tabletalk.state import LOCK_FILENAME, LockFile, dump_lock, load_lock, snapshot
@@ -198,6 +198,7 @@ def test_lock_round_trips_byte_identically(project_dir: Path) -> None:
 def test_cli_plan_check_exits_on_drift_only(project_dir: Path) -> None:
     runner = CliRunner()
     folder = ["--project-folder", str(project_dir)]
+    (project_dir / LOCK_FILENAME).unlink()
 
     missing = runner.invoke(cli, ["plan", "--check", *folder])
     assert missing.exit_code == EXIT_DRIFT
@@ -279,3 +280,40 @@ def test_committed_replay_fixtures_replay_in_a_fresh_checkout() -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS 12/12 eval trials passed" in result.stdout
+
+
+def test_committed_example_lock_matches_committed_manifest() -> None:
+    assert (EXAMPLE / LOCK_FILENAME).read_text() == dump_lock(_lock(EXAMPLE))
+
+
+def test_markdown_plan_is_a_reviewable_pr_comment(project_dir: Path) -> None:
+    runner = CliRunner()
+    folder = ["--project-folder", str(project_dir)]
+    clean = runner.invoke(cli, ["plan", "--format", "markdown", *folder])
+    assert clean.exit_code == 0, clean.output
+    assert clean.output.startswith(COMMENT_MARKER)
+    assert "**No changes.**" in clean.output
+
+    _mutate(project_dir, _add_customer_model)
+    _mutate(project_dir, _rename_column("revenue_recognized"))
+    drifted = runner.invoke(cli, ["plan", "--format", "markdown", "--check", *folder])
+
+    assert drifted.exit_code == EXIT_DRIFT
+    lines = drifted.output.splitlines()
+    assert "**1 breaking · 1 expanding scope** across 1 agent · 1 eval case at risk" in lines
+    assert "| − | `fct_orders.recognized_revenue` | renamed to revenue_recognized |" in lines
+    assert any(
+        line.startswith("| + | `model.analytics.dim_customers` | **scope expands") for line in lines
+    )
+    assert any("`revenue-capability` › `july-recognized-revenue`" in line for line in lines)
+
+
+def test_markdown_plan_without_lock_explains_the_next_step(project_dir: Path) -> None:
+    (project_dir / LOCK_FILENAME).unlink()
+
+    result = CliRunner().invoke(
+        cli, ["plan", "--format", "markdown", "--project-folder", str(project_dir)]
+    )
+
+    assert result.exit_code == 0
+    assert "Run `tabletalk lock` and commit the file" in result.output

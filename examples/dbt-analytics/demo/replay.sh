@@ -16,7 +16,6 @@ quiet() { "$@" >"$work/log" 2>&1 || { cat "$work/log"; exit 1; }; }
 cp -R "$example" "$work/project"
 rm -rf "$work/project/.tabletalk" "$work/project"/*.duckdb*
 cd "$work/project"
-printf '\ninference:\n  store: demo/inference\n' >>tabletalk.yaml
 
 step "Load the example data into DuckDB (keeps the committed dbt artifacts)"
 quiet dbt deps --profiles-dir .

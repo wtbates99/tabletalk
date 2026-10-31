@@ -41,11 +41,11 @@ from tabletalk.evals import (
 )
 from tabletalk.executors import LocalExecutor
 from tabletalk.imports import ImportKind, QueryImportPreview, preview_import
-from tabletalk.inference import CachePolicy
+from tabletalk.inference import CachePolicy, ReplayMissError
 from tabletalk.manifest import Manifest, Node
 from tabletalk.metrics import BaselineRecord, observations, summarize
 from tabletalk.migrations import migrate_project
-from tabletalk.plan import case_footprints, compute_plan, render_plan
+from tabletalk.plan import case_footprints, compute_plan, render_plan, render_plan_markdown
 from tabletalk.project import Project
 from tabletalk.proposal_service import (
     approve_proposal,
@@ -82,6 +82,7 @@ EXIT_OPERATIONAL_FAILURE = 1
 EXIT_EVAL_FAILURE = 3
 EXIT_VALIDATION_FAILURE = 4
 EXIT_DRIFT = 5
+EXIT_REPLAY_MISS = 6
 
 
 def _fail(error: Exception, code: int = EXIT_OPERATIONAL_FAILURE) -> None:
@@ -1107,6 +1108,11 @@ def eval_create(
 )
 @click.option("--workers", type=click.IntRange(1, 32), default=1, show_default=True)
 @click.option("--baseline", help="Compare with an approved baseline name or JSON path.")
+@click.option(
+    "--markdown-out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Also write the Markdown report to this path (for CI comments).",
+)
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option(
     "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
@@ -1118,9 +1124,11 @@ def eval_run(
     cache_policy: str,
     workers: int,
     baseline: str | None,
+    markdown_out: Path | None,
     project_folder: str,
     output_format: str,
 ) -> None:
+    """Run eval trials and write JSON, Markdown, and JUnit reports."""
     project = _project(project_folder)
     paths = sorted(
         (*project.evals_directory.glob("*.yaml"), *project.evals_directory.glob("*.yml"))
@@ -1166,6 +1174,8 @@ def eval_run(
             return result
 
         results.extend(LocalExecutor(workers).map(run_trial, tasks))
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
     except Exception as exc:
         _fail(exc)
     if not results:
@@ -1173,6 +1183,8 @@ def eval_run(
     try:
         report = EvaluationReport.create(tuple(results), suites, approved_baseline)
         report_paths = report.write(project.root / ".tabletalk" / "reports")
+        if markdown_out is not None:
+            markdown_out.write_text(report.markdown_text(), encoding="utf-8")
     except Exception as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     if output_format == "json":
@@ -1485,7 +1497,10 @@ def lock(project_folder: str) -> None:
 @cli.command()
 @click.option("--project-folder", default=".", type=click.Path(file_okay=False))
 @click.option(
-    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+    "--format",
+    "output_format",
+    type=click.Choice(["terminal", "json", "markdown"]),
+    default="terminal",
 )
 @click.option(
     "--check", is_flag=True, help=f"Exit {EXIT_DRIFT} when any agent differs from the lock (CI)."
@@ -1506,6 +1521,9 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
     except (LockError, ValueError) as exc:
         _fail(exc, EXIT_VALIDATION_FAILURE)
     if locked is None:
+        if output_format == "markdown":
+            click.echo(render_plan_markdown(None), nl=False)
+            raise click.exceptions.Exit(EXIT_DRIFT if check else 0)
         console.print(
             f"No {LOCK_FILENAME} yet. Run [bold]tabletalk lock[/bold] to record what "
             "each agent is approved to see."
@@ -1514,6 +1532,8 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
     result = compute_plan(locked, current, case_footprints(suites, project.manifest, project.root))
     if output_format == "json":
         click.echo(result.model_dump_json(indent=2))
+    elif output_format == "markdown":
+        click.echo(render_plan_markdown(result), nl=False)
     else:
         console.print(render_plan(result), soft_wrap=True)
     if check and result.has_changes:

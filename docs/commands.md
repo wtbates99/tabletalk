@@ -33,4 +33,6 @@
 Exit code 3 means that one or more eval hard checks failed. Exit code 4 means
 that a resource or approval failed validation. Exit code 5 means that
 `tabletalk plan --check` found drift from `tabletalk.lock.yaml`, or that no lock
-exists. Exit code 1 means that an operational step failed.
+exists. Exit code 6 means that `eval run --cache-policy replay` found no
+recording for the current agent configuration; re-record with
+`--cache-policy write-only`. Exit code 1 means that an operational step failed.

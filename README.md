@@ -114,6 +114,17 @@ runtime, warehouse, and inference fingerprint. It reports pass rate, a Wilson
 confidence interval, latency, tokens, configured cost, flaky outcomes, and
 deterministic failure diagnoses.
 
+## Check every dbt pull request
+
+```yaml
+- uses: wtbates99/tabletalk@main
+  with:
+    evals: replay
+```
+
+The action posts one comment with the agent plan and a model-free eval replay.
+See [pull-request checks](docs/ci.md).
+
 ## Security and retention
 
 - Use a warehouse identity with physical read-only permissions.
