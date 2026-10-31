@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from tabletalk.interfaces import DatabaseProvider
@@ -13,12 +14,21 @@ class SnowflakeProvider(DatabaseProvider):
         self,
         account: str,
         user: str,
-        password: str,
+        password: str | None,
         database: str,
         warehouse: str,
         schema: str = "PUBLIC",
         role: str | None = None,
+        authenticator: str | None = None,
+        private_key_path: str | None = None,
+        private_key_passphrase: str | None = None,
     ) -> None:
+        """Connect with a password, any connector ``authenticator``, or a key pair.
+
+        Field names follow dbt-snowflake profiles. ``authenticator: externalbrowser``
+        opens a browser for SSO, which suits a person, not CI. Key-pair
+        authentication (``private_key_path``) suits CI and long-running servers.
+        """
         try:
             import snowflake.connector
         except ImportError as exc:
@@ -28,13 +38,21 @@ class SnowflakeProvider(DatabaseProvider):
         arguments: dict[str, Any] = {
             "account": account,
             "user": user,
-            "password": password,
             "database": database,
             "warehouse": warehouse,
             "schema": schema,
         }
         if role:
             arguments["role"] = role
+        if password:
+            arguments["password"] = password
+        if private_key_path:
+            arguments["authenticator"] = authenticator or "SNOWFLAKE_JWT"
+            arguments["private_key_file"] = str(Path(private_key_path).expanduser())
+            if private_key_passphrase:
+                arguments["private_key_file_pwd"] = private_key_passphrase
+        elif authenticator:
+            arguments["authenticator"] = authenticator
         self.connection = snowflake.connector.connect(**arguments)
 
     def execute_query(

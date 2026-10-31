@@ -137,7 +137,18 @@ def _provider_config(adapter: str, raw: dict[str, Any], project_dir: Path) -> di
     if missing:
         raise ConnectionError("dbt snowflake target is missing: " + ", ".join(missing))
     config = {"type": "snowflake"}
-    for field in ("account", "user", "password", "database", "warehouse", "role", "schema"):
+    for field in (
+        "account",
+        "user",
+        "password",
+        "authenticator",
+        "private_key_path",
+        "private_key_passphrase",
+        "database",
+        "warehouse",
+        "role",
+        "schema",
+    ):
         if raw.get(field) is not None:
             config[field] = profile_value(raw[field])
     return config
