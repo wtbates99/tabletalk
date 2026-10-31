@@ -1,6 +1,6 @@
 # Contributing
 
-TableTalk requires Python 3.10+ and uses `uv`:
+TableTalk requires Python 3.11+ and uses `uv`:
 
 ```console
 uv sync --locked --all-groups

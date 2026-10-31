@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -113,7 +113,7 @@ class Trace:
     semantic_digest: str | None = None
     prompt_version: str | None = None
     runtime_version: str | None = None
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @property
     def passed(self) -> bool:
