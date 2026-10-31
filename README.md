@@ -1,6 +1,6 @@
 # TableTalk
 
-**Mount a dbt project. Review proposed agents and evaluations. Prove that your data agents are safe, grounded, and correct.**
+**Mount a dbt project. Review proposed agents and evaluations. Record evidence of whether your data agents stay in scope and give correct answers.**
 
 [![Tests](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml/badge.svg)](https://github.com/wtbates99/tabletalk/actions/workflows/db_provider_tests.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -9,13 +9,42 @@
 
 TableTalk is the dbt-native development, evaluation, and observability layer for
 trusted data agents. It uses the analytical knowledge that a company already
-maintains in dbt. It creates reproducible agents and defensible evaluation
+maintains in dbt. It creates reproducible agents and replayable evaluation
 evidence. It does not require a second large semantic configuration system.
 
 TableTalk is not a general agent framework. It is not a BI dashboard. It does
 not replace dbt.
 
-## What TableTalk proves
+## Status
+
+**Alpha, in maintenance mode.** There is no active feature development. Bug
+fixes and security fixes are still reviewed, slowly (see
+[contributing](docs/contributing.md)).
+
+What works, verified offline on DuckDB with the example project in this repo
+(`uv run pytest -q`, `make demo`, `make replay`, and CI on Python 3.11 to 3.13):
+
+- The SQL guard: scope, columns, sensitive columns, the row limit, and a
+  result-column backstop, tested with 87 adversarial cases.
+- `tabletalk lock` and `tabletalk plan`, including `--check` failing on drift.
+- Strict eval replay and `tabletalk receipt replay` with no model call.
+- The GitHub Action, which runs on this repository's own pull requests.
+- `tabletalk mcp`, tested with an in-process MCP client.
+- `tabletalk score` and `tabletalk fix`.
+
+Not verified:
+
+- A real Snowflake account. Snowflake auth, the scan budget, timeouts, and query
+  tags are tested only against a fake connector. `scripts/snowflake_check.py`
+  exists to check a real account, but it has not been run against one.
+- The Claude Desktop MCP configuration in [docs/mcp.md](docs/mcp.md).
+- The shields.io badge that `tabletalk score --badge` writes.
+- Source freshness in receipts from a real `dbt source freshness` run. It is
+  tested only with a hand-written `sources.json`, and the example project has
+  none.
+- Live models other than the recorded `gemma4:31b-cloud` runs.
+
+## What TableTalk records
 
 - `manifest.json` defines the queryable resources.
 - Agent files contain dbt selectors and small TableTalk policies.
@@ -175,14 +204,41 @@ See [pull-request checks](docs/ci.md).
 
 ## Security and retention
 
-- Use a warehouse identity with physical read-only permissions.
-- Treat connector permissions as the final security boundary.
-- TableTalk rejects writes, unsafe reads, unknown resources, unknown columns,
-  unsafe joins, excessive limits, and unapproved sensitive data.
-- On Snowflake, `max_scan_bytes` blocks a query whose estimated scan is over
-  budget. Every query is tagged and has a server-side timeout. See
+The warehouse identity's permissions are the security boundary. TableTalk adds
+checks in front of it; it does not replace it. Use a role that can only read
+the models in the agents' scope. See the [security model](docs/security-model.md).
+
+What TableTalk enforces:
+
+- **SQL AST guard.** One read-only query statement. Writes, commands, a fixed
+  denylist of functions, and table functions in `FROM` are rejected.
+- **Scope.** Every table must resolve to a dbt resource in the agent's selector
+  scope, checked per CTE and subquery. Every column must exist on that resource.
+  Joins need a condition.
+- **Sensitive columns.** Columns flagged sensitive are rejected anywhere in the
+  query, including through `*`, unless the agent allows them. The returned
+  column names are checked again before rows reach the model, a trace, or MCP.
+- **Row limits.** `LIMIT max_rows` is added, or an integer `LIMIT` above it is
+  lowered.
+- **Scan budget.** On Snowflake, `max_scan_bytes` blocks a query whose
+  estimated scan is over budget. Every query is tagged and has a server-side timeout. See
   [Snowflake controls](docs/configuration.md#snowflake-cost-and-audit-controls).
 - TableTalk never treats lineage as proof that a join is correct.
+
+Known limitations, none fixed yet:
+
+- The guard uses a function denylist, not an allowlist. Unlisted scalar
+  functions are allowed.
+- There is no connection-level hardening. DuckDB external access is not
+  disabled, and no read-only Snowflake role is created or checked.
+- On DuckDB and SQLite the timeout stops waiting but may not cancel the running
+  query. Not verified.
+- Sensitivity is also guessed from English keywords in
+  `semantic_guard.is_sensitive`. Flag sensitive columns in dbt instead.
+- A computed `LIMIT` such as `limit 10 + 999990` is not capped.
+
+Retention:
+
 - TableTalk does not store credentials in traces, reports, or fingerprints.
 - Inference artifacts hash prompts by default. Set `persist_prompts: true` only
   when exact raw-prompt retention is acceptable.
