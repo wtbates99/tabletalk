@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from tabletalk.cli import EXIT_DRIFT, cli
 from tabletalk.evals import load_eval_suite
 from tabletalk.plan import Plan, case_footprints, compute_plan
 from tabletalk.project import Project
+from tabletalk.proposals import ProposalRecord
 from tabletalk.state import LOCK_FILENAME, LockFile, dump_lock, load_lock, snapshot
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "dbt-analytics"
@@ -171,3 +176,51 @@ def test_cli_plan_check_exits_on_drift_only(project_dir: Path) -> None:
     as_json = runner.invoke(cli, ["plan", "--format", "json", *folder])
     payload = json.loads(as_json.output)
     assert payload["changes"][0]["kind"] == "column_removed"
+
+
+def test_approve_locks_only_the_approved_agent(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = CliRunner()
+    folder = ["--project-folder", str(project_dir)]
+    assert runner.invoke(cli, ["lock", *folder]).exit_code == 0
+    _mutate(project_dir, _drop_column)  # Drift in the already-locked revenue agent.
+
+    proposed = runner.invoke(cli, ["propose", *folder])
+    assert proposed.exit_code == 0, proposed.output
+    record = ProposalRecord.load(
+        next((project_dir / ".tabletalk" / "proposals").glob("prp_*.json"))
+    )
+    [agent_file] = [item for item in record.files if item.path.startswith("agents/")]
+    approved_name = yaml.safe_load(agent_file.content)["name"]
+    monkeypatch.setattr("tabletalk.cli._run_approved_evals", lambda project, paths: True)
+
+    approved = runner.invoke(
+        cli, ["approve", record.id, "--yes", "--digest", record.digest, "--actor", "t", *folder]
+    )
+
+    assert approved.exit_code == 0, approved.output
+    assert f"Locked {approved_name}" in approved.output
+    lock = load_lock(project_dir / LOCK_FILENAME)
+    assert lock is not None and set(lock.agents) == {"revenue", approved_name}
+    plan = _plan(project_dir, lock)
+    assert {change.agent for change in plan.changes} == {"revenue"}  # Not silently accepted.
+
+
+@pytest.mark.skipif(shutil.which("dbt") is None, reason="dbt-duckdb is not installed")
+def test_offline_drift_demo_blocks_the_pr() -> None:
+    bin_dir = str(Path(sys.executable).parent)
+    env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+    result = subprocess.run(
+        ["bash", str(EXAMPLE / "demo" / "drift.sh")],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=300,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "fct_orders.recognized_revenue" in result.stdout
+    assert "column removed" in result.stdout
+    assert "model.analytics.dim_customers" in result.stdout
+    assert "revenue-capability › july-recognized-revenue" in result.stdout

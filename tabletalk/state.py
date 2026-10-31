@@ -132,3 +132,16 @@ def load_lock(path: Path) -> LockFile | None:
         return LockFile.model_validate(payload)
     except (yaml.YAMLError, ValidationError) as exc:
         raise LockError(f"{path} is not a valid {LOCK_SCHEMA} file: {exc}") from exc
+
+
+def refresh_agents(
+    lock: LockFile | None, agents: tuple[Agent, ...], manifest: Manifest
+) -> LockFile:
+    """Return ``lock`` with only the given agents re-snapshotted.
+
+    Approval accepts the reviewed agents' current scope. Every other agent keeps its
+    locked entry, so approving one agent never silently accepts drift in another.
+    """
+    fresh = snapshot(agents, manifest).agents
+    merged = {**(lock.agents if lock else {}), **fresh}
+    return LockFile(agents=dict(sorted(merged.items())))

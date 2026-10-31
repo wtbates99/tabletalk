@@ -8,6 +8,21 @@ The default model is `gemma4:31b-cloud` through an Ollama-compatible endpoint.
 TableTalk fails if that endpoint is unavailable. It does not create a fabricated
 answer.
 
+## See drift caught in 10 seconds
+
+From the repository root:
+
+```console
+make demo
+```
+
+The script copies this project to a scratch directory and builds it on DuckDB.
+It locks the `revenue` agent's scope, then applies `demo/pr.patch`. The patch is
+a routine-looking dbt PR: it renames `recognized_revenue` and adds a customer
+model to `group:finance`. Every dbt test still passes. `tabletalk plan --check`
+shows the removed column, the expanded scope with sensitive columns, and the eval
+case at risk, then exits 5. It needs no model and no network.
+
 ## Build the dbt project
 
 Run these commands from this directory:

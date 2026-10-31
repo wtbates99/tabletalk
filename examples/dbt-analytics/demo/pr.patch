@@ -1,0 +1,46 @@
+# A teammate's dbt PR: rename a revenue column and add a customer model to group:finance.
+diff -ruN a/models/marts/dim_customers.sql b/models/marts/dim_customers.sql
+--- a/models/marts/dim_customers.sql
++++ b/models/marts/dim_customers.sql
+@@ -0,0 +1,4 @@
++select distinct
++  customer_id,
++  lower(customer_id) || '@example.com' as email
++from {{ ref('stg_orders') }}
+diff -ruN a/models/marts/fct_orders.sql b/models/marts/fct_orders.sql
+--- a/models/marts/fct_orders.sql
++++ b/models/marts/fct_orders.sql
+@@ -8,7 +8,7 @@
+   delivered_date,
+   order_status,
+   booked_revenue,
+-  recognized_revenue,
++  recognized_revenue as revenue_recognized,
+   ordered_quantity,
+   available_inventory,
+   work_in_progress,
+diff -ruN a/models/schema.yml b/models/schema.yml
+--- a/models/schema.yml
++++ b/models/schema.yml
+@@ -63,7 +63,7 @@
+       - name: booked_revenue
+         description: Contracted order value in USD before recognition.
+         data_type: decimal(18,2)
+-      - name: recognized_revenue
++      - name: revenue_recognized
+         description: Revenue recognized in USD.
+         data_type: decimal(18,2)
+       - name: ordered_quantity
+@@ -77,3 +77,12 @@
+         data_type: integer
+       - name: late_order
+         data_type: boolean
++  - name: dim_customers
++    description: One row per customer with contact details for CRM sync.
++    config:
++      group: finance
++    columns:
++      - name: customer_id
++        description: Customer identifier.
++      - name: email
++        description: Customer email address.

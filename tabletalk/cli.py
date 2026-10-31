@@ -66,7 +66,14 @@ from tabletalk.schemas import (
 )
 from tabletalk.semantic_analysis import analyze_semantics
 from tabletalk.semantic_inference import infer_semantic_answers
-from tabletalk.state import LOCK_FILENAME, LockError, load_lock, snapshot, write_lock
+from tabletalk.state import (
+    LOCK_FILENAME,
+    LockError,
+    load_lock,
+    refresh_agents,
+    snapshot,
+    write_lock,
+)
 from tabletalk.traces import Interpretation as TraceInterpretation
 from tabletalk.traces import Trace
 
@@ -702,6 +709,25 @@ def proposal_reject(
     console.print(f"Rejected {record.id}: {path}")
 
 
+def _lock_approved_agents(project: Project, written: tuple[Path, ...]) -> None:
+    """Record the approved agents' current scope in the lock file."""
+    agents_dir = project.agents_directory.resolve()
+    approved = tuple(
+        Agent.load(path)
+        for path in written
+        if path.suffix in {".yaml", ".yml"} and path.resolve().parent == agents_dir
+    )
+    if not approved:
+        return
+    path = project.root / LOCK_FILENAME
+    try:
+        write_lock(path, refresh_agents(load_lock(path), approved, project.manifest))
+    except (LockError, ValueError) as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    names = ", ".join(agent.name for agent in approved)
+    console.print(f"Locked {names} in {LOCK_FILENAME}")
+
+
 @cli.command()
 @click.argument("proposal_id", required=False)
 @click.option("--file", "selected_paths", multiple=True)
@@ -747,6 +773,7 @@ def approve(
     for path in result.written_files:
         console.print(f"Wrote {path.relative_to(project.root)}")
     console.print(f"Provenance: {result.provenance_path.relative_to(project.root)}")
+    _lock_approved_agents(project, result.written_files)
     if not _run_approved_evals(project, result.written_files):
         raise click.exceptions.Exit(EXIT_EVAL_FAILURE)
 
