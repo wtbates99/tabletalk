@@ -160,9 +160,16 @@ class ReadOnlyConnection:
     def identity(self) -> str:
         return self.target.identity
 
-    def execute(self, sql: str, timeout_seconds: int) -> tuple[dict[str, Any], ...]:
+    def execute(
+        self, sql: str, timeout_seconds: int, *, query_tag: str | None = None
+    ) -> tuple[dict[str, Any], ...]:
         executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self.provider.execute_query, sql)
+        future = executor.submit(
+            self.provider.execute_query,
+            sql,
+            timeout_seconds=timeout_seconds,
+            query_tag=query_tag,
+        )
         try:
             rows = future.result(timeout=timeout_seconds)
         except TimeoutError as exc:
@@ -171,6 +178,10 @@ class ReadOnlyConnection:
             raise ConnectionError(f"Query exceeded the {timeout_seconds}s timeout") from exc
         executor.shutdown(wait=True)
         return tuple(dict(row) for row in rows)
+
+    def estimate_scan_bytes(self, sql: str) -> int | None:
+        """Return the warehouse's scan estimate for ``sql``, or None if it has none."""
+        return self.provider.estimate_scan_bytes(sql)
 
     def ping(self) -> None:
         self.execute("select 1 as tabletalk_health", 10)

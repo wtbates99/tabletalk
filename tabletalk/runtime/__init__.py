@@ -22,6 +22,7 @@ from tabletalk.inference import (
 )
 from tabletalk.interfaces import LLMProvider
 from tabletalk.manifest import Manifest
+from tabletalk.scan_budget import check_scan_budget, query_tag
 from tabletalk.schemas import RUNTIME_SCHEMA, content_digest
 from tabletalk.semantic_guard import SemanticGuard, SemanticSupportError
 from tabletalk.semantics import SemanticStatement
@@ -313,8 +314,19 @@ class Runtime:
                 )
         if before_execute:
             before_execute(interpretation, validated.generated, validated.executed)
+        budget_checks: tuple[Verification, ...] = ()
+        if self.agent.source.max_scan_bytes is not None:
+            budget_checks = (
+                check_scan_budget(
+                    self.connection, validated.executed, self.agent.source.max_scan_bytes
+                ),
+            )
         try:
-            rows = self.connection.execute(validated.executed, self.agent.source.timeout_seconds)
+            rows = self.connection.execute(
+                validated.executed,
+                self.agent.source.timeout_seconds,
+                query_tag=query_tag(self.agent.source.name, fingerprint.digest),
+            )
             execution = Verification("execution_succeeded", True)
         except Exception as exc:
             raise RuntimeError(f"Read-only query execution failed: {exc}") from exc
@@ -385,7 +397,11 @@ class Runtime:
             sql=SQLTrace(str(query["sql"]), validated.executed, self.connection.dialect),
             result=ResultTrace(rows, len(rows)),
             answer=Answer(str(answer_payload["text"]), claims),
-            verification=validated.checks + (execution,) + claim_checks + disclosure_checks,
+            verification=validated.checks
+            + budget_checks
+            + (execution,)
+            + claim_checks
+            + disclosure_checks,
             agent=self.agent.source.name,
             agent_digest=self.agent.source.digest,
             model_identity=self.model_identity,

@@ -47,8 +47,18 @@ def validate_structured_value(value: Any, schema: dict[str, Any], path: str = "$
 
 class DatabaseProvider(ABC):
     @abstractmethod
-    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
-        """Execute a query and return row mappings."""
+    def execute_query(
+        self, sql_query: str, *, timeout_seconds: int | None = None, query_tag: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a query and return row mappings.
+
+        Adapters that can enforce a server-side timeout or label the query in warehouse
+        history do so; others ignore the keywords.
+        """
+
+    def estimate_scan_bytes(self, sql_query: str) -> int | None:
+        """Return the warehouse's estimate of bytes scanned, or None if it has none."""
+        return None
 
     @abstractmethod
     def get_client(self) -> Any:

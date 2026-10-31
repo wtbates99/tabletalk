@@ -148,6 +148,9 @@ See [pull-request checks](docs/ci.md).
 - Treat connector permissions as the final security boundary.
 - TableTalk rejects writes, unsafe reads, unknown resources, unknown columns,
   unsafe joins, excessive limits, and unapproved sensitive data.
+- On Snowflake, `max_scan_bytes` blocks a query whose estimated scan is over
+  budget. Every query is tagged and has a server-side timeout. See
+  [Snowflake controls](docs/configuration.md#snowflake-cost-and-audit-controls).
 - TableTalk never treats lineage as proof that a join is correct.
 - TableTalk does not store credentials in traces, reports, or fingerprints.
 - Inference artifacts hash prompts by default. Set `persist_prompts: true` only

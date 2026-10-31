@@ -17,7 +17,11 @@ class DuckDBProvider(DatabaseProvider):
         self.read_only = read_only
         self.connection = duckdb.connect(database_path, read_only=read_only)
 
-    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
+    def execute_query(
+        self, sql_query: str, *, timeout_seconds: int | None = None, query_tag: str | None = None
+    ) -> list[dict[str, Any]]:
+        # Local files have no warehouse history or server-side timeout to set;
+        # ReadOnlyConnection still enforces timeout_seconds on the client.
         result = self.connection.execute(sql_query)
         columns = [column[0] for column in result.description] if result.description else []
         return [dict(zip(columns, row)) for row in result.fetchall()]

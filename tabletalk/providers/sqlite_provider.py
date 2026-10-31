@@ -22,7 +22,11 @@ class SQLiteProvider(DatabaseProvider):
             self.connection = sqlite3.connect(database_path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
 
-    def execute_query(self, sql_query: str) -> list[dict[str, Any]]:
+    def execute_query(
+        self, sql_query: str, *, timeout_seconds: int | None = None, query_tag: str | None = None
+    ) -> list[dict[str, Any]]:
+        # Local files have no warehouse history or server-side timeout to set;
+        # ReadOnlyConnection still enforces timeout_seconds on the client.
         cursor = self.connection.execute(sql_query)
         return [dict(row) for row in cursor.fetchall()]
 

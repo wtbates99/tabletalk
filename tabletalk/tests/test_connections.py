@@ -52,6 +52,8 @@ def test_snowflake_connector_contract_uses_mapping_rows(monkeypatch: pytest.Monk
         description = [("REVENUE",)]
 
         def execute(self, sql: str, params=None):
+            if sql.startswith("ALTER SESSION SET QUERY_TAG"):
+                return self  # Covered in test_scan_budget.py.
             assert sql == "select 184.25 as revenue"
             return self
 
