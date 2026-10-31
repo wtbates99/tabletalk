@@ -14,6 +14,7 @@ from tabletalk.factories import get_llm_provider
 from tabletalk.inference import CachePolicy, InferenceStore
 from tabletalk.interfaces import LLMProvider
 from tabletalk.manifest import Manifest
+from tabletalk.receipts import RECEIPTS_DIRECTORY, Receipt, build_receipt, write_receipt
 from tabletalk.runtime import Runtime
 from tabletalk.schemas import PROJECT_SCHEMA, content_digest, require_schema_version
 from tabletalk.semantics import SemanticKnowledge, SemanticStatement
@@ -46,6 +47,7 @@ class Project:
             manifest_path,
             catalog_path=optional_artifact("catalog"),
             run_results_path=optional_artifact("run_results"),
+            sources_path=optional_artifact("sources"),
         )
 
     @classmethod
@@ -148,9 +150,7 @@ class Project:
         model = str(llm_config.get("model") or "unknown")
         provider = str(llm_config.get("provider") or "unknown")
         agent = self.agent(agent_name)
-        inference_config = self.config.get("inference") or {}
-        if not isinstance(inference_config, dict):
-            raise ValueError("tabletalk.yaml inference must be a mapping")
+        inference_config = self._inference_config()
         selected_policy = cache_policy or CachePolicy(
             str(inference_config.get("cache_policy") or CachePolicy.DISABLED.value)
         )
@@ -169,6 +169,25 @@ class Project:
             semantic_statements=semantic_statements,
         )
 
+    def _inference_config(self) -> dict[str, Any]:
+        inference_config = self.config.get("inference") or {}
+        if not isinstance(inference_config, dict):
+            raise ValueError("tabletalk.yaml inference must be a mapping")
+        return inference_config
+
+    def receipt(self, trace: Trace) -> Receipt:
+        """Build the answer receipt for a trace and store it under .tabletalk/receipts."""
+        store = InferenceStore(self._inference_directory(self._inference_config()))
+        fingerprint = trace.inference_fingerprint
+        receipt = build_receipt(
+            trace,
+            self.manifest,
+            recorded=bool(fingerprint) and store.contains(str(fingerprint)),
+            inherited_descriptions=self.resolve_agent(trace.agent).inherited_column_descriptions,
+        )
+        write_receipt(self.root / RECEIPTS_DIRECTORY, receipt)
+        return receipt
+
     def _inference_directory(self, inference_config: dict[str, Any]) -> Path:
         """Return the inference store directory; ``inference.store`` may commit it to git."""
         configured = inference_config.get("store")
@@ -185,8 +204,10 @@ class Project:
             raise ValueError("tabletalk.yaml requires an llm mapping")
         return get_llm_provider(llm_config)
 
-    def answer(self, agent_name: str, question: str) -> Trace:
-        runtime = self.runtime(agent_name)
+    def answer(
+        self, agent_name: str, question: str, *, cache_policy: CachePolicy | None = None
+    ) -> Trace:
+        runtime = self.runtime(agent_name, cache_policy=cache_policy)
         trace = runtime.answer(question)
         checks: list[Verification] = []
         matched_digest: str | None = None

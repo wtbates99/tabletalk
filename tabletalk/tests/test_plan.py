@@ -284,6 +284,8 @@ def test_committed_replay_fixtures_replay_in_a_fresh_checkout() -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS 12/12 eval trials passed" in result.stdout
+    assert "VERIFIED" in result.stdout
+    assert "Reproduced run_" in result.stdout
 
 
 def test_committed_example_lock_matches_committed_manifest() -> None:

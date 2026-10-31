@@ -1,0 +1,200 @@
+{
+  "schema_version": "tabletalk.receipt/v1",
+  "run_id": "run_5c0b6a582ba84c14",
+  "created_at": "2026-10-31T19:59:32.100906+00:00",
+  "question": "What was recognized revenue in July 2026?",
+  "answer": "The recognized revenue in July 2026 was 184.25.",
+  "trust": "verified",
+  "trust_reasons": [
+    "Approved eval revenue-capability/july-recognized-revenue matched this question and passed."
+  ],
+  "claims": [
+    {
+      "text": "The recognized revenue in July 2026 was 184.25.",
+      "evidence": [
+        {
+          "row": 0,
+          "column": "recognized_revenue"
+        }
+      ]
+    }
+  ],
+  "interpretation": {
+    "intent": "Calculate the total recognized revenue for the month of July 2026.",
+    "metrics": [
+      "recognized_revenue"
+    ],
+    "dimensions": [],
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "assumptions": []
+  },
+  "query": {
+    "dialect": "duckdb",
+    "generated": "SELECT sum(recognized_revenue) AS recognized_revenue\nFROM \"analytics\".\"main\".\"fct_orders\"\nWHERE order_date >= '2026-07-01'\n  AND order_date <= '2026-07-31'\n  AND order_status != 'cancelled'",
+    "executed": "SELECT SUM(recognized_revenue) AS recognized_revenue FROM \"analytics\".\"main\".\"fct_orders\" WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31' AND order_status <> 'cancelled' LIMIT 1000"
+  },
+  "result": {
+    "row_count": 1,
+    "rows": [
+      {
+        "recognized_revenue": "184.25"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "unique_id": "model.analytics.fct_orders",
+      "relation": "\"analytics\".\"main\".\"fct_orders\"",
+      "description": "One row per order with commercial and fulfillment measures.",
+      "columns": [
+        {
+          "name": "order_date",
+          "description": "Date on which revenue was recognized.",
+          "data_type": "DATE",
+          "sensitive": false
+        },
+        {
+          "name": "order_status",
+          "description": "Current order state.",
+          "data_type": "VARCHAR",
+          "sensitive": false
+        },
+        {
+          "name": "recognized_revenue",
+          "description": "Revenue recognized in USD.",
+          "data_type": "DECIMAL(18,2)",
+          "sensitive": false
+        }
+      ],
+      "tests": [
+        {
+          "unique_id": "test.analytics.not_null_fct_orders_order_id.4e687af8d0",
+          "name": "not_null",
+          "column": "order_id",
+          "status": null
+        },
+        {
+          "unique_id": "test.analytics.unique_fct_orders_order_id.523ddb6ce5",
+          "name": "unique",
+          "column": "order_id",
+          "status": null
+        },
+        {
+          "unique_id": "test.analytics.accepted_values_fct_orders_order_status__fulfilled__cancelled__in_progress.d806b48b8b",
+          "name": "accepted_values",
+          "column": "order_status",
+          "status": null
+        }
+      ],
+      "upstream": [
+        "model.analytics.stg_orders",
+        "source.analytics.raw.orders"
+      ],
+      "freshness": [],
+      "exposures": [
+        {
+          "unique_id": "exposure.analytics.weekly_revenue",
+          "name": "Weekly Revenue",
+          "type": "dashboard",
+          "owner": "Finance Analytics",
+          "maturity": "high",
+          "url": "https://app.powerbi.com/groups/finance/reports/weekly-revenue"
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "read_only",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "forbidden_functions",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "resources_in_scope",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "relations_unambiguous",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "join_conditions",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "columns_exist",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "sensitive_access",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "row_limit",
+      "passed": true,
+      "detail": "maximum 1000 rows"
+    },
+    {
+      "name": "execution_succeeded",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "evidence_present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "claims_supported",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "explanation_matches_sql",
+      "passed": true,
+      "detail": "Answer was constructed after execution from SQL and evidence"
+    },
+    {
+      "name": "date_boundaries_disclosed",
+      "passed": true,
+      "detail": "Boundaries are recorded in the interpretation"
+    },
+    {
+      "name": "assumptions_disclosed",
+      "passed": true,
+      "detail": "Assumptions are recorded in the interpretation"
+    },
+    {
+      "name": "correctness_eval:revenue-capability/july-recognized-revenue",
+      "passed": true,
+      "detail": "Approved eval matched"
+    }
+  ],
+  "identity": {
+    "agent": "revenue",
+    "agent_digest": "sha256:8e8638bf288439cef82277812a86ac4ae98ca6a5a7e49e4cacc1418b04c8fae4",
+    "model": "ollama:gemma4:31b-cloud",
+    "warehouse": "duckdb;database_path=analytics.duckdb",
+    "manifest_digest": "sha256:e03b9935dbfa62e7d2204fbb382fa35ad9a985a6c80bbfefd3ad1215498e24d6",
+    "catalog_digest": "sha256:95cfd93615b1c3bace29e14b809c22eb6c85f02391a1a097449c1f33030d73f6",
+    "semantic_digest": "sha256:b9b349b130f06342dda92251c9159460937b1df552afe78e24e0efaa0cd4d473",
+    "prompt_version": "tabletalk.prompt/v2",
+    "runtime_version": "tabletalk.runtime/v1"
+  },
+  "replay": {
+    "inference_fingerprint": "sha256:0257d7f5bea71cabd1267042efe557b2b355496c66f146b9740683a7bb44fdae",
+    "recorded": true,
+    "command": "tabletalk receipt replay run_5c0b6a582ba84c14"
+  }
+}

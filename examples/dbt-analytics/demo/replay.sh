@@ -26,3 +26,12 @@ echo "ok"
 
 step "tabletalk eval run revenue --cache-policy replay"
 tabletalk eval run revenue --cache-policy replay
+
+step "tabletalk ask revenue … --cache-policy replay (prints the answer receipt)"
+question="What was recognized revenue in July 2026?"
+tabletalk ask revenue "$question" --cache-policy replay
+run_id="$(tabletalk ask revenue "$question" --cache-policy replay --format json |
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["run_id"])')"
+
+step "tabletalk receipt replay $run_id"
+tabletalk receipt replay "$run_id"

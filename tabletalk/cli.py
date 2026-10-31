@@ -56,6 +56,13 @@ from tabletalk.proposal_service import (
     revise_proposal,
 )
 from tabletalk.proposals import ProposalRecord
+from tabletalk.receipts import (
+    RECEIPTS_DIRECTORY,
+    ReceiptError,
+    load_receipt,
+    receipt_json_schema,
+    render_receipt,
+)
 from tabletalk.reports import EvaluationReport
 from tabletalk.schemas import (
     EVAL_SCHEMA,
@@ -1352,20 +1359,33 @@ def baseline_show(name: str, project_folder: str, output_format: str) -> None:
 @click.option(
     "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
 )
+@click.option(
+    "--cache-policy",
+    type=click.Choice([item.value for item in CachePolicy]),
+    help="Override inference.cache_policy; 'replay' answers from recorded inference only.",
+)
 def ask(
-    agent_name: str, question: tuple[str, ...], project_folder: str, output_format: str
+    agent_name: str,
+    question: tuple[str, ...],
+    project_folder: str,
+    output_format: str,
+    cache_policy: str | None,
 ) -> None:
-    """Ask through the same inspected runtime used by eval cases."""
+    """Ask an agent and print the answer receipt (tabletalk.receipt/v1)."""
     project = _project(project_folder)
     question_text = " ".join(question)
+    policy = CachePolicy(cache_policy) if cache_policy else None
     try:
-        trace = project.answer(agent_name, question_text)
+        trace = project.answer(agent_name, question_text, cache_policy=policy)
+        receipt = project.receipt(trace)
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
     except Exception as exc:
         _fail(exc)
     if output_format == "json":
-        click.echo(json.dumps(trace.to_dict(), indent=2, sort_keys=True))
+        click.echo(receipt.model_dump_json(indent=2))
     else:
-        _print_trace(trace)
+        console.print(render_receipt(receipt))
     if not trace.passed:
         raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
 
@@ -1538,6 +1558,66 @@ def plan(project_folder: str, output_format: str, check: bool) -> None:
         console.print(render_plan(result), soft_wrap=True)
     if check and result.has_changes:
         raise click.exceptions.Exit(EXIT_DRIFT)
+
+
+@cli.group()
+def receipt() -> None:
+    """Inspect, export, and replay answer receipts."""
+
+
+@receipt.command("show")
+@click.argument("run_id")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+@click.option(
+    "--format", "output_format", type=click.Choice(["terminal", "json"]), default="terminal"
+)
+def receipt_show(run_id: str, project_folder: str, output_format: str) -> None:
+    """Show a stored receipt by run ID or unique prefix."""
+    try:
+        found = load_receipt(Path(project_folder) / RECEIPTS_DIRECTORY, run_id)
+    except ReceiptError as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    if output_format == "json":
+        click.echo(found.model_dump_json(indent=2))
+    else:
+        console.print(render_receipt(found))
+
+
+@receipt.command("schema")
+def receipt_schema() -> None:
+    """Print the JSON Schema of tabletalk.receipt/v1."""
+    click.echo(json.dumps(receipt_json_schema(), indent=2))
+
+
+@receipt.command("replay")
+@click.argument("run_id")
+@click.option("--project-folder", default=".", type=click.Path(file_okay=False))
+def receipt_replay(run_id: str, project_folder: str) -> None:
+    """Re-answer from the recorded inference, with no model call, and compare."""
+    project = _project(project_folder)
+    try:
+        found = load_receipt(project.root / RECEIPTS_DIRECTORY, run_id)
+        runtime = project.runtime(found.identity.agent, cache_policy=CachePolicy.REPLAY)
+        replayed = runtime.answer(found.question)
+    except ReplayMissError as exc:
+        _fail(exc, EXIT_REPLAY_MISS)
+    except Exception as exc:
+        _fail(exc, EXIT_VALIDATION_FAILURE)
+    differences = []
+    if replayed.sql.executed != found.query.executed:
+        differences.append("executed SQL differs")
+    rows = replayed.to_dict()["result"]["rows"]
+    if rows != found.result.rows:
+        differences.append(
+            f"result rows differ ({len(rows)} now, {found.result.row_count} recorded)"
+        )
+    if differences:
+        console.print(f"[red]Not reproduced[/red] {found.run_id}: " + "; ".join(differences))
+        raise click.exceptions.Exit(EXIT_VALIDATION_FAILURE)
+    console.print(
+        f"[green]Reproduced[/green] {found.run_id} with no model call: same SQL and "
+        f"{found.result.row_count} identical row{'' if found.result.row_count == 1 else 's'}."
+    )
 
 
 if __name__ == "__main__":

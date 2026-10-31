@@ -362,6 +362,11 @@ class InferenceStore:
         name = fingerprint.digest.removeprefix("sha256:")
         return self.root / "cache" / f"{name}.json"
 
+    def contains(self, fingerprint_digest: str) -> bool:
+        """Return whether an artifact is recorded for this fingerprint digest."""
+        name = fingerprint_digest.removeprefix("sha256:")
+        return (self.root / "cache" / f"{name}.json").is_file()
+
     def get(self, fingerprint: InferenceFingerprint) -> InferenceArtifact | None:
         index_path = self._index_path(fingerprint)
         if not index_path.is_file():

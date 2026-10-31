@@ -16,7 +16,10 @@
 | `tabletalk eval run [NAME]` | Run eval trials and write JSON, Markdown, and JUnit reports. |
 | `tabletalk baseline approve NAME --from REPORT` | Approve exact prior trial results as a baseline. |
 | `tabletalk baseline show NAME` | Show an approved baseline. |
-| `tabletalk ask NAME QUESTION` | Run the shared runtime and show answer provenance. |
+| `tabletalk ask NAME QUESTION` | Answer a question and print its receipt (`tabletalk.receipt/v1`). |
+| `tabletalk receipt show RUN_ID` | Show a stored receipt. A unique run ID prefix is enough. |
+| `tabletalk receipt replay RUN_ID` | Re-run a receipt from recorded inference and compare SQL and rows. |
+| `tabletalk receipt schema` | Print the receipt JSON Schema. |
 | `tabletalk lock` | Record each agent's resolved dbt scope in `tabletalk.lock.yaml`. |
 | `tabletalk plan` | Diff the current manifest against the lock and list eval cases at risk. |
 | `tabletalk doctor` | Validate artifacts, target access, selectors, and eval coverage. |
@@ -30,9 +33,12 @@
 
 `replay` fails on a cache miss. It never calls a model.
 
+`tabletalk ask` accepts `--cache-policy` and `--format json`. The JSON output is
+the receipt. Receipts are stored in `.tabletalk/receipts/`.
+
 Exit code 3 means that one or more eval hard checks failed. Exit code 4 means
 that a resource or approval failed validation. Exit code 5 means that
 `tabletalk plan --check` found drift from `tabletalk.lock.yaml`, or that no lock
-exists. Exit code 6 means that `eval run --cache-policy replay` found no
+exists. Exit code 6 means that a `--cache-policy replay` run found no
 recording for the current agent configuration; re-record with
 `--cache-policy write-only`. Exit code 1 means that an operational step failed.

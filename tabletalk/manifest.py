@@ -116,6 +116,16 @@ class DbtSemanticModel:
 
 
 @dataclass(frozen=True)
+class SourceFreshness:
+    """One `dbt source freshness` result from sources.json."""
+
+    unique_id: str
+    status: str
+    max_loaded_at: str | None = None
+    snapshotted_at: str | None = None
+
+
+@dataclass(frozen=True)
 class DbtExposure:
     unique_id: str
     name: str
@@ -201,6 +211,7 @@ class Manifest:
         payload: dict[str, Any],
         catalog: dict[str, Any] | None = None,
         run_results: dict[str, Any] | None = None,
+        sources: dict[str, Any] | None = None,
     ) -> None:
         self.path = path
         self.payload = payload
@@ -213,6 +224,20 @@ class Manifest:
         self.metrics = self._normalize_metrics()
         self.semantic_models = self._normalize_semantic_models()
         self.exposures = self._normalize_exposures()
+        # Freshness stays outside the nodes: the model never sees it, so it must not
+        # change inference fingerprints. Receipts report it.
+        self.freshness = {
+            str(item["unique_id"]): SourceFreshness(
+                unique_id=str(item["unique_id"]),
+                status=str(item.get("status") or "unknown"),
+                max_loaded_at=str(item["max_loaded_at"]) if item.get("max_loaded_at") else None,
+                snapshotted_at=(
+                    str(item["snapshotted_at"]) if item.get("snapshotted_at") else None
+                ),
+            )
+            for item in (sources or {}).get("results") or ()
+            if isinstance(item, dict) and item.get("unique_id")
+        }
         self._enrich_catalog(catalog or {})
         self._enrich_run_results(run_results or {})
         self._queryable = {uid: node for uid, node in self.nodes.items() if node.queryable}
@@ -301,6 +326,7 @@ class Manifest:
         *,
         catalog_path: str | Path | None = None,
         run_results_path: str | Path | None = None,
+        sources_path: str | Path | None = None,
     ) -> Manifest:
         artifact = Path(path).expanduser().resolve()
         if not artifact.is_file():
@@ -331,6 +357,7 @@ class Manifest:
             payload,
             optional_payload(catalog_path, "catalog.json"),
             optional_payload(run_results_path, "run_results.json"),
+            optional_payload(sources_path, "sources.json"),
         )
 
     def _enrich_catalog(self, catalog: dict[str, Any]) -> None:

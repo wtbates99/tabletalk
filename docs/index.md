@@ -13,6 +13,7 @@ evals
 ci
 architecture
 commands
+spec/receipt-v1
 research
 release
 contributing

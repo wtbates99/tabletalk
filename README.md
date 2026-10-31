@@ -114,6 +114,23 @@ runtime, warehouse, and inference fingerprint. It reports pass rate, a Wilson
 confidence interval, latency, tokens, configured cost, flaky outcomes, and
 deterministic failure diagnoses.
 
+## Answer receipts
+
+`tabletalk ask` prints a receipt for each answer and stores it as JSON. A receipt
+shows the trust level, the executed SQL, the evidence rows, and the dbt models
+and column descriptions the agent used. It also shows their tests, lineage,
+source freshness, and dependent dashboards, plus a replay command.
+
+```console
+tabletalk ask revenue "What was recognized revenue in July 2026?"
+tabletalk receipt replay run_5c0b6a582ba84c14
+```
+
+`verified` means that an approved eval matched the question and passed.
+`grounded` means that every hard check passed but no eval covers the question.
+`unverified` means that a check failed. The format is an open specification:
+[`tabletalk.receipt/v1`](docs/spec/receipt-v1.md).
+
 ## Check every dbt pull request
 
 ```yaml
