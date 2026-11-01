@@ -20,6 +20,7 @@ docs/_build/
 
 # Editors and OS
 .vscode/
+.claude/settings.local.json
 .idea/
 .DS_Store
 
